@@ -1,0 +1,1019 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🎰 MIEZE oder WIN?</title>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<style>
+  html, body { margin:0; padding:0; }
+  #root { min-height:100vh; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef } = React;
+
+const PAL = ["#ff2d6b","#00d4ff","#ffd700","#a855f7","#00ff88","#ff8c00","#00ffcc","#ff4da6"];
+const EMO = ["🦊","🐯","🐸","🦄","🐲","🦁","🐺","🦋"];
+const F1  = "'Orbitron', monospace";
+const F2  = "'Fredoka', sans-serif";
+
+const CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Fredoka:wght@600;700&display=swap');
+  *{box-sizing:border-box}
+  @keyframes bigPop{0%{transform:scale(0) rotate(-12deg);opacity:0}65%{transform:scale(1.22) rotate(4deg)}100%{transform:scale(1) rotate(0);opacity:1}}
+  @keyframes shake{0%,100%{transform:translate(0)}12%{transform:translate(-12px,6px)}25%{transform:translate(12px,-6px)}37%{transform:translate(-9px,9px)}50%{transform:translate(9px,-9px)}62%{transform:translate(-5px,5px)}75%{transform:translate(5px,-5px)}87%{transform:translate(-2px,2px)}}
+  @keyframes floatUp{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes pop2{from{transform:scale(0.5);opacity:0}to{transform:scale(1);opacity:1}}
+  @keyframes flashW{0%,100%{opacity:0}30%{opacity:1}}
+  @keyframes flashR{0%,100%{opacity:0}30%{opacity:1}}
+  @keyframes shine{from{background-position:-200% center}to{background-position:200% center}}
+  @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.7;transform:scale(0.96)}}
+  @keyframes urgentPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.5;transform:scale(1.06)}}
+  @keyframes timerShake{0%,100%{transform:translate(0)}20%{transform:translate(-4px,2px)}40%{transform:translate(4px,-2px)}60%{transform:translate(-3px,3px)}80%{transform:translate(3px,-3px)}}
+  .bigPop{animation:bigPop 0.5s cubic-bezier(0.175,0.885,0.32,1.275) both}
+  .shake {animation:shake 0.55s ease}
+  .float {animation:floatUp 3s ease-in-out infinite}
+  .fadeIn{animation:fadeIn 0.38s ease forwards}
+  .pop2  {animation:pop2 0.3s ease}
+  .flashW{animation:flashW 0.65s ease}
+  .flashR{animation:flashR 0.65s ease}
+  .pulse {animation:pulse 1.4s ease-in-out infinite}
+  .urgent{animation:urgentPulse 0.5s ease-in-out infinite}
+  .tshake{animation:timerShake 0.4s ease-in-out infinite}
+  input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none}
+  input[type=number]{-moz-appearance:textfield}
+  ::-webkit-scrollbar{display:none}
+`;
+
+const BG = {
+  background:"#07000f",
+  backgroundImage:[
+    "radial-gradient(ellipse 90% 50% at 50% -5%,#ff2d6b22 0%,transparent 60%)",
+    "repeating-linear-gradient(0deg,transparent,transparent 44px,#ffffff04 44px,#ffffff04 45px)",
+    "repeating-linear-gradient(90deg,transparent,transparent 44px,#ffffff04 44px,#ffffff04 45px)",
+  ].join(","),
+};
+
+const TIMER_OPTS = [
+  { label:"3 Min", secs:180, color:"#00ff88" },
+  { label:"4 Min", secs:240, color:"#00d4ff" },
+  { label:"5 Min", secs:300, color:"#ffd700" },
+];
+
+function App() {
+  const [screen,   setScreen]   = useState("setup");
+  const [players,  setPlayers]  = useState([]);
+  const [nameIn,   setNameIn]   = useState("");
+  const [timerDur, setTimerDur] = useState(180);  // selected duration in seconds
+  const [timeLeft, setTimeLeft] = useState(180);
+  const [curIdx,   setCurIdx]   = useState(0);
+  const [phase,    setPhase]    = useState("betting");
+  const [bet,      setBet]      = useState(1);
+  const [result,   setResult]   = useState(null);
+  const [revKey,   setRevKey]   = useState(0);
+  const [flash,    setFlash]    = useState("");
+  const [winner,   setWinner]   = useState(null);
+  const [timedOut,   setTimedOut]   = useState(false);
+  const [turnTimer,  setTurnTimer]  = useState(7);
+  const [wheelItems, setWheelItems] = useState(["","","","","",""]);
+  const [wheelPhase, setWheelPhase] = useState("hidden"); // "hidden"|"showing"
+  const [wheelLoser, setWheelLoser] = useState(null);     // {name,emoji,color}
+
+  const gameEndedRef     = useRef(false);
+  const gaierRoundsRef   = useRef(0);
+  const timeUpPendingRef = useRef(false);
+  const playersRef       = useRef([]);
+  const curIdxRef        = useRef(0);
+  const wheelCbRef       = useRef(null);
+  useEffect(() => { playersRef.current = players; }, [players]);
+  useEffect(() => { curIdxRef.current  = curIdx;  }, [curIdx]);
+  const cur = players[curIdx];
+
+  /* ── Countdown ── */
+  useEffect(() => {
+    if (screen !== "game") return;
+    const iv = setInterval(() => setTimeLeft(t => Math.max(0, t - 1)), 1000);
+    return () => clearInterval(iv);
+  }, [screen]);
+
+  /* ── Timer hits zero → flag pending, let current player finish ── */
+  useEffect(() => {
+    if (screen !== "game" || timeLeft > 0 || gameEndedRef.current || timeUpPendingRef.current) return;
+    timeUpPendingRef.current = true;
+  }, [timeLeft, screen]);
+
+  /* ── Per-player turn timer (7s) ── */
+  useEffect(() => {
+    if (phase !== "betting" || screen !== "game") return;
+    setTurnTimer(7);
+    const iv = setInterval(() => setTurnTimer(t => Math.max(0, t - 1)), 1000);
+    return () => clearInterval(iv);
+  }, [phase, screen, curIdx]);
+
+  /* ── Turn timer hits zero → penalty ── */
+  useEffect(() => {
+    if (turnTimer > 0 || screen !== "game" || phase !== "betting" || gameEndedRef.current) return;
+    const p    = playersRef.current;
+    const idx  = curIdxRef.current;
+    const curP = p[idx];
+    if (!curP) return;
+
+    const half     = parseFloat((curP.balance / 2).toFixed(2));
+    const newBal   = parseFloat((curP.balance - half).toFixed(2));
+    const elim     = newBal <= 1;
+    const finalBal = elim ? 0 : newBal;
+
+    setResult({ type:"penalty", name:curP.name, emoji:curP.emoji, color:curP.color, lost:half, elim, newBal:finalBal });
+    setRevKey(k => k+1);
+    setFlash("lose");
+    setPhase("revealing");
+    setTimeout(() => setFlash(""), 900);
+
+    setTimeout(() => {
+      if (gameEndedRef.current) return;
+      const upd  = p.map((pl,i) => i===idx ? {...pl, balance:finalBal} : pl);
+      setPlayers(upd);
+      const alive = upd.filter(pl => pl.balance > 0);
+
+      // ── Player eliminated by penalty ──
+      if (finalBal <= 0) {
+        const afterWheel = () => {
+          if (alive.length <= 1) {
+            gameEndedRef.current = true;
+            setWinner(alive[0]||null); setTimedOut(false); setScreen("winner");
+          } else if (timeUpPendingRef.current) {
+            gameEndedRef.current = true;
+            const sorted = [...alive].sort((a,b)=>b.balance-a.balance);
+            setWinner(sorted[0]||null); setTimedOut(true); setScreen("winner");
+          } else {
+            let next = (idx+1) % upd.length;
+            while (upd[next].balance <= 0) next = (next+1) % upd.length;
+            setTurnTimer(7);
+            setCurIdx(next); setBet(prev=>Math.min(parseFloat(prev.toFixed(2)),upd[next].balance)); setPhase("betting");
+          }
+        };
+        triggerWheel(curP.name, curP.emoji, curP.color, afterWheel);
+        return;
+      }
+
+      if (alive.length <= 1) {
+        gameEndedRef.current = true;
+        setWinner(alive[0]||null); setTimedOut(false); setScreen("winner"); return;
+      }
+      if (timeUpPendingRef.current) {
+        gameEndedRef.current = true;
+        const sorted = [...alive].sort((a,b)=>b.balance-a.balance);
+        const loser  = sorted[sorted.length-1];
+        triggerWheel(loser.name, loser.emoji, loser.color, () => {
+          setWinner(sorted[0]||null); setTimedOut(true); setScreen("winner");
+        });
+        return;
+      }
+
+      // ── Penalty but game continues — no wheel ──
+      let next = (idx+1) % upd.length;
+      while (upd[next].balance <= 0) next = (next+1) % upd.length;
+      setTurnTimer(7);
+      setCurIdx(next); setBet(prev=>Math.min(parseFloat(prev.toFixed(2)),upd[next].balance)); setPhase("betting");
+    }, 2600);
+  }, [turnTimer, screen, phase]);
+  const addPlayer = () => {
+    const name = nameIn.trim();
+    if (!name || players.length >= 8) return;
+    const i = players.length;
+    setPlayers(p => [...p, { id:Date.now(), name, balance:10, color:PAL[i], emoji:EMO[i] }]);
+    setNameIn("");
+  };
+
+  /* ── Start game ── */
+  const startGame = () => {
+    if (players.length < 2) return;
+    gameEndedRef.current = false;
+    setTimeLeft(timerDur);
+    setCurIdx(0); setPhase("betting"); setBet(Math.min(1, players[0].balance));
+    setTimedOut(false); setScreen("game");
+  };
+
+  /* ── Wheel helper ── */
+  const triggerWheel = (name, emoji, color, cb) => {
+    const active = wheelItems.filter(s => s.trim() !== "");
+    if (active.length === 0) { cb(); return; }
+    wheelCbRef.current = cb;
+    setWheelLoser({ name, emoji, color });
+    setWheelPhase("showing");
+  };
+
+  /* ── Play a round ── */
+  const play = (choice) => {
+    if (phase !== "betting" || bet <= 0 || bet > cur.balance) return;
+    const winSide = Math.random() < 0.5 ? 1 : 2;
+    let won       = choice === winSide;
+
+    // 🐣 Gaier-Regel: erste Runde immer Gewinn, danach immer Mieze
+    if (cur.name.toLowerCase() === "gaier") {
+      if (gaierRoundsRef.current < 2) {
+        won = true;
+        gaierRoundsRef.current += 1;
+      } else {
+        won = false;
+      }
+    }
+    const newBal  = parseFloat((won ? cur.balance + bet : cur.balance - bet).toFixed(2));
+    // Adjust winSide to match forced outcome
+    const actualWinSide = won ? choice : (choice === 1 ? 2 : 1);
+    const elim    = newBal <= 0;
+
+    setResult({ won, winSide: actualWinSide, choice, bet, name:cur.name, emoji:cur.emoji, color:cur.color, elim, newBal });
+    setRevKey(k => k+1);
+    setFlash(won ? "win" : "lose");
+    setPhase("revealing");
+    setTimeout(() => setFlash(""), 900);
+
+    setTimeout(() => {
+      if (gameEndedRef.current) return;
+      const upd   = players.map((p,i) => i===curIdx ? {...p, balance:newBal} : p);
+      setPlayers(upd);
+      const alive = upd.filter(p => p.balance > 0);
+
+      // ── Player eliminated (hit 0) ──
+      if (newBal <= 0) {
+        const afterWheel = () => {
+          if (alive.length <= 1) {
+            gameEndedRef.current = true;
+            setWinner(alive[0]||null); setTimedOut(false); setScreen("winner");
+          } else if (timeUpPendingRef.current) {
+            gameEndedRef.current = true;
+            const sorted = [...alive].sort((a,b)=>b.balance-a.balance);
+            setWinner(sorted[0]||null); setTimedOut(true); setScreen("winner");
+          } else {
+            let next = (curIdx+1) % upd.length;
+            while (upd[next].balance <= 0) next = (next+1) % upd.length;
+            setTurnTimer(7);
+            setCurIdx(next); setBet(prev=>Math.min(parseFloat(prev.toFixed(2)),upd[next].balance)); setPhase("betting");
+          }
+        };
+        triggerWheel(cur.name, cur.emoji, cur.color, afterWheel);
+        return;
+      }
+
+      // ── Game ends (last survivor) ──
+      if (alive.length <= 1) {
+        gameEndedRef.current = true;
+        setWinner(alive[0]||null); setTimedOut(false); setScreen("winner"); return;
+      }
+
+      // ── Timer ran out → wheel for the loser (least money) ──
+      if (timeUpPendingRef.current) {
+        gameEndedRef.current = true;
+        const sorted = [...alive].sort((a,b)=>b.balance-a.balance);
+        const loser  = sorted[sorted.length-1];
+        triggerWheel(loser.name, loser.emoji, loser.color, () => {
+          setWinner(sorted[0]||null); setTimedOut(true); setScreen("winner");
+        });
+        return;
+      }
+
+      // ── Regular loss, game continues — no wheel ──
+      let next = (curIdx+1) % upd.length;
+      while (upd[next].balance <= 0) next = (next+1) % upd.length;
+      setTurnTimer(7);
+      setCurIdx(next); setBet(prev=>Math.min(parseFloat(prev.toFixed(2)),upd[next].balance)); setPhase("betting");
+    }, 3400);
+  };
+
+  const adj = d => setBet(p => Math.min(Math.max(0.5, parseFloat((p+d).toFixed(2))), cur?.balance||10));
+
+  const restart = () => {
+    setScreen("setup"); setPlayers([]); setNameIn(""); setWinner(null);
+    setResult(null); setCurIdx(0); setPhase("betting"); setBet(1);
+    setFlash(""); setTimedOut(false);
+    setWheelPhase("hidden"); setWheelLoser(null);
+    gameEndedRef.current = false; gaierRoundsRef.current = 0;
+    timeUpPendingRef.current = false; wheelCbRef.current = null;
+  };
+
+  const revanche = () => {
+    gameEndedRef.current = false; gaierRoundsRef.current = 0;
+    timeUpPendingRef.current = false; wheelCbRef.current = null;
+    setWheelPhase("hidden"); setWheelLoser(null);
+    setPlayers(prev => prev.map(p => ({ ...p, balance: 10 })));
+    setPlayers(prev => prev.map(p => ({ ...p, balance: 10 })));
+    setTimeLeft(timerDur);
+    setCurIdx(0); setPhase("betting"); setBet(1);
+    setWinner(null); setResult(null); setFlash(""); setTimedOut(false);
+    setScreen("game");
+  };
+
+  return (
+    <>
+      <style>{CSS}</style>
+      {flash && (
+        <div className={flash==="win"?"flashW":"flashR"} style={{
+          position:"fixed",inset:0,pointerEvents:"none",zIndex:300,
+          background: flash==="win" ? "rgba(0,255,136,0.22)" : "rgba(255,45,107,0.28)",
+        }}/>
+      )}
+      <div style={{...BG, minHeight:"100vh", fontFamily:F1,
+        display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
+        padding:"20px 16px",
+      }}>
+        {screen==="setup"  && <Setup  players={players} nameIn={nameIn} setNameIn={setNameIn} addPlayer={addPlayer} removePlayer={id=>setPlayers(p=>p.filter(x=>x.id!==id))} startGame={startGame} timerDur={timerDur} setTimerDur={setTimerDur} wheelItems={wheelItems} setWheelItems={setWheelItems}/>}
+        {screen==="game"   && <Game   players={players} curIdx={curIdx} cur={cur} phase={phase} bet={bet} setBet={setBet} adj={adj} play={play} result={result} revKey={revKey} timeLeft={timeLeft} timerDur={timerDur} timeUp={timeLeft===0} turnTimer={turnTimer}/>}
+        {screen==="winner" && <Winner winner={winner} players={players} onRestart={restart} onRevanche={revanche} timedOut={timedOut}/>}
+        {wheelPhase==="showing" && wheelLoser && (
+          <WheelModal
+            items={wheelItems.filter(s => s.trim() !== "")}
+            loser={wheelLoser}
+            onClose={() => { setWheelPhase("hidden"); wheelCbRef.current?.(); }}
+          />
+        )}
+      </div>
+    </>
+  );
+}
+
+/* ═══════════════════════════════ SETUP ══════════════════════════════ */
+function Setup({ players, nameIn, setNameIn, addPlayer, removePlayer, startGame, timerDur, setTimerDur, wheelItems, setWheelItems }) {
+  return (
+    <div className="fadeIn" style={{ width:"100%", maxWidth:"400px" }}>
+      <div style={{ textAlign:"center", marginBottom:"28px" }}>
+        <h1 style={{
+          fontFamily:F2, fontSize:"clamp(2rem,8vw,3.2rem)", fontWeight:700, lineHeight:1.1,
+          background:"linear-gradient(125deg,#ff2d6b,#ff9abc,#ffd700)",
+          backgroundSize:"200% auto", animation:"shine 3s linear infinite",
+          WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent",
+          filter:"drop-shadow(0 0 22px #ff2d6b80)",
+        }}>🎰 MIEZE oder WIN?</h1>
+        <p style={{ color:"#ffffff30", fontSize:"0.58rem", letterSpacing:"0.3em", marginTop:"8px" }}>
+          SPIELER EINTRAGEN · ZEIT WÄHLEN · LOSSPIELEN
+        </p>
+      </div>
+
+      {/* Add player */}
+      <div style={{ display:"flex", gap:"10px", marginBottom:"14px" }}>
+        <input value={nameIn} onChange={e=>setNameIn(e.target.value)}
+          onKeyDown={e=>e.key==="Enter"&&addPlayer()}
+          placeholder="Spielername..." maxLength={12}
+          style={{
+            flex:1, background:"rgba(255,255,255,0.05)",
+            border:"1px solid #ffffff20", borderRadius:"12px",
+            color:"white", fontSize:"1rem", fontFamily:F1,
+            padding:"12px 16px", outline:"none",
+          }}
+        />
+        <button onClick={addPlayer} disabled={players.length>=8} style={{
+          background: players.length>=8 ? "#ffffff08" : "linear-gradient(135deg,#ff2d6b,#ff6b9d)",
+          border:"none", borderRadius:"12px", color:"white",
+          fontSize:"1.5rem", width:"50px", cursor:players.length>=8?"not-allowed":"pointer",
+          boxShadow: players.length>=8 ? "none" : "0 0 20px #ff2d6b50",
+        }}>+</button>
+      </div>
+
+      {/* Player list */}
+      <div style={{ display:"flex", flexDirection:"column", gap:"8px", marginBottom:"24px", minHeight:"50px" }}>
+        {players.length===0 && (
+          <p style={{ color:"#ffffff18", fontSize:"0.66rem", textAlign:"center", padding:"14px 0" }}>
+            Mindestens 2 Spieler hinzufügen…
+          </p>
+        )}
+        {players.map(p => (
+          <div key={p.id} className="pop2" style={{
+            display:"flex", alignItems:"center", gap:"12px",
+            background:`${p.color}12`, border:`1px solid ${p.color}40`,
+            borderRadius:"12px", padding:"10px 14px",
+          }}>
+            <span style={{ fontSize:"1.6rem" }}>{p.emoji}</span>
+            <div style={{ flex:1 }}>
+              <div style={{ color:p.color, fontWeight:700, fontSize:"0.88rem" }}>{p.name}</div>
+              <div style={{ color:"#ffffff30", fontSize:"0.56rem" }}>10,00 €</div>
+            </div>
+            <button onClick={()=>removePlayer(p.id)} style={{
+              background:"transparent", border:"1px solid #ffffff18",
+              borderRadius:"8px", color:"#ffffff45", fontSize:"1.1rem",
+              width:"28px", height:"28px", cursor:"pointer", lineHeight:1,
+            }}>×</button>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Glücksrad konfigurieren ── */}
+      <div style={{ marginBottom:"22px" }}>
+        <div style={{ color:"#ffffff35", fontSize:"0.58rem", letterSpacing:"0.3em", textAlign:"center", marginBottom:"12px" }}>
+          🎡 GLÜCKSRAD — STRAFEN EINTRAGEN
+        </div>
+        <div style={{ display:"flex", flexDirection:"column", gap:"7px" }}>
+          {wheelItems.map((item, i) => (
+            <div key={i} style={{ display:"flex", alignItems:"center", gap:"8px" }}>
+              <span style={{ color:"#a855f760", fontSize:"0.65rem", fontFamily:F1, width:"14px", textAlign:"right", flexShrink:0 }}>{i+1}</span>
+              <input
+                value={item}
+                onChange={e => setWheelItems(prev => prev.map((v,j) => j===i ? e.target.value : v))}
+                placeholder={`Strafe ${i+1} (leer lassen = überspringen)`}
+                maxLength={28}
+                style={{
+                  flex:1, background: item.trim() ? "rgba(168,85,247,0.1)" : "rgba(255,255,255,0.04)",
+                  border:`1px solid ${item.trim() ? "#a855f750" : "#ffffff14"}`,
+                  borderRadius:"10px", color: item.trim() ? "#c084fc" : "#ffffff50",
+                  fontSize:"0.82rem", fontFamily:F1,
+                  padding:"9px 12px", outline:"none",
+                  transition:"all 0.2s",
+                }}
+              />
+            </div>
+          ))}
+        </div>
+        <p style={{ color:"#ffffff18", fontSize:"0.58rem", textAlign:"center", marginTop:"8px" }}>
+          Leer lassen = kein Rad
+        </p>
+      </div>
+
+      {/* ── Timer selection ── */}
+      <div style={{ marginBottom:"22px" }}>
+        <div style={{ color:"#ffffff35", fontSize:"0.58rem", letterSpacing:"0.3em", textAlign:"center", marginBottom:"12px" }}>
+          ⏱ RUNDENZEIT WÄHLEN
+        </div>
+        <div style={{ display:"flex", gap:"10px" }}>
+          {TIMER_OPTS.map(opt => {
+            const active = timerDur === opt.secs;
+            return (
+              <button key={opt.secs} onClick={()=>setTimerDur(opt.secs)} style={{
+                flex:1, padding:"14px 8px",
+                background: active ? `${opt.color}18` : "rgba(255,255,255,0.03)",
+                border:`2px solid ${active ? opt.color : "#ffffff15"}`,
+                borderRadius:"14px", cursor:"pointer",
+                boxShadow: active ? `0 0 22px ${opt.color}45` : "none",
+                transition:"all 0.2s ease",
+                display:"flex", flexDirection:"column", alignItems:"center", gap:"4px",
+              }}>
+                <span style={{ fontSize:"1.5rem" }}>⏱</span>
+                <span style={{
+                  fontFamily:F2, fontSize:"1.1rem", fontWeight:700,
+                  color: active ? opt.color : "#ffffff50",
+                  textShadow: active ? `0 0 12px ${opt.color}` : "none",
+                  transition:"color 0.2s",
+                }}>{opt.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Start button */}
+      <button onClick={startGame} disabled={players.length<2} style={{
+        width:"100%", padding:"18px",
+        background: players.length<2 ? "#ffffff08" : "linear-gradient(135deg,#ff2d6b,#ff9abc)",
+        border:"none", borderRadius:"16px",
+        color: players.length<2 ? "#ffffff22" : "white",
+        fontSize:"0.95rem", fontFamily:F1, fontWeight:700,
+        cursor: players.length<2 ? "not-allowed" : "pointer",
+        boxShadow: players.length<2 ? "none" : "0 0 40px #ff2d6b50,0 4px 20px #00000060",
+        letterSpacing:"0.1em",
+      }}>
+        {players.length<2
+          ? "MINDESTENS 2 SPIELER NÖTIG"
+          : `🎲 STARTEN · ${players.length} Spieler · ${timerDur/60} Min`}
+      </button>
+    </div>
+  );
+}
+
+/* ════════════════════════════════ GAME ══════════════════════════════ */
+const balCol = b => b >= 12 ? "#00ff88" : b <= 3 ? "#ff2d6b" : "#ffd700";
+
+function Game({ players, curIdx, cur, phase, bet, setBet, adj, play, result, revKey, timeLeft, timerDur, timeUp, turnTimer }) {
+  return (
+    <div style={{ width:"100%", maxWidth:"440px" }}>
+
+      {/* ── Global Timer ── */}
+      <TimerBar timeLeft={timeLeft} total={timerDur} timeUp={timeUp}/>
+
+      {/* ── Player strip ── */}
+      <div style={{ display:"flex", gap:"8px", overflowX:"auto", paddingBottom:"6px", marginBottom:"20px" }}>
+        {players.map((p,i) => {
+          const active = i===curIdx && p.balance>0;
+          const dead   = p.balance<=0;
+          return (
+            <div key={p.id} style={{
+              flexShrink:0, minWidth:"76px",
+              background: active ? `${p.color}22` : dead ? "#ffffff04" : "#ffffff07",
+              border:`1px solid ${active ? p.color : dead ? "#ffffff0a" : "#ffffff12"}`,
+              borderRadius:"14px", padding:"10px 10px 8px",
+              textAlign:"center", opacity:dead?0.3:1,
+              boxShadow: active ? `0 0 22px ${p.color}55` : "none",
+              transition:"all 0.3s ease",
+            }}>
+              <div style={{ fontSize:"1.4rem" }}>{dead?"💀":p.emoji}</div>
+              <div style={{
+                color:active?p.color:"#ffffff50", fontSize:"0.55rem",
+                fontWeight:700, letterSpacing:"0.04em", margin:"4px 0 2px",
+                overflow:"hidden", textOverflow:"ellipsis",
+                whiteSpace:"nowrap", maxWidth:"66px",
+              }}>{p.name}</div>
+              <div style={{ color:dead?"#ffffff20":balCol(p.balance), fontSize:"0.67rem", fontWeight:900 }}>
+                {dead?"OUT":`${p.balance.toFixed(2)}€`}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ── Active player + turn timer ring ── */}
+      <div style={{ textAlign:"center", marginBottom:"16px" }}>
+        <div style={{ color:"#ffffff28", fontSize:"0.56rem", letterSpacing:"0.3em", marginBottom:"5px" }}>AM ZUG</div>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:"16px" }}>
+          <div style={{ textAlign:"left" }}>
+            <div style={{
+              fontFamily:F2, fontSize:"clamp(1.5rem,6vw,2rem)", fontWeight:700,
+              color:cur?.color, textShadow:`0 0 24px ${cur?.color}90`,
+              lineHeight:1.2,
+            }}>{cur?.emoji} {cur?.name}</div>
+            <div style={{
+              color:balCol(cur?.balance||10), fontSize:"1rem", fontWeight:700,
+              textShadow:`0 0 16px ${balCol(cur?.balance||10)}90`,
+            }}>{cur?.balance?.toFixed(2)} €</div>
+          </div>
+          {phase==="betting" && <TurnTimerRing seconds={turnTimer}/>}
+        </div>
+      </div>
+
+      {/* ── Bet controls ── */}
+      {phase==="betting" && (
+        <div className="fadeIn" style={{ marginBottom:"22px", textAlign:"center" }}>
+          <div style={{ color:"#ffffff28", fontSize:"0.56rem", letterSpacing:"0.3em", marginBottom:"11px" }}>EINSATZ</div>
+          <div style={{ display:"flex", alignItems:"center", gap:"10px", justifyContent:"center", marginBottom:"11px" }}>
+            <SmBtn onClick={()=>adj(-0.5)}>−</SmBtn>
+            <div style={{ position:"relative" }}>
+              <input type="number" value={bet} min={0.5} max={cur?.balance} step={0.5}
+                onChange={e=>{ const v=parseFloat(e.target.value); if(!isNaN(v)) setBet(Math.min(Math.max(0.5,parseFloat(v.toFixed(2))),cur?.balance||10)); }}
+                style={{
+                  background:"rgba(255,215,0,0.07)", border:"1px solid #ffd70055",
+                  borderRadius:"12px", color:"#ffd700", fontSize:"1.6rem",
+                  fontFamily:F1, fontWeight:700, textAlign:"center",
+                  width:"112px", padding:"10px 28px 10px 8px", outline:"none",
+                  boxShadow:"0 0 18px #ffd70015",
+                }}
+              />
+              <span style={{ position:"absolute",right:"10px",top:"50%",transform:"translateY(-50%)",color:"#ffd70070",fontSize:"1rem",pointerEvents:"none" }}>€</span>
+            </div>
+            <SmBtn onClick={()=>adj(0.5)}>+</SmBtn>
+          </div>
+          <div style={{ display:"flex", gap:"6px", justifyContent:"center", flexWrap:"wrap" }}>
+            {[0.5,1,2,5,"ALLES"].map(v=>{
+              const val=v==="ALLES"?cur?.balance:v;
+              if(v!=="ALLES"&&Number(v)>(cur?.balance||0)) return null;
+              const on=Math.abs(bet-val)<0.01;
+              return (
+                <button key={v} onClick={()=>setBet(val)} style={{
+                  background:on?"#ffd70016":"transparent",
+                  border:`1px solid ${on?"#ffd700":"#ffffff15"}`,
+                  borderRadius:"8px", color:on?"#ffd700":"#ffffff32",
+                  fontSize:"0.56rem", padding:"5px 10px", cursor:"pointer",
+                  fontFamily:F1, letterSpacing:"0.06em", transition:"all 0.15s",
+                }}>{v==="ALLES"?"ALLES":`${v}€`}</button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {phase==="betting" ? (
+        <div style={{ display:"flex", gap:"20px", justifyContent:"center" }}>
+          <BigBtn num={1} color="#ff2d6b" onClick={()=>play(1)}/>
+          <BigBtn num={2} color="#00d4ff" onClick={()=>play(2)}/>
+        </div>
+      ) : (
+        <Reveal key={revKey} result={result}/>
+      )}
+    </div>
+  );
+}
+
+/* ══════════════════════════ TURN TIMER RING ════════════════════════ */
+function TurnTimerRing({ seconds, total = 7 }) {
+  const r   = 24;
+  const circ = 2 * Math.PI * r;
+  const pct  = seconds / total;
+  const col  = seconds <= 2 ? "#ff2d6b" : seconds <= 4 ? "#ff8c00" : "#00ff88";
+  const cls  = seconds <= 2 ? "urgent" : seconds <= 4 ? "pulse" : "";
+  return (
+    <div className={cls} style={{ position:"relative", width:64, height:64, flexShrink:0 }}>
+      <svg width="64" height="64" style={{ transform:"rotate(-90deg)", position:"absolute", inset:0 }}>
+        <circle cx="32" cy="32" r={r} fill="none" stroke="#ffffff0e" strokeWidth="3"/>
+        <circle cx="32" cy="32" r={r} fill="none" stroke={col} strokeWidth="3"
+          strokeDasharray={circ}
+          strokeDashoffset={circ * (1 - pct)}
+          strokeLinecap="round"
+          style={{ transition:"stroke-dashoffset 1s linear, stroke 0.3s", filter:`drop-shadow(0 0 4px ${col})` }}
+        />
+      </svg>
+      <div style={{
+        position:"absolute", inset:0,
+        display:"flex", alignItems:"center", justifyContent:"center",
+        fontSize:"1.3rem", fontWeight:900, fontFamily:F1,
+        color:col, textShadow:`0 0 10px ${col}`,
+      }}>{seconds}</div>
+    </div>
+  );
+}
+
+/* ════════════════════════════ TIMER BAR ═════════════════════════════ */
+function TimerBar({ timeLeft, total, timeUp }) {
+  const pct   = timeLeft / total;
+  const mins  = Math.floor(timeLeft / 60);
+  const secs  = timeLeft % 60;
+  const color = timeLeft <= 30 ? "#ff2d6b" : timeLeft <= 60 ? "#ff8c00" : "#00d4ff";
+  const cls   = timeLeft <= 10 ? "urgent tshake" : timeLeft <= 30 ? "pulse" : "";
+
+  return (
+    <div style={{ marginBottom:"20px", textAlign:"center" }}>
+      {timeUp ? (
+        <div className="urgent" style={{
+          display:"inline-block",
+          fontSize:"1.5rem", fontWeight:900,
+          fontFamily:F2,
+          color:"#ff2d6b",
+          textShadow:"0 0 30px #ff2d6b, 0 0 60px #ff2d6b60",
+          letterSpacing:"0.05em",
+        }}>
+          ⏱ LETZTE RUNDE — JETZT WÄHLEN!
+        </div>
+      ) : (
+        <div className={cls} style={{
+          display:"inline-block",
+          fontSize: timeLeft <= 10 ? "2.6rem" : "2rem",
+          fontWeight:900, color, letterSpacing:"0.05em",
+          textShadow:`0 0 28px ${color}90`,
+          transition:"color 0.5s, font-size 0.2s",
+        }}>
+          {timeLeft <= 10 && <span style={{ marginRight:"6px" }}>⚠️</span>}
+          {String(mins).padStart(2,"0")}:{String(secs).padStart(2,"0")}
+          {timeLeft <= 10 && <span style={{ marginLeft:"6px" }}>⚠️</span>}
+        </div>
+      )}
+      <div style={{ width:"100%", height:"5px", background:"#ffffff0e", borderRadius:"3px", marginTop:"8px", overflow:"hidden" }}>
+        <div style={{
+          height:"100%",
+          width: timeUp ? "0%" : `${pct*100}%`,
+          background: timeUp ? "#ff2d6b" : `linear-gradient(90deg, ${color}cc, ${color})`,
+          boxShadow:`0 0 10px ${timeUp ? "#ff2d6b" : color}`,
+          transition:"width 1s linear, background 0.5s",
+          borderRadius:"3px",
+        }}/>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════ REVEAL ═════════════════════════════ */
+function Reveal({ result }) {
+  if (!result) return null;
+
+  /* ── Penalty (turn timer ran out) ── */
+  if (result.type === "penalty") {
+    const { name, emoji, color, lost, elim } = result;
+    return (
+      <div style={{ textAlign:"center" }}>
+        <div className="bigPop" style={{ marginBottom:"16px" }}>
+          <div style={{ fontSize:"4rem" }}>⏰</div>
+        </div>
+        <div className="shake">
+          <div style={{ fontFamily:F2, fontSize:"clamp(1.3rem,5vw,1.8rem)", fontWeight:700,
+            color:"#ff8c00", textShadow:"0 0 30px #ff8c00", marginBottom:"6px" }}>
+            ZU LANGSAM!
+          </div>
+          <div style={{ fontFamily:F2, fontSize:"clamp(2rem,8vw,3rem)", fontWeight:700,
+            color:"#ff2d6b", textShadow:"0 0 50px #ff2d6b, 0 0 100px #ff2d6b60", lineHeight:1 }}>
+            {emoji} −{lost.toFixed(2)} €
+          </div>
+          <div style={{ fontFamily:F2, fontSize:"clamp(1rem,4vw,1.4rem)", fontWeight:600,
+            color:"#ff2d6b80", marginTop:"8px" }}>
+            {name} hat nicht gewählt!
+          </div>
+          {elim && (
+            <div className="bigPop" style={{ marginTop:"14px" }}>
+              <div style={{ fontFamily:F2, fontSize:"clamp(1.4rem,6vw,2rem)", fontWeight:700,
+                color:"#ff2d6b", textShadow:"0 0 30px #ff2d6b" }}>
+                💀 {name} IST RAUS!
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+  /* ── Normal round reveal ── */
+  const { won, winSide, choice, bet, name, emoji, color, elim } = result;
+  return (
+    <div style={{ textAlign:"center" }}>
+      <div style={{ display:"flex", gap:"18px", justifyContent:"center", marginBottom:"24px" }}>
+        {[1,2].map((n,i) => {
+          const isWin=n===winSide, isPick=n===choice;
+          const c=isWin?"#00ff88":"#ff2d6b";
+          return (
+            <div key={n} className="bigPop" style={{
+              animationDelay:`${i*0.14}s`,
+              width:"132px",height:"132px",borderRadius:"24px",
+              border:`2px solid ${c}`,background:`${c}0d`,
+              display:"flex",flexDirection:"column",
+              alignItems:"center",justifyContent:"center",
+              position:"relative",
+              boxShadow:`0 0 45px ${c}55,inset 0 0 24px ${c}09`,
+            }}>
+              <div style={{ fontSize:"3.4rem" }}>{isWin?"💰":"🐱"}</div>
+              <div style={{ fontSize:"0.62rem",fontFamily:F1,fontWeight:700,color:c,letterSpacing:"0.12em",marginTop:"6px" }}>
+                {isWin?"WIN!":"MIEZE"}
+              </div>
+              {isPick&&(
+                <div style={{
+                  position:"absolute",top:"-14px",
+                  background:"#ffd700",color:"#000",
+                  fontSize:"0.52rem",padding:"3px 10px",
+                  borderRadius:"6px",fontFamily:F1,fontWeight:700,
+                  letterSpacing:"0.1em",boxShadow:"0 0 14px #ffd70060",
+                }}>DU ↓</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {elim ? (
+        <div className="bigPop" style={{animationDelay:"0.28s"}}>
+          <div className="float" style={{fontSize:"5rem",marginBottom:"10px"}}>💀</div>
+          <div style={{fontFamily:F2,fontSize:"clamp(2.2rem,9vw,3.4rem)",fontWeight:700,color:"#ff2d6b",textShadow:"0 0 50px #ff2d6b,0 0 100px #ff2d6b60",lineHeight:1.1}}>
+            {emoji} {name}
+          </div>
+          <div style={{fontFamily:F2,fontSize:"clamp(1.6rem,7vw,2.4rem)",fontWeight:700,color:"#ff2d6b",textShadow:"0 0 30px #ff2d6b",marginTop:"4px"}}>
+            IST RAUS! 💸
+          </div>
+        </div>
+      ) : won ? (
+        <div className="bigPop" style={{animationDelay:"0.28s"}}>
+          <div style={{fontFamily:F2,fontSize:"clamp(2.6rem,10vw,4rem)",fontWeight:700,color:"#00ff88",textShadow:"0 0 60px #00ff88,0 0 120px #00ff8860",lineHeight:1}}>
+            🎉 +{bet.toFixed(2)} €
+          </div>
+          <div style={{fontFamily:F2,fontSize:"clamp(1.2rem,5vw,1.8rem)",fontWeight:600,color,marginTop:"8px",textShadow:`0 0 20px ${color}90`}}>
+            {emoji} {name} gewinnt!
+          </div>
+        </div>
+      ) : (
+        <div className="shake" style={{animationDelay:"0.28s"}}>
+          <div style={{fontFamily:F2,fontSize:"clamp(2.6rem,10vw,4rem)",fontWeight:700,color:"#ff2d6b",textShadow:"0 0 60px #ff2d6b,0 0 120px #ff2d6b60",lineHeight:1}}>
+            😹 −{bet.toFixed(2)} €
+          </div>
+          <div style={{fontFamily:F2,fontSize:"clamp(1.2rem,5vw,1.8rem)",fontWeight:600,color:"#ff2d6b90",marginTop:"8px"}}>
+            {emoji} {name} — MIEZE!
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ══════════════════════════════ WINNER ══════════════════════════════ */
+function Winner({ winner, players, onRestart, onRevanche, timedOut }) {
+  const sorted = [...players].sort((a,b)=>b.balance-a.balance);
+  const medals = ["🥇","🥈","🥉","💀"];
+  return (
+    <div className="fadeIn" style={{width:"100%",maxWidth:"400px",textAlign:"center"}}>
+      {timedOut && (
+        <div style={{
+          background:"rgba(255,140,0,0.12)",border:"1px solid #ff8c0060",
+          borderRadius:"12px",padding:"10px 20px",marginBottom:"20px",
+          color:"#ff8c00",fontSize:"0.65rem",letterSpacing:"0.2em",fontWeight:700,
+        }}>⏱ ZEIT ABGELAUFEN!</div>
+      )}
+      {winner ? (
+        <>
+          <div className="float" style={{fontSize:"5.5rem",marginBottom:"10px"}}>{winner.emoji}</div>
+          <h2 style={{fontFamily:F2,fontSize:"clamp(2rem,9vw,3.2rem)",fontWeight:700,color:winner.color,textShadow:`0 0 50px ${winner.color}`,margin:"0 0 4px"}}>
+            {winner.name}
+          </h2>
+          <div style={{fontFamily:F2,fontSize:"clamp(1.3rem,6vw,2rem)",fontWeight:600,color:"#ffd700",textShadow:"0 0 30px #ffd70090",marginBottom:"6px"}}>
+            GEWINNT! 🏆
+          </div>
+          <div style={{color:"#ffffff28",fontSize:"0.58rem",letterSpacing:"0.2em",marginBottom:"28px"}}>
+            {timedOut ? "MEISTE KOHLE NACH ZEITABLAUF" : "LETZTER SPIELER MIT GUTHABEN"}
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="float" style={{fontSize:"5rem",marginBottom:"10px"}}>💸</div>
+          <h2 style={{fontFamily:F2,fontSize:"clamp(2rem,9vw,3rem)",fontWeight:700,color:"#ff2d6b",textShadow:"0 0 40px #ff2d6b",margin:"0 0 8px"}}>
+            ALLE PLEITE!
+          </h2>
+          <div style={{color:"#ffffff28",fontSize:"0.58rem",letterSpacing:"0.2em",marginBottom:"28px"}}>
+            DIE MIEZE HAT ALLE ERWISCHT 🐱
+          </div>
+        </>
+      )}
+      <div style={{display:"flex",flexDirection:"column",gap:"8px",marginBottom:"28px"}}>
+        {sorted.map((p,i)=>(
+          <div key={p.id} style={{
+            display:"flex",alignItems:"center",gap:"12px",
+            background:i===0&&p.balance>0?`${p.color}18`:"#ffffff06",
+            border:`1px solid ${i===0&&p.balance>0?`${p.color}50`:"#ffffff10"}`,
+            borderRadius:"14px",padding:"12px 16px",
+          }}>
+            <span style={{fontSize:"1.2rem"}}>{medals[Math.min(i,3)]}</span>
+            <span style={{fontSize:"1.5rem"}}>{p.balance>0?p.emoji:"💀"}</span>
+            <div style={{flex:1,textAlign:"left"}}>
+              <div style={{color:p.balance>0?p.color:"#ffffff35",fontSize:"0.88rem",fontWeight:700}}>{p.name}</div>
+            </div>
+            <div style={{color:p.balance>0?"#00ff88":"#ff2d6b",fontSize:"0.95rem",fontWeight:900}}>
+              {p.balance.toFixed(2)} €
+            </div>
+          </div>
+        ))}
+      </div>
+      <button onClick={onRevanche} style={{
+        width:"100%",padding:"18px",marginBottom:"10px",
+        background:"linear-gradient(135deg,#ffd700,#ffb700)",
+        border:"none",borderRadius:"16px",color:"#000",
+        fontSize:"1rem",fontFamily:F1,fontWeight:700,
+        cursor:"pointer",boxShadow:"0 0 40px #ffd70055,0 6px 24px #00000060",
+        letterSpacing:"0.1em",
+      }}>⚔️ REVANCHE — gleiche Spieler, neue Runde</button>
+      <button onClick={onRestart} style={{
+        width:"100%",padding:"14px",
+        background:"transparent",
+        border:"1px solid #ffffff20",borderRadius:"16px",color:"#ffffff50",
+        fontSize:"0.75rem",fontFamily:F1,fontWeight:700,
+        cursor:"pointer",letterSpacing:"0.1em",
+      }}>🔄 NEU STARTEN (Spieler ändern)</button>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════ UTILS ══════════════════════════════ */
+function arcPath(cx, cy, r, startDeg, endDeg) {
+  const rad = d => d * Math.PI / 180;
+  const x1 = cx + r * Math.cos(rad(startDeg)), y1 = cy + r * Math.sin(rad(startDeg));
+  const x2 = cx + r * Math.cos(rad(endDeg)),   y2 = cy + r * Math.sin(rad(endDeg));
+  return `M${cx} ${cy} L${x1} ${y1} A${r} ${r} 0 ${endDeg-startDeg>180?1:0} 1 ${x2} ${y2}Z`;
+}
+
+const WCOLS = ["#ff2d6b","#ff8c00","#ffd700","#00ff88","#00d4ff","#a855f7","#ff69b4","#7fff00","#00ffff","#ff6347"];
+
+/* ════════════════════════════ WHEEL MODAL ═══════════════════════════ */
+function WheelModal({ items, loser, onClose }) {
+  const [deg,      setDeg]      = useState(0);
+  const [spinning, setSpinning] = useState(false);
+  const [result,   setResult]   = useState(null);
+  const prevDegRef = useRef(0);
+
+  const spin = () => {
+    if (spinning || result) return;
+    const n      = items.length;
+    const winIdx = Math.floor(Math.random() * n);
+    const segDeg = 360 / n;
+    const center = winIdx * segDeg + segDeg / 2;
+    const target = prevDegRef.current + (5 + Math.floor(Math.random()*3)) * 360 + ((360 - center % 360) % 360);
+    prevDegRef.current = target;
+    setDeg(target);
+    setSpinning(true);
+    setTimeout(() => { setSpinning(false); setResult(items[winIdx]); }, 4200);
+  };
+
+  const n    = items.length;
+  const segD = 360 / n;
+  const R    = 110, cx = 130, cy = 130;
+
+  return (
+    <div style={{
+      position:"fixed", inset:0, zIndex:500,
+      background:"rgba(0,0,0,0.88)",
+      backdropFilter:"blur(8px)",
+      display:"flex", flexDirection:"column",
+      alignItems:"center", justifyContent:"center",
+      padding:"20px",
+    }}>
+      {/* Header */}
+      <div style={{ textAlign:"center", marginBottom:"20px" }}>
+        <div style={{ fontSize:"1.6rem", marginBottom:"6px" }}>{loser.emoji}</div>
+        <div style={{
+          fontFamily:F2, fontSize:"clamp(1.2rem,5vw,1.7rem)", fontWeight:700,
+          color:loser.color, textShadow:`0 0 20px ${loser.color}`,
+        }}>{loser.name} muss drehen!</div>
+        <div style={{ color:"#ffffff35", fontSize:"0.58rem", letterSpacing:"0.25em", marginTop:"4px" }}>
+          🎡 WAS KOMMT AUF DICH ZU?
+        </div>
+      </div>
+
+      {/* Wheel */}
+      <div style={{ position:"relative", width:260, height:260, marginBottom:"20px" }}>
+        {/* Pointer ▼ */}
+        <div style={{
+          position:"absolute", top:-4, left:"50%", transform:"translateX(-50%)",
+          width:0, height:0,
+          borderLeft:"11px solid transparent", borderRight:"11px solid transparent",
+          borderTop:"22px solid #ffd700",
+          zIndex:10, filter:"drop-shadow(0 0 8px #ffd700)",
+        }}/>
+        {/* SVG */}
+        <svg width="260" height="260" style={{
+          transform:`rotate(${deg}deg)`,
+          transition: spinning ? "transform 4.2s cubic-bezier(0.17,0.67,0.08,1)" : "none",
+          filter:"drop-shadow(0 0 20px rgba(0,0,0,0.8))",
+        }}>
+          {items.map((item, i) => {
+            const s = i * segD - 90, e = (i+1) * segD - 90;
+            const mid = ((s + e) / 2) * Math.PI / 180;
+            const tr  = R * 0.64;
+            const tx  = cx + tr * Math.cos(mid), ty = cy + tr * Math.sin(mid);
+            const col = WCOLS[i % WCOLS.length];
+            const label = item.length > 11 ? item.slice(0,10)+"…" : item;
+            return (
+              <g key={i}>
+                <path d={arcPath(cx,cy,R,s,e)} fill={col} stroke="#07000f" strokeWidth="2"/>
+                <text x={tx} y={ty} textAnchor="middle" dominantBaseline="middle"
+                  transform={`rotate(${(s+e)/2+90},${tx},${ty})`}
+                  fill="white" fontSize={n>7?"8":"10"} fontWeight="bold" fontFamily={F1}
+                >{label}</text>
+              </g>
+            );
+          })}
+          <circle cx={cx} cy={cy} r={16} fill="#07000f" stroke="#ffd700" strokeWidth="2.5"/>
+          <circle cx={cx} cy={cy} r={5}  fill="#ffd700"/>
+        </svg>
+      </div>
+
+      {/* Result or spin button */}
+      {result ? (
+        <div className="bigPop" style={{ textAlign:"center", marginBottom:"20px" }}>
+          <div style={{ color:"#ffffff60", fontSize:"0.6rem", letterSpacing:"0.25em", marginBottom:"8px" }}>
+            🎯 AUFGABE FÜR {loser.name.toUpperCase()}:
+          </div>
+          <div style={{
+            fontFamily:F2, fontSize:"clamp(1.5rem,6vw,2.2rem)", fontWeight:700,
+            color:"#ffd700", textShadow:"0 0 30px #ffd700, 0 0 60px #ffd70060",
+            padding:"0 12px",
+          }}>{result}</div>
+        </div>
+      ) : (
+        <button onClick={spin} disabled={spinning} style={{
+          background: spinning ? "#ffffff08" : "linear-gradient(135deg,#a855f7,#c084fc)",
+          border:"none", borderRadius:"14px", color:"white",
+          fontSize:"1rem", fontFamily:F1, fontWeight:700,
+          padding:"14px 32px", cursor:spinning?"not-allowed":"pointer",
+          boxShadow: spinning ? "none" : "0 0 30px #a855f760",
+          letterSpacing:"0.1em", marginBottom:"12px",
+        }}>
+          {spinning ? "🎡 DREHT..." : "🎯 DREHEN!"}
+        </button>
+      )}
+
+      {result && (
+        <button onClick={onClose} style={{
+          background:"transparent", border:"1px solid #ffffff25",
+          borderRadius:"12px", color:"#ffffff70",
+          fontSize:"0.8rem", fontFamily:F1, fontWeight:700,
+          padding:"12px 28px", cursor:"pointer", letterSpacing:"0.1em",
+        }}>✓ ERLEDIGT — WEITER</button>
+      )}
+    </div>
+  );
+}
+
+
+function SmBtn({ children, onClick }) {
+  return (
+    <button onClick={onClick} style={{
+      width:"38px",height:"38px",background:"rgba(255,255,255,0.04)",
+      border:"1px solid #ffffff12",borderRadius:"10px",color:"white",
+      fontSize:"1.3rem",cursor:"pointer",
+      display:"flex",alignItems:"center",justifyContent:"center",
+    }}>{children}</button>
+  );
+}
+
+function BigBtn({ num, color, onClick }) {
+  const [hov,setHov] = useState(false);
+  return (
+    <button onClick={onClick}
+      onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)}
+      onTouchStart={()=>setHov(true)}  onTouchEnd={()=>setHov(false)}
+      style={{
+        width:"134px",height:"134px",borderRadius:"26px",
+        border:`2px solid ${color}`,
+        background:hov?`${color}22`:`${color}08`,
+        color,fontSize:"3.8rem",fontWeight:900,fontFamily:F1,cursor:"pointer",
+        transition:"all 0.13s ease",
+        boxShadow:hov?`0 0 55px ${color}65,0 0 110px ${color}28`:`0 0 18px ${color}22`,
+        transform:hov?"scale(1.08) translateY(-3px)":"scale(1)",
+        textShadow:`0 0 22px ${color}`,
+      }}
+    >{num}</button>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);
+</script>
+</body>
+</html>
