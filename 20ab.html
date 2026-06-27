@@ -24,7 +24,8 @@ button:active { opacity: 0.8; }
 const { useState, useRef, useEffect } = React;
 
 
-import { jsxDEV as _jsxDEV, Fragment as _Fragment } from "react/jsx-dev-runtime";
+const _jsxDEV = (type, props, key, isStatic, source, self) => { const { children, ...rest } = props || {}; return React.createElement(type, rest, ...(Array.isArray(children) ? children : children !== undefined ? [children] : [])); };
+const _Fragment = React.Fragment;
 const SUITS = [{
   id: "herz",
   label: "Herz",
