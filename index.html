@@ -29,7 +29,6 @@
       overflow-x: hidden;
     }
 
-    /* Ambient background glow */
     body::before {
       content: '';
       position: fixed;
@@ -67,9 +66,7 @@
       color: var(--text);
     }
 
-    h1 span {
-      color: var(--accent);
-    }
+    h1 span { color: var(--accent); }
 
     .tagline {
       margin-top: 20px;
@@ -78,7 +75,6 @@
       letter-spacing: 0.04em;
     }
 
-    /* divider line */
     .divider {
       width: 48px;
       height: 2px;
@@ -117,7 +113,6 @@
       box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(200,255,0,0.15);
     }
 
-    /* Thumbnail placeholder */
     .thumb {
       width: 100%;
       aspect-ratio: 16/9;
@@ -129,19 +124,17 @@
       justify-content: center;
     }
 
-    /* Decorative placeholder pattern */
     .thumb::before {
       content: '';
       position: absolute;
       inset: 0;
-      background:
-        repeating-linear-gradient(
-          45deg,
-          transparent,
-          transparent 24px,
-          rgba(255,255,255,0.02) 24px,
-          rgba(255,255,255,0.02) 25px
-        );
+      background: repeating-linear-gradient(
+        45deg,
+        transparent,
+        transparent 24px,
+        rgba(255,255,255,0.02) 24px,
+        rgba(255,255,255,0.02) 25px
+      );
     }
 
     .thumb-icon {
@@ -163,7 +156,6 @@
       font-weight: 500;
     }
 
-    /* Unique accent per card */
     .card-mieze .thumb {
       background: linear-gradient(135deg, #1a1020 0%, #2a1540 100%);
     }
@@ -186,9 +178,7 @@
       background: linear-gradient(to top, rgba(200,255,0,0.18), transparent);
     }
 
-    .card-body {
-      padding: 20px 22px 22px;
-    }
+    .card-body { padding: 20px 22px 22px; }
 
     .card-number {
       font-size: 10px;
@@ -220,17 +210,9 @@
       transition: color 0.15s;
     }
 
-    .game-card:hover .card-cta {
-      color: var(--text);
-    }
-
-    .card-cta svg {
-      transition: transform 0.15s;
-    }
-
-    .game-card:hover .card-cta svg {
-      transform: translateX(4px);
-    }
+    .game-card:hover .card-cta { color: var(--text); }
+    .card-cta svg { transition: transform 0.15s; }
+    .game-card:hover .card-cta svg { transform: translateX(4px); }
 
     footer {
       position: relative;
@@ -242,10 +224,7 @@
       letter-spacing: 0.08em;
     }
 
-    @media (prefers-reduced-motion: reduce) {
-      .game-card { transition: none; }
-    }
-
+    @media (prefers-reduced-motion: reduce) { .game-card { transition: none; } }
     @media (max-width: 480px) {
       header { padding: 48px 20px 32px; }
       .games-grid { gap: 16px; }
@@ -264,12 +243,7 @@
 
   <main class="games-grid">
 
-    <!-- Spiel 1: Mieze -->
-<<<<<<< HEAD
     <a class="game-card card-mieze" href="MiezeGame.html">
-=======
-    <a class="game-card card-mieze" href="mieze.html">
->>>>>>> 922d840b25fcbdfe607242b258d549f40be040f7
       <div class="thumb">
         <div class="thumb-icon">🐱</div>
         <span class="thumb-label">Screenshot folgt</span>
@@ -286,7 +260,6 @@
       </div>
     </a>
 
-    <!-- Spiel 2: 20ab -->
     <a class="game-card card-20ab" href="20ab.html">
       <div class="thumb">
         <div class="thumb-icon">🎯</div>
