@@ -483,15 +483,13 @@ function App() {
 
     const hasWinner = nextScores.some(s => s <= 0);
     if (hasWinner) {
-      let winnerIdx = 0;
-      let minScore = nextScores[0];
-      nextScores.forEach((s, idx) => {
-        if (s < minScore) { minScore = s; winnerIdx = idx; }
-      });
-      
+      // Mehrere Spieler können gleichzeitig auf 0 (oder weniger) fallen -> ALLE mit
+      // <= 0 Punkten gelten als gemeinsame Sieger (Geld-Teilen-Regel, siehe saveGameResult).
+      const winnerIndices = nextScores.map((s, idx) => s <= 0 ? idx : -1).filter(idx => idx !== -1);
+
       // Kappe alle Minusstände für die Historie/Abrechnung auf exakt 0
       const clampedScores = nextScores.map(s => s < 0 ? 0 : s);
-      saveGameResult(clampedScores, winnerIdx, updatedRounds);
+      saveGameResult(clampedScores, winnerIndices, updatedRounds);
     } else {
       setDealerIdx(d => (d + 1) % gamePlayers.length);
       setSelectedTrump(SUITS[0]);
@@ -508,21 +506,26 @@ function App() {
     }
   }
 
-  function saveGameResult(finalScores, winnerIdx, finishedRounds) {
+  // finalScores: Array der geclampten Endpunkte. winnerIndices: Array (meist 1 Element,
+  // kann aber mehrere enthalten, falls mehrere Spieler GLEICHZEITIG auf 0 oder weniger
+  // gefallen sind - dann teilen sie sich das Preisgeld gleichmäßig untereinander auf).
+  function saveGameResult(finalScores, winnerIndices, finishedRounds) {
     const gameId = uid();
     const timestamp = new Date().toISOString();
     const currentSessionId = activeSession ? activeSession.id : null;
     
-    const losers = gamePlayers.map((p, i) => ({ id: p.id, pts: finalScores[i], idx: i })).filter(p => p.idx !== winnerIdx);
+    const losers = gamePlayers.map((p, i) => ({ id: p.id, pts: finalScores[i], idx: i })).filter(p => !winnerIndices.includes(p.idx));
     const totalPrizeMoney = losers.reduce((sum, l) => sum + (l.pts * CENT_PER_POINT), 0);
+    // Bei mehreren gleichzeitigen Siegern wird das gesamte Preisgeld gleichmäßig geteilt.
+    const prizePerWinner = winnerIndices.length > 0 ? Math.round((totalPrizeMoney / winnerIndices.length) * 100) / 100 : 0;
     
     setRegistry(prev => {
       const updated = prev.map(p => {
         const gpIdx = gamePlayers.findIndex(gp => gp.id === p.id);
         if (gpIdx === -1) return p; 
         
-        const won = gpIdx === winnerIdx;
-        const moneyDelta = won ? totalPrizeMoney : -(finalScores[gpIdx] * CENT_PER_POINT);
+        const won = winnerIndices.includes(gpIdx);
+        const moneyDelta = won ? prizePerWinner : -(finalScores[gpIdx] * CENT_PER_POINT);
         
         return {
           ...p,
@@ -531,7 +534,7 @@ function App() {
             sessionId: currentSessionId, // null, falls (theoretisch) außerhalb einer Session gespielt
             players: gamePlayers.map(g => ({ id: g.id, name: g.name })),
             finalScores: [...finalScores],
-            winnerIdx,
+            winnerIndices: [...winnerIndices], // NEU: Array statt einzelnem winnerIdx (Mehrfachsieg möglich)
             won, moneyDelta
           }]
         };
@@ -539,7 +542,11 @@ function App() {
       return refreshBalances(updated);
     });
     
-    alert(`Spiel beendet! 🏆 ${gamePlayers[winnerIdx].name} hat gewonnen!`);
+    const winnerNames = winnerIndices.map(i => gamePlayers[i].name);
+    const winnerText = winnerNames.length > 1
+      ? `${winnerNames.slice(0, -1).join(", ")} und ${winnerNames[winnerNames.length - 1]} haben gemeinsam gewonnen! Das Preisgeld wurde geteilt.`
+      : `${winnerNames[0]} hat gewonnen!`;
+    alert(`Spiel beendet! 🏆 ${winnerText}`);
     setScreen("sessionEnd"); // Statt direkt ins Hauptmenü: Frage ob weiteres Spiel oder Session beenden
   }
 
@@ -652,22 +659,20 @@ function App() {
           return p;
         }
         
-        // Finde den wahren Gewinner (kleinster Wert vor der Kappung)
-        let newWinnerIdx = 0;
-        let minS = enteredScores[0];
-        enteredScores.forEach((s, i) => {
-          if (s < minS) { minS = s; newWinnerIdx = i; }
-        });
+        // Finde ALLE wahren Gewinner (alle Spieler mit Score <= 0 vor der Kappung,
+        // analog zur Live-Spiel-Logik in evaluateRound -> mehrere gleichzeitige Sieger möglich)
+        const newWinnerIndices = enteredScores.map((s, i) => s <= 0 ? i : -1).filter(i => i !== -1);
 
         // Alle Minuswerte für das Endergebnis auf 0 kappen
         const newFinalScores = enteredScores.map(s => s < 0 ? 0 : s);
 
         const myGpIdx = game.players.findIndex(x => x.id === p.id);
-        const won = myGpIdx === newWinnerIdx;
+        const won = newWinnerIndices.includes(myGpIdx);
         
-        const losers = game.players.map((pl, i) => ({ pts: newFinalScores[i], idx: i })).filter(l => l.idx !== newWinnerIdx);
+        const losers = game.players.map((pl, i) => ({ pts: newFinalScores[i], idx: i })).filter(l => !newWinnerIndices.includes(l.idx));
         const totalPrizeMoney = losers.reduce((sum, l) => sum + (l.pts * CENT_PER_POINT), 0);
-        const moneyDelta = won ? totalPrizeMoney : -(newFinalScores[myGpIdx] * CENT_PER_POINT);
+        const prizePerWinner = newWinnerIndices.length > 0 ? Math.round((totalPrizeMoney / newWinnerIndices.length) * 100) / 100 : 0;
+        const moneyDelta = won ? prizePerWinner : -(newFinalScores[myGpIdx] * CENT_PER_POINT);
 
         // Änderungsprotokoll: nur anlegen, wenn sich tatsächlich etwas geändert hat
         const scoresChanged = JSON.stringify(game.finalScores) !== JSON.stringify(newFinalScores);
@@ -682,7 +687,7 @@ function App() {
         updatedGames[gameIdx] = {
           ...game,
           finalScores: newFinalScores,
-          winnerIdx: newWinnerIdx,
+          winnerIndices: [...newWinnerIndices], // NEU: Array statt einzelnem winnerIdx
           won, moneyDelta,
           editHistory: newEditEntry ? [...(game.editHistory || []), newEditEntry] : (game.editHistory || []),
         };
@@ -1323,7 +1328,7 @@ function SessionCard({ sessionEntry, registry, editingGameId, setEditingGameId, 
                       return (
                         <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
                           <span>
-                            {g.winnerIdx === i ? "🏆" : ""} {p.name}{" "}
+                            {(g.winnerIndices ? g.winnerIndices.includes(i) : g.winnerIdx === i) ? "🏆" : ""} {p.name}{" "}
                             <span style={{ color: "#aaa", fontSize: "13px" }}>({g.finalScores[i]} Pkt)</span>
                             {!playerExists && (
                               <span style={{ marginLeft: "8px", fontSize: "11px", color: "#ff8c5a", fontStyle: "italic" }}>(Spieler existiert nicht mehr)</span>
