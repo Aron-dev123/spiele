@@ -711,16 +711,17 @@ function App() {
         if (gameIdx === -1) return p;
         const game = p.games[gameIdx];
         const myIdx = game.players.findIndex(pl => pl.id === p.id);
-        const won = winnerIndices.length > 0 ? winnerIndices.includes(myIdx) : game.won;
-        const moneyDelta = winnerIndices.length > 0
-          ? (won ? prizePerWinner : -(clampedScores[myIdx] * CENT_PER_POINT))
-          : game.moneyDelta;
+        // Geld immer neu berechnen, unabhängig davon ob noch ein Sieger existiert
+        const won = winnerIndices.includes(myIdx);
+        const moneyDelta = won
+          ? prizePerWinner
+          : -(clampedScores[myIdx] * CENT_PER_POINT);
         const updatedGames = [...p.games];
         updatedGames[gameIdx] = {
           ...game,
           rounds: newRounds,
           finalScores: clampedScores,
-          winnerIndices: winnerIndices.length > 0 ? winnerIndices : (game.winnerIndices || []),
+          winnerIndices,
           won,
           moneyDelta,
         };
