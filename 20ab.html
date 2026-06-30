@@ -126,9 +126,34 @@ const SUITS = [
 
 const MAX_POINTS = 20;
 const CENT_PER_POINT = 0.10;
+const SESSION_PASSWORD = "$$$";
+
+const STAMMSPIELER_NAMES = ["Adi", "Rob", "Kusi", "Basti", "Aron", "Cedi", "J", "Joel", "Cengiz"];
+
+function isStammSpieler(player) {
+  return !!player.stammSpieler || STAMMSPIELER_NAMES.includes(player.name);
+}
 
 function uid() { return Math.random().toString(36).slice(2, 9); }
 function euro(val) { const sign = val >= 0 ? "+" : ""; return sign + val.toFixed(2).replace(".", ",") + " €"; }
+
+// Stellt sicher, dass alle Stammspieler in der Registry vorhanden sind.
+// Gibt { data, changed } zurück — changed=true wenn etwas hinzugefügt/angepasst wurde.
+function ensureStammSpieler(registryData) {
+  let updated = registryData ? [...registryData] : [];
+  let changed = false;
+  STAMMSPIELER_NAMES.forEach(name => {
+    const idx = updated.findIndex(p => p.name === name);
+    if (idx === -1) {
+      updated.push({ id: uid(), name, stammSpieler: true, games: [], session: { balance: 0 } });
+      changed = true;
+    } else if (!updated[idx].stammSpieler) {
+      updated[idx] = { ...updated[idx], stammSpieler: true };
+      changed = true;
+    }
+  });
+  return { data: updated, changed };
+}
 
 // Ordnet ein Spiel (anhand seines timestamp) einem von 5 Zeit-Reitern zu.
 const HISTORY_BUCKETS = [
@@ -329,8 +354,12 @@ function App() {
     }
     const callback = (snapshot) => {
       const data = snapshot.val();
-      if (data) {
-        setRegistryRaw(refreshBalances(data));
+      const raw = data || [];
+      const { data: withStamm, changed } = ensureStammSpieler(raw);
+      const withBalances = refreshBalances(withStamm);
+      setRegistryRaw(withBalances);
+      if (changed && registryRef) {
+        registryRef.set(withBalances).catch(() => {});
       }
       setSyncState("ready");
     };
@@ -358,16 +387,22 @@ function App() {
   function addPlayer() {
     const trimmed = newName.trim();
     if (!trimmed) return;
+    if (STAMMSPIELER_NAMES.some(n => n.toLowerCase() === trimmed.toLowerCase())) {
+      alert(`"${trimmed}" ist ein Stammspieler und kann nicht als Gast angelegt werden.`);
+      return;
+    }
     if (registry.some(p => p.name.toLowerCase() === trimmed.toLowerCase())) {
       alert(`Ein Spieler namens "${trimmed}" existiert bereits!`);
       return;
     }
-    setRegistry([...registry, { id: uid(), name: trimmed, games: [], session: { balance: 0 } }]);
+    setRegistry([...registry, { id: uid(), name: trimmed, stammSpieler: false, games: [], session: { balance: 0 } }]);
     setNewName("");
   }
 
   function deletePlayer(id) {
-    if (window.confirm("Spieler wirklich löschen?")) {
+    const player = registry.find(p => p.id === id);
+    if (!player || isStammSpieler(player)) return;
+    if (window.confirm("Gast wirklich löschen?")) {
       setRegistry(prev => refreshBalances(prev.filter(p => p.id !== id)));
       setSelectedIds(prev => prev.filter(selId => selId !== id));
     }
@@ -375,6 +410,20 @@ function App() {
 
   function startGame() {
     if (selectedIds.length < 2) return;
+    // Passwort nur bei neuer Session und wenn mind. ein Stammspieler dabei ist
+    if (!activeSession) {
+      const hasStamm = selectedIds.some(id => {
+        const p = registry.find(pl => pl.id === id);
+        return p && isStammSpieler(p);
+      });
+      if (hasStamm) {
+        const pw = window.prompt("🔒 Passwort eingeben um die Session zu starten:");
+        if (pw !== SESSION_PASSWORD) {
+          alert("Falsches Passwort. Session nicht gestartet.");
+          return;
+        }
+      }
+    }
     const gp = selectedIds.map(id => registry.find(p => p.id === id));
     setGamePlayers(gp);
     setGameRounds([]);
@@ -1009,8 +1058,9 @@ function App() {
                 {sortedLeaderboard.map((p, index) => (
                   <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 15px", background: index < 3 ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.3)", borderRadius: "10px", border: index === 0 ? "1px solid #f9d423" : "1px solid transparent" }}>
                     <span style={{ fontSize: "16px", fontWeight: "bold" }}>
-                      <span style={{ marginRight: "8px" }}>{index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : "⚫"}</span> 
+                      <span style={{ marginRight: "8px" }}>{index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : "⚫"}</span>
                       {p.name}
+                      {!isStammSpieler(p) && <span style={{ marginLeft: "6px", fontSize: "11px", color: "#aaa", fontWeight: "normal", border: "1px solid #555", borderRadius: "4px", padding: "1px 5px" }}>Gast</span>}
                     </span>
                     <span style={{ fontWeight: "900", color: (p.session?.balance || 0) >= 0 ? "#43e97b" : "#ff4e50", fontSize: "16px" }}>
                       {euro(p.session?.balance || 0)}
@@ -1480,14 +1530,31 @@ function App() {
         {screen === "players" && (
           <div className="glass" style={{ padding: "25px" }}>
             <h3 style={{ marginBottom: "20px", color: "#f093fb" }}>👤 Spieler verwalten</h3>
-            <div style={{ display: "flex", gap: "10px", marginBottom: "25px" }}>
-              <input value={newName} onChange={e => setNewName(e.target.value)} style={{ flex: 1, padding: "12px", borderRadius: "12px", border: "1px solid #f093fb", background: "rgba(0,0,0,0.3)", color: "#fff", fontSize: "16px" }} placeholder="Spielername..." />
+
+            {/* Stammspieler */}
+            <div style={{ marginBottom: "20px" }}>
+              <div style={{ fontSize: "12px", color: "#aaa", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px" }}>⭐ Stammspieler</div>
+              {registry.filter(p => isStammSpieler(p)).map(p => (
+                <div key={p.id} style={{ padding: "12px 15px", background: "rgba(0,0,0,0.4)", marginBottom: "8px", borderRadius: "12px", display: "flex", justifyContent: "space-between", alignItems: "center", border: "1px solid rgba(249,212,35,0.15)" }}>
+                  <span style={{ fontSize: "16px", fontWeight: "bold" }}>{p.name}</span>
+                  <span style={{ color: (p.session?.balance || 0) >= 0 ? "#43e97b" : "#ff4e50", fontWeight: "bold" }}>{euro(p.session?.balance || 0)}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Gäste */}
+            <div style={{ fontSize: "12px", color: "#aaa", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px" }}>👤 Gäste</div>
+            <div style={{ display: "flex", gap: "10px", marginBottom: "12px" }}>
+              <input value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === "Enter" && addPlayer()} style={{ flex: 1, padding: "12px", borderRadius: "12px", border: "1px solid #f093fb", background: "rgba(0,0,0,0.3)", color: "#fff", fontSize: "16px" }} placeholder="Gastname..." />
               <button onClick={addPlayer} style={{ ...btnStyle, background: "linear-gradient(45deg, #f093fb, #f5576c)", padding: "0 20px", fontSize: "20px" }}>+</button>
             </div>
             <div>
-              {registry.map(p => (
-                <div key={p.id} style={{ padding: "12px 15px", background: "rgba(0,0,0,0.4)", marginBottom: "10px", borderRadius: "12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: "16px", fontWeight: "bold" }}>{p.name}</span> 
+              {registry.filter(p => !isStammSpieler(p)).length === 0 && (
+                <div style={{ color: "#666", fontSize: "13px", fontStyle: "italic" }}>Noch keine Gäste angelegt.</div>
+              )}
+              {registry.filter(p => !isStammSpieler(p)).map(p => (
+                <div key={p.id} style={{ padding: "12px 15px", background: "rgba(0,0,0,0.4)", marginBottom: "8px", borderRadius: "12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: "16px", fontWeight: "bold" }}>{p.name}</span>
                   <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
                     <span style={{ color: (p.session?.balance || 0) >= 0 ? "#43e97b" : "#ff4e50", fontWeight: "bold" }}>{euro(p.session?.balance || 0)}</span>
                     <button onClick={() => deletePlayer(p.id)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "18px" }}>🗑️</button>
@@ -1502,15 +1569,32 @@ function App() {
         {screen === "select" && (
           <div className="glass" style={{ padding: "25px" }}>
             <h3 style={{ marginBottom: "20px", color: "#00f2fe" }}>🎴 Wer spielt mit?</h3>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-              {registry.map(p => (
-                <div key={p.id} onClick={() => setSelectedIds(prev => prev.includes(p.id) ? prev.filter(id=>id!==p.id) : [...prev, p.id])} 
-                     style={{ padding: "15px", textAlign: "center", fontWeight: "bold", background: selectedIds.includes(p.id) ? "linear-gradient(45deg, #00f2fe, #4facfe)" : "rgba(0,0,0,0.4)", border: selectedIds.includes(p.id) ? "none" : "1px solid rgba(255,255,255,0.15)", borderRadius: "12px", cursor: "pointer" }}>
+
+            <div style={{ fontSize: "12px", color: "#aaa", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px" }}>⭐ Stammspieler</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "18px" }}>
+              {registry.filter(p => isStammSpieler(p)).map(p => (
+                <div key={p.id} onClick={() => setSelectedIds(prev => prev.includes(p.id) ? prev.filter(id => id !== p.id) : [...prev, p.id])}
+                     style={{ padding: "13px", textAlign: "center", fontWeight: "bold", background: selectedIds.includes(p.id) ? "linear-gradient(45deg, #f9d423, #ff8c00)" : "rgba(0,0,0,0.4)", border: selectedIds.includes(p.id) ? "none" : "1px solid rgba(249,212,35,0.2)", borderRadius: "12px", cursor: "pointer" }}>
                   {p.name}
                 </div>
               ))}
             </div>
-            <button onClick={startGame} className="pulse-btn" style={{ ...btnStyle, background: "linear-gradient(45deg, #f9d423, #ff4e50)", width: "100%", marginTop: "25px", opacity: selectedIds.length < 2 ? 0.4 : 1 }} disabled={selectedIds.length < 2}>
+
+            {registry.filter(p => !isStammSpieler(p)).length > 0 && (
+              <>
+                <div style={{ fontSize: "12px", color: "#aaa", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px" }}>👤 Gäste</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "18px" }}>
+                  {registry.filter(p => !isStammSpieler(p)).map(p => (
+                    <div key={p.id} onClick={() => setSelectedIds(prev => prev.includes(p.id) ? prev.filter(id => id !== p.id) : [...prev, p.id])}
+                         style={{ padding: "13px", textAlign: "center", fontWeight: "bold", background: selectedIds.includes(p.id) ? "linear-gradient(45deg, #00f2fe, #4facfe)" : "rgba(0,0,0,0.4)", border: selectedIds.includes(p.id) ? "none" : "1px solid rgba(255,255,255,0.15)", borderRadius: "12px", cursor: "pointer" }}>
+                      {p.name}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            <button onClick={startGame} className="pulse-btn" style={{ ...btnStyle, background: "linear-gradient(45deg, #f9d423, #ff4e50)", width: "100%", marginTop: "5px", opacity: selectedIds.length < 2 ? 0.4 : 1 }} disabled={selectedIds.length < 2}>
               🚀 SPIEL STARTEN
             </button>
           </div>
