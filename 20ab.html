@@ -650,8 +650,8 @@ function App() {
   // "Runde neu starten": das laufende Spiel wird verworfen, direkt im Anschluss startet
   // automatisch ein NEUES Spiel mit denselben Spielern in derselben Session (alle wieder
   // bei 20 Punkten). Der Session-Geldscore bleibt davon komplett unberührt.
-  function restartCurrentRound() {
-    if (!window.confirm("Runde wirklich neu starten? Der aktuelle Punktestand geht verloren.")) return;
+  function restartCurrentGame() {
+    if (!window.confirm("Spiel wirklich neu starten? Der aktuelle Punktestand geht verloren.")) return;
     restartCurrentGameInSession();
   }
 
@@ -677,7 +677,7 @@ function App() {
   // "Session beenden" (Abbruch-Variante): beendet die Session SOFORT, OHNE das gerade
   // laufende (unbeendete) Spiel in die Abrechnung einzubeziehen - der aktuelle
   // Punktestand des laufenden Spiels wird komplett ignoriert/verworfen.
-  function abortSessionDiscardRound() {
+  function abortSessionDiscardGame() {
     if (!window.confirm("Session wirklich beenden? Der aktuelle Punktestand des laufenden Spiels wird NICHT mit einbezogen.")) return;
     endSession();
   }
@@ -1028,10 +1028,10 @@ function App() {
 
               {/* Abbruch-Buttons: jederzeit während einer laufenden Partie verfügbar */}
               <div style={{ display: "flex", gap: "8px", marginBottom: "25px" }}>
-                <button onClick={restartCurrentRound} style={{ ...btnStyle, flex: 1, padding: "9px", fontSize: "12px", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)" }}>
-                  ⏹️ Runde neu starten
+                <button onClick={restartCurrentGame} style={{ ...btnStyle, flex: 1, padding: "9px", fontSize: "12px", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)" }}>
+                  ⏹️ Spiel neu starten
                 </button>
-                <button onClick={abortSessionDiscardRound} style={{ ...btnStyle, flex: 1, padding: "9px", fontSize: "12px", background: "rgba(255,78,80,0.12)", border: "1px solid rgba(255,78,80,0.35)", color: "#ff8c8c" }}>
+                <button onClick={abortSessionDiscardGame} style={{ ...btnStyle, flex: 1, padding: "9px", fontSize: "12px", background: "rgba(255,78,80,0.12)", border: "1px solid rgba(255,78,80,0.35)", color: "#ff8c8c" }}>
                   🚫 Session beenden
                 </button>
               </div>
