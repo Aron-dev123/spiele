@@ -160,9 +160,20 @@ function BackgroundEffects() {
 const firebaseConfig = {
   databaseURL: "https://schaefer-games-default-rtdb.europe-west1.firebasedatabase.app/"
 };
-firebase.initializeApp(firebaseConfig);
-const db = firebase.database();
-const registryRef = db.ref("20ab/registry");
+let db = null;
+let registryRef = null;
+let firebaseInitError = null;
+try {
+  if (typeof firebase === "undefined") {
+    throw new Error("Firebase SDK wurde nicht geladen (CDN-Skript fehlgeschlagen oder blockiert).");
+  }
+  firebase.initializeApp(firebaseConfig);
+  db = firebase.database();
+  registryRef = db.ref("20ab/registry");
+} catch (e) {
+  firebaseInitError = e.message;
+  console.error("Firebase-Initialisierung fehlgeschlagen:", e);
+}
 
 const STORAGE_KEY = "20ab-final-data"; // (nur noch als Bezeichner verwendet, kein localStorage mehr)
 
@@ -194,6 +205,10 @@ function App() {
   // onValue feuert sofort beim ersten Laden UND danach jedes Mal, wenn sich
   // irgendein anderes Gerät ändert -> echte Echtzeit-Synchronisation, kein Polling nötig.
   useEffect(() => {
+    if (!registryRef) {
+      setSyncState("error");
+      return;
+    }
     const callback = (snapshot) => {
       const data = snapshot.val();
       if (data) {
@@ -209,13 +224,12 @@ function App() {
   }, []);
 
   // setRegistry: aktualisiert lokalen State sofort UND schreibt nach Firebase.
-  // Während einer laufenden Partie (screen === "game") wird NICHT in Firebase
-  // geschrieben, da dort kein registry-Update passiert (Live-Rundenstand lebt in
-  // gameRounds/gamePlayers) - geschrieben wird erst beim Speichern eines Spielergebnisses.
   function setRegistry(updater) {
     setRegistryRaw(prev => {
       const next = typeof updater === "function" ? updater(prev) : updater;
-      registryRef.set(next).catch(() => setSyncState("error"));
+      if (registryRef) {
+        registryRef.set(next).catch(() => setSyncState("error"));
+      }
       return next;
     });
   }
@@ -492,7 +506,9 @@ function App() {
         
         <h1 className="neon-text" onClick={() => setScreen("home")} style={{ cursor: "pointer", margin: "15px 0 5px 0" }}>🃏 20 AB</h1>
         <div style={{ textAlign: "center", marginBottom: "20px", fontSize: "11px", color: syncState === "error" ? "#ff4e50" : "#43e97b", letterSpacing: "1px" }}>
-          {syncState === "error" ? "⚠️ Sync-Fehler — Änderung evtl. nicht gespeichert" : "● Live verbunden (Firebase)"}
+          {syncState === "error"
+            ? `⚠️ Sync-Fehler${firebaseInitError ? " — " + firebaseInitError : " — Änderung evtl. nicht gespeichert"}`
+            : "● Live verbunden (Firebase)"}
         </div>
 
         {screen !== "home" && (
