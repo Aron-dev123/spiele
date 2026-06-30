@@ -117,10 +117,11 @@
 const { useState, useEffect } = React;
 
 const SUITS = [
-  { id: "eichel", label: "Eichel", emoji: "🌰", color: "#a0522d", double: false },
-  { id: "herz", label: "Herz", emoji: "❤️", color: "#ff0844", double: true },
-  { id: "bollen", label: "Bollen", emoji: "🔔", color: "#ff512f", double: false },
-  { id: "blatt", label: "Blatt", emoji: "🍃", color: "#0ba360", double: false }
+  { id: "eichel", label: "Eichel", emoji: "🌰", color: "#a0522d", double: false, multiplier: 1 },
+  { id: "herz", label: "Herz", emoji: "❤️", color: "#ff0844", double: true, multiplier: 2 },
+  { id: "bollen", label: "Bollen", emoji: "🔔", color: "#ff512f", double: false, multiplier: 1 },
+  { id: "blatt", label: "Blatt", emoji: "🍃", color: "#0ba360", double: false, multiplier: 1 },
+  { id: "herzblind", label: "Herz Blind", emoji: "🃏❤️", color: "#7b1fa2", double: true, multiplier: 4 }
 ];
 
 const MAX_POINTS = 20;
@@ -129,6 +130,29 @@ const CENT_PER_POINT = 0.10;
 function uid() { return Math.random().toString(36).slice(2, 9); }
 function euro(val) { const sign = val >= 0 ? "+" : ""; return sign + val.toFixed(2).replace(".", ",") + " €"; }
 
+// Ordnet ein Spiel (anhand seines timestamp) einem von 5 Zeit-Reitern zu.
+const HISTORY_BUCKETS = [
+  { id: "heute", label: "📅 Heute" },
+  { id: "gestern", label: "🌙 Gestern" },
+  { id: "woche", label: "📆 Diese Woche" },
+  { id: "aelterWoche", label: "🗓️ Älter als eine Woche" },
+  { id: "aelterMonat", label: "🗓️ Älter als ein Monat" },
+];
+function getHistoryBucket(timestamp) {
+  const now = new Date();
+  const d = new Date(timestamp);
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfYesterday = new Date(startOfToday); startOfYesterday.setDate(startOfYesterday.getDate() - 1);
+  const startOfWeek = new Date(startOfToday); startOfWeek.setDate(startOfWeek.getDate() - 7);
+  const startOfMonth = new Date(startOfToday); startOfMonth.setDate(startOfMonth.getDate() - 30);
+
+  if (d >= startOfToday) return "heute";
+  if (d >= startOfYesterday) return "gestern";
+  if (d >= startOfWeek) return "woche";
+  if (d >= startOfMonth) return "aelterWoche";
+  return "aelterMonat";
+}
+
 // Berechnet die dynamischen Spielstände basierend auf der Rundenhistorie eines Spiels
 function calculateScoresFromRounds(players, rounds) {
   let currentScores = players.map(() => MAX_POINTS);
@@ -136,7 +160,7 @@ function calculateScoresFromRounds(players, rounds) {
   players.forEach(p => currentRaus[p.id] = 0);
 
   rounds.forEach((r) => {
-    const multiplier = r.trump.double ? 2 : 1;
+    const multiplier = r.trump.multiplier ?? (r.trump.double ? 2 : 1); // Fallback für alte gespeicherte Runden ohne multiplier-Feld
     players.forEach((p, idx) => {
       const forcedByTrump = r.trump.id === "eichel";
       const forcedByPoints = currentScores[idx] <= 6;
@@ -230,6 +254,9 @@ function App() {
   // Edit States für alte Spiele
   const [editingGameId, setEditingGameId] = useState(null);
   const [editScores, setEditScores] = useState({});
+
+  // Welche Zeit-Reiter in der Historie aufgeklappt sind (standardmäßig alle zu)
+  const [expandedBuckets, setExpandedBuckets] = useState({});
 
   // Edit States für laufende Runden
   const [editingRoundIdx, setEditingRoundIdx] = useState(null);
@@ -659,13 +686,28 @@ function App() {
               {roundPhase === "setup" && (
                 <div>
                   <h3 style={{ color: "#f9d423", marginBottom: "10px", fontSize: "15px" }}>1. Trumpf auswählen:</h3>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "8px", marginBottom: "20px" }}>
-                    {SUITS.map(s => (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "8px", marginBottom: "10px" }}>
+                    {SUITS.filter(s => s.id !== "herzblind").map(s => (
                       <button key={s.id} onClick={() => handleTrumpChange(s)} style={{ ...btnStyle, padding: "10px 5px", fontSize: "13px", background: selectedTrump.id === s.id ? s.color : "rgba(0,0,0,0.4)", border: selectedTrump.id === s.id ? "2px solid #fff" : "none" }}>
                         {s.emoji} {s.label}
                       </button>
                     ))}
                   </div>
+                  {/* Herz Blind: eigene, optisch abgesetzte Zeile, da Sonderregel (×4) statt normalem Trumpf */}
+                  {(() => {
+                    const herzBlind = SUITS.find(s => s.id === "herzblind");
+                    const active = selectedTrump.id === "herzblind";
+                    return (
+                      <button onClick={() => handleTrumpChange(herzBlind)} style={{
+                        ...btnStyle, width: "100%", padding: "12px 5px", fontSize: "14px", marginBottom: "20px",
+                        background: active ? `linear-gradient(45deg, ${herzBlind.color}, #d81b60)` : "rgba(123,31,162,0.15)",
+                        border: active ? "2px solid #fff" : "1px dashed #7b1fa2",
+                        boxShadow: active ? "0 0 15px #7b1fa2" : "none",
+                      }}>
+                        {herzBlind.emoji} {herzBlind.label} (×4) {!active && "— ab 50 Punkten ansagbar"}
+                      </button>
+                    );
+                  })()}
 
                   <h3 style={{ color: "#f9d423", marginBottom: "10px", fontSize: "15px" }}>2. Wer geht mit?</h3>
                   {gamePlayers.map((p, idx) => {
@@ -779,99 +821,144 @@ function App() {
         {screen === "history" && (
           <div>
             <h2 style={{ color: "#f9d423", marginBottom: "20px" }}>🕰️ Spielhistorie</h2>
-            {getUniqueGames().map(g => {
-              const isDeleted = !!g.deleted;
-              return (
-              <div key={g.id} className="glass" style={{ padding: "15px", borderLeft: `5px solid ${isDeleted ? "#888" : "#00f2fe"}`, background: isDeleted ? "rgba(80,80,80,0.25)" : "rgba(0,0,0,0.4)", opacity: isDeleted ? 0.75 : 1 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px", fontSize: "13px", color: "#aaa" }}>
-                  <span>
-                    {g.date}
-                    {isDeleted && <span style={{ marginLeft: "10px", color: "#ff4e50", fontWeight: "bold", border: "1px solid #ff4e50", borderRadius: "5px", padding: "2px 8px", fontSize: "11px" }}>🗑️ GELÖSCHT</span>}
-                  </span>
-                  {editingGameId !== g.id && (
-                    <div style={{ display: "flex", gap: "10px" }}>
-                      {!isDeleted && (
-                        <button onClick={() => {
-                          setEditingGameId(g.id);
-                          const initialScores = {};
-                          g.players.forEach((p, idx) => { initialScores[p.id] = g.finalScores[idx]; });
-                          setEditScores(initialScores);
-                        }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "14px" }}>✏️ Endpunkte korrigieren</button>
-                      )}
-                      {isDeleted ? (
-                        <button onClick={() => restorePastGame(g.id)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "14px", color: "#43e97b" }}>↩️ Wiederherstellen</button>
-                      ) : (
-                        <button onClick={() => deletePastGame(g.id)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "14px", color: "#ff4e50" }}>🗑️ Löschen</button>
-                      )}
+            {(() => {
+              const allGames = getUniqueGames();
+              // Gruppiere alle Spiele nach Zeit-Reiter
+              const grouped = {};
+              HISTORY_BUCKETS.forEach(b => { grouped[b.id] = []; });
+              allGames.forEach(g => { grouped[getHistoryBucket(g.timestamp)].push(g); });
+
+              if (allGames.length === 0) {
+                return <div className="glass" style={{ padding: "20px", textAlign: "center", color: "#aaa" }}>Noch keine Spiele gespeichert.</div>;
+              }
+
+              return HISTORY_BUCKETS.map(bucket => {
+                const gamesInBucket = grouped[bucket.id];
+                if (gamesInBucket.length === 0) return null; // leere Reiter gar nicht erst anzeigen
+                const isOpen = !!expandedBuckets[bucket.id];
+
+                return (
+                  <div key={bucket.id} className="glass" style={{ padding: 0, overflow: "hidden" }}>
+                    {/* Reiter-Kopfzeile, klickbar zum Auf-/Zuklappen */}
+                    <div
+                      onClick={() => setExpandedBuckets(prev => ({ ...prev, [bucket.id]: !prev[bucket.id] }))}
+                      style={{
+                        display: "flex", justifyContent: "space-between", alignItems: "center",
+                        padding: "16px 18px", cursor: "pointer",
+                        background: isOpen ? "rgba(0,242,254,0.08)" : "transparent",
+                      }}
+                    >
+                      <span style={{ fontWeight: "bold", fontSize: "15px", color: "#f9d423" }}>{bucket.label}</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                        <span style={{ fontSize: "12px", color: "#aaa", background: "rgba(255,255,255,0.08)", padding: "3px 10px", borderRadius: "20px" }}>
+                          {gamesInBucket.length} {gamesInBucket.length === 1 ? "Spiel" : "Spiele"}
+                        </span>
+                        <span style={{ fontSize: "18px", transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>▾</span>
+                      </div>
                     </div>
-                  )}
-                </div>
 
-                {editingGameId !== g.id ? (
-                  <div>
-                    {g.players.map((p, i) => {
-                      const regPlayer = registry.find(rp => rp.id === p.id);
-                      const playerExists = !!regPlayer;
-                      const specificGame = regPlayer?.games?.find(rg => rg.id === g.id);
-                      return (
-                        <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-                          <span>
-                            {g.winnerIdx === i ? "🏆" : ""} {p.name}{" "}
-                            <span style={{ color: "#aaa", fontSize: "13px" }}>({g.finalScores[i]} Pkt)</span>
-                            {!playerExists && (
-                              <span style={{ marginLeft: "8px", fontSize: "11px", color: "#ff8c5a", fontStyle: "italic" }}>(Spieler existiert nicht mehr)</span>
-                            )}
-                          </span>
-                          <span style={{ color: isDeleted ? "#888" : ((specificGame?.moneyDelta || 0) >= 0 ? "#43e97b" : "#ff4e50"), fontWeight: "bold", textDecoration: isDeleted ? "line-through" : "none" }}>
-                            {playerExists ? euro(specificGame?.moneyDelta || 0) : "—"}
-                          </span>
-                        </div>
-                      );
-                    })}
-
-                    {/* Änderungsprotokoll, falls dieses Spiel jemals korrigiert wurde */}
-                    {g.editHistory && g.editHistory.length > 0 && (
-                      <div style={{ marginTop: "10px", paddingTop: "10px", borderTop: "1px dashed rgba(255,255,255,0.15)" }}>
-                        <div style={{ fontSize: "11px", color: "#f9d423", fontWeight: "bold", marginBottom: "6px" }}>📝 Änderungsverlauf:</div>
-                        {g.editHistory.map((edit, ei) => (
-                          <div key={ei} style={{ fontSize: "11px", color: "#bbb", marginBottom: "4px", lineHeight: "1.5" }}>
-                            {new Date(edit.timestamp).toLocaleString("de-DE")}:{" "}
-                            {edit.playerNames.map((pname, pi) => {
-                              if (edit.oldScores[pi] === edit.newScores[pi]) return null;
-                              return (
-                                <span key={pi} style={{ marginRight: "10px" }}>
-                                  {pname}: <span style={{ color: "#ff8c5a" }}>{edit.oldScores[pi]}</span> → <span style={{ color: "#43e97b" }}>{edit.newScores[pi]}</span> Pkt
+                    {/* Inhalt des Reiters: nur rendern wenn aufgeklappt */}
+                    {isOpen && (
+                      <div style={{ padding: "0 15px 15px" }}>
+                        {gamesInBucket.map(g => {
+                          const isDeleted = !!g.deleted;
+                          return (
+                            <div key={g.id} style={{ padding: "15px", marginTop: "12px", borderRadius: "12px", borderLeft: `5px solid ${isDeleted ? "#888" : "#00f2fe"}`, background: isDeleted ? "rgba(80,80,80,0.25)" : "rgba(0,0,0,0.4)", opacity: isDeleted ? 0.75 : 1 }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px", fontSize: "13px", color: "#aaa" }}>
+                                <span>
+                                  {g.date}
+                                  {isDeleted && <span style={{ marginLeft: "10px", color: "#ff4e50", fontWeight: "bold", border: "1px solid #ff4e50", borderRadius: "5px", padding: "2px 8px", fontSize: "11px" }}>🗑️ GELÖSCHT</span>}
                                 </span>
-                              );
-                            })}
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                                {editingGameId !== g.id && (
+                                  <div style={{ display: "flex", gap: "10px" }}>
+                                    {!isDeleted && (
+                                      <button onClick={() => {
+                                        setEditingGameId(g.id);
+                                        const initialScores = {};
+                                        g.players.forEach((p, idx) => { initialScores[p.id] = g.finalScores[idx]; });
+                                        setEditScores(initialScores);
+                                      }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "14px" }}>✏️ Endpunkte korrigieren</button>
+                                    )}
+                                    {isDeleted ? (
+                                      <button onClick={() => restorePastGame(g.id)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "14px", color: "#43e97b" }}>↩️ Wiederherstellen</button>
+                                    ) : (
+                                      <button onClick={() => deletePastGame(g.id)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "14px", color: "#ff4e50" }}>🗑️ Löschen</button>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
 
-                    {isDeleted && g.deletedAt && (
-                      <div style={{ marginTop: "8px", fontSize: "11px", color: "#888", fontStyle: "italic" }}>
-                        Gelöscht am {new Date(g.deletedAt).toLocaleString("de-DE")}
+                              {editingGameId !== g.id ? (
+                                <div>
+                                  {g.players.map((p, i) => {
+                                    const regPlayer = registry.find(rp => rp.id === p.id);
+                                    const playerExists = !!regPlayer;
+                                    const specificGame = regPlayer?.games?.find(rg => rg.id === g.id);
+                                    return (
+                                      <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                                        <span>
+                                          {g.winnerIdx === i ? "🏆" : ""} {p.name}{" "}
+                                          <span style={{ color: "#aaa", fontSize: "13px" }}>({g.finalScores[i]} Pkt)</span>
+                                          {!playerExists && (
+                                            <span style={{ marginLeft: "8px", fontSize: "11px", color: "#ff8c5a", fontStyle: "italic" }}>(Spieler existiert nicht mehr)</span>
+                                          )}
+                                        </span>
+                                        <span style={{ color: isDeleted ? "#888" : ((specificGame?.moneyDelta || 0) >= 0 ? "#43e97b" : "#ff4e50"), fontWeight: "bold", textDecoration: isDeleted ? "line-through" : "none" }}>
+                                          {playerExists ? euro(specificGame?.moneyDelta || 0) : "—"}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
+
+                                  {/* Änderungsprotokoll, falls dieses Spiel jemals korrigiert wurde */}
+                                  {g.editHistory && g.editHistory.length > 0 && (
+                                    <div style={{ marginTop: "10px", paddingTop: "10px", borderTop: "1px dashed rgba(255,255,255,0.15)" }}>
+                                      <div style={{ fontSize: "11px", color: "#f9d423", fontWeight: "bold", marginBottom: "6px" }}>📝 Änderungsverlauf:</div>
+                                      {g.editHistory.map((edit, ei) => (
+                                        <div key={ei} style={{ fontSize: "11px", color: "#bbb", marginBottom: "4px", lineHeight: "1.5" }}>
+                                          {new Date(edit.timestamp).toLocaleString("de-DE")}:{" "}
+                                          {edit.playerNames.map((pname, pi) => {
+                                            if (edit.oldScores[pi] === edit.newScores[pi]) return null;
+                                            return (
+                                              <span key={pi} style={{ marginRight: "10px" }}>
+                                                {pname}: <span style={{ color: "#ff8c5a" }}>{edit.oldScores[pi]}</span> → <span style={{ color: "#43e97b" }}>{edit.newScores[pi]}</span> Pkt
+                                              </span>
+                                            );
+                                          })}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+
+                                  {isDeleted && g.deletedAt && (
+                                    <div style={{ marginTop: "8px", fontSize: "11px", color: "#888", fontStyle: "italic" }}>
+                                      Gelöscht am {new Date(g.deletedAt).toLocaleString("de-DE")}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <div style={{ background: "rgba(0,0,0,0.5)", padding: "10px", borderRadius: "8px" }}>
+                                  {g.players.map((p) => (
+                                    <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                                      <span>{p.name}:</span>
+                                      <input type="number" value={editScores[p.id] || 0} onChange={e => setEditScores({ ...editScores, [p.id]: e.target.value })} style={{ width: "70px", padding: "5px", borderRadius: "5px", border: "1px solid #ccc", background: "#000", color: "#fff", textAlign: "center" }} />
+                                    </div>
+                                  ))}
+                                  <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
+                                    <button onClick={() => setEditingGameId(null)} style={{ ...btnStyle, padding: "6px 12px", fontSize: "12px", background: "#aaa" }}>Abbrechen</button>
+                                    <button onClick={() => saveEditedPastGame(g.id)} style={{ ...btnStyle, padding: "6px 12px", fontSize: "12px", background: "#43e97b", color: "#000" }}>Speichern & Synchronisieren</button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
-                ) : (
-                  <div style={{ background: "rgba(0,0,0,0.5)", padding: "10px", borderRadius: "8px" }}>
-                    {g.players.map((p) => (
-                      <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                        <span>{p.name}:</span>
-                        <input type="number" value={editScores[p.id] || 0} onChange={e => setEditScores({ ...editScores, [p.id]: e.target.value })} style={{ width: "70px", padding: "5px", borderRadius: "5px", border: "1px solid #ccc", background: "#000", color: "#fff", textAlign: "center" }} />
-                      </div>
-                    ))}
-                    <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
-                      <button onClick={() => setEditingGameId(null)} style={{ ...btnStyle, padding: "6px 12px", fontSize: "12px", background: "#aaa" }}>Abbrechen</button>
-                      <button onClick={() => saveEditedPastGame(g.id)} style={{ ...btnStyle, padding: "6px 12px", fontSize: "12px", background: "#43e97b", color: "#000" }}>Speichern & Synchronisieren</button>
-                    </div>
-                  </div>
-                )}
-              </div>
-              );
-            })}
+                );
+              });
+            })()}
           </div>
         )}
 
