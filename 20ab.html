@@ -154,6 +154,11 @@ function getHistoryBucket(timestamp) {
 }
 
 // Berechnet die dynamischen Spielstände basierend auf der Rundenhistorie eines Spiels
+// Sonderregel ANSAGER (gilt NICHT bei Herz Blind, da dort kein Ansager existiert):
+// - Macht er >= seine angesagte Stichzahl (r.bidTricks): normale Regel wie jeder Mitspieler
+//   (Punkte runter je gemachtem Stich, mit Trumpf-Multiplikator).
+// - Macht er WENIGER als angesagt: er läuft (6 + bidTricks) * multiplier nach OBEN,
+//   unabhängig davon wie viele Stiche er tatsächlich gemacht hat (0 oder mehr, aber < bidTricks).
 function calculateScoresFromRounds(players, rounds) {
   let currentScores = players.map(() => MAX_POINTS);
   let currentRaus = {};
@@ -161,18 +166,25 @@ function calculateScoresFromRounds(players, rounds) {
 
   rounds.forEach((r) => {
     const multiplier = r.trump.multiplier ?? (r.trump.double ? 2 : 1); // Fallback für alte gespeicherte Runden ohne multiplier-Feld
+    const isAnsagerRound = r.trump.id !== "herzblind" && !!r.ansagerId;
     players.forEach((p, idx) => {
       const forcedByTrump = r.trump.id === "eichel";
+      const forcedByAnsager = isAnsagerRound && r.ansagerId === p.id; // Ansager kann nicht raus
       const forcedByPoints = currentScores[idx] <= 6;
       const forcedByRaus = currentRaus[p.id] >= 2;
-      const isForced = forcedByTrump || forcedByPoints || forcedByRaus;
+      const isForced = forcedByTrump || forcedByAnsager || forcedByPoints || forcedByRaus;
       
       const status = isForced ? "mit" : r.playerStatus[p.id];
       const tricks = r.playerTricks[p.id] || 0;
 
       if (status === "mit") {
         currentRaus[p.id] = 0;
-        if (tricks > 0) {
+        const isAnsagerHere = isAnsagerRound && r.ansagerId === p.id;
+        if (isAnsagerHere && tricks < r.bidTricks) {
+          // Ansager hat sein Ansage-Ziel verfehlt -> läuft (6 + bidTricks) * multiplier nach oben
+          currentScores[idx] += ((6 + r.bidTricks) * multiplier);
+        } else if (tricks > 0) {
+          // Normalfall (auch für den Ansager, falls er sein Ziel erreicht/übertroffen hat)
           currentScores[idx] -= (tricks * multiplier);
         } else {
           currentScores[idx] += (6 * multiplier);
@@ -250,6 +262,8 @@ function App() {
   const [selectedTrump, setSelectedTrump] = useState(SUITS[0]);
   const [playerStatus, setPlayerStatus] = useState({}); 
   const [playerTricks, setPlayerTricks] = useState({}); 
+  const [ansagerId, setAnsagerId] = useState(null); // ID des Spielers, der den Trumpf angesagt hat
+  const [bidTricks, setBidTricks] = useState(2); // Anzahl der vom Ansager angesagten Stiche (1-6)
 
   // Edit States für alte Spiele
   const [editingGameId, setEditingGameId] = useState(null);
@@ -322,6 +336,8 @@ function App() {
     setGameRounds([]);
     setDealerIdx(0);
     setSelectedTrump(SUITS[0]);
+    setAnsagerId(null);
+    setBidTricks(2);
     initRound(gp, SUITS[0]);
     setScreen("game");
   }
@@ -336,10 +352,15 @@ function App() {
     });
     setPlayerStatus(initialStatus);
     setPlayerTricks(initialTricks);
+    setAnsagerId(null);
+    setBidTricks(2);
   }
 
-  function getForcedReason(player, idx, trump, overrideScores = currentScores, overrideRaus = consecutiveRaus) {
+  // Ansager kann (wie bei Eichel) nicht raus gehen - daher als eigener "forced"-Grund.
+  // Gilt nicht bei Herz Blind, da es dort keinen Ansager gibt.
+  function getForcedReason(player, idx, trump, ansagerOverride = ansagerId, overrideScores = currentScores, overrideRaus = consecutiveRaus) {
     if (trump.id === "eichel") return "🌰 Eichel-Runde Pflicht";
+    if (trump.id !== "herzblind" && ansagerOverride === player.id) return "📣 Ansager Pflicht";
     if (overrideScores[idx] <= 6) return "⚠️ Punkte ≤ 6 Pflicht";
     if (overrideRaus[player.id] >= 2) return "🚨 3. Mal Pflicht";
     return null;
@@ -352,9 +373,26 @@ function App() {
       gamePlayers.forEach(p => { updatedStatus[p.id] = "mit"; });
       setPlayerStatus(updatedStatus);
     }
+    // Herz Blind hat keinen Ansager -> beim Wechsel dorthin Auswahl zurücksetzen
+    if (trump.id === "herzblind") {
+      setAnsagerId(null);
+    }
+  }
+
+  // Setzt den Ansager und erzwingt für ihn automatisch "Mit" (analog zu Eichel)
+  function handleAnsagerChange(playerId) {
+    setAnsagerId(playerId);
+    if (playerId) {
+      setPlayerStatus(prev => ({ ...prev, [playerId]: "mit" }));
+    }
   }
 
   function proceedToTricks() {
+    if (selectedTrump.id !== "herzblind" && !ansagerId) {
+      alert("Bitte zuerst einen Ansager auswählen!");
+      return;
+    }
+
     let updatedStatus = { ...playerStatus };
     gamePlayers.forEach((p, idx) => {
       if (getForcedReason(p, idx, selectedTrump)) {
@@ -394,7 +432,9 @@ function App() {
       trump: selectedTrump,
       playerStatus: { ...playerStatus },
       playerTricks: { ...playerTricks },
-      dealerIdx: dealerIdx
+      dealerIdx: dealerIdx,
+      ansagerId: selectedTrump.id === "herzblind" ? null : ansagerId,
+      bidTricks: selectedTrump.id === "herzblind" ? null : bidTricks,
     };
 
     const updatedRounds = [...gameRounds, newRoundData];
@@ -709,7 +749,40 @@ function App() {
                     );
                   })()}
 
-                  <h3 style={{ color: "#f9d423", marginBottom: "10px", fontSize: "15px" }}>2. Wer geht mit?</h3>
+                  {/* Ansager-Auswahl: nur bei normalen Trümpfen, bei Herz Blind gibt es keinen Ansager */}
+                  {selectedTrump.id !== "herzblind" && (
+                    <div style={{ marginBottom: "20px" }}>
+                      <h3 style={{ color: "#f9d423", marginBottom: "10px", fontSize: "15px" }}>2. Ansager & Ansage:</h3>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "10px" }}>
+                        {gamePlayers.map(p => (
+                          <button key={p.id} onClick={() => handleAnsagerChange(p.id)} style={{
+                            ...btnStyle, padding: "8px 14px", fontSize: "13px",
+                            background: ansagerId === p.id ? "linear-gradient(45deg, #f9d423, #ff512f)" : "rgba(0,0,0,0.4)",
+                            color: ansagerId === p.id ? "#000" : "#fff",
+                            border: ansagerId === p.id ? "2px solid #fff" : "none",
+                          }}>
+                            📣 {p.name}
+                          </button>
+                        ))}
+                      </div>
+                      {ansagerId && (
+                        <div style={{ display: "flex", alignItems: "center", gap: "10px", background: "rgba(0,0,0,0.3)", padding: "10px", borderRadius: "8px" }}>
+                          <span style={{ fontSize: "13px" }}>Angesagte Stiche:</span>
+                          <div style={{ display: "flex", gap: "4px" }}>
+                            {[1,2,3,4,5,6].map(n => (
+                              <button key={n} onClick={() => setBidTricks(n)} style={{
+                                width: "32px", height: "32px", borderRadius: "6px", border: "none", fontWeight: "bold", cursor: "pointer",
+                                background: bidTricks === n ? "#f9d423" : "rgba(255,255,255,0.1)",
+                                color: bidTricks === n ? "#000" : "#fff",
+                              }}>{n}</button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <h3 style={{ color: "#f9d423", marginBottom: "10px", fontSize: "15px" }}>{selectedTrump.id !== "herzblind" ? "3." : "2."} Wer geht mit?</h3>
                   {gamePlayers.map((p, idx) => {
                     const forcedReason = getForcedReason(p, idx, selectedTrump);
                     const isForced = forcedReason !== null;
@@ -754,8 +827,8 @@ function App() {
                       );
                     }
                     return (
-                      <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", background: "rgba(255,255,255,0.05)", borderRadius: "8px", marginBottom: "6px" }}>
-                        <span style={{ fontWeight: "bold" }}>{p.name}</span>
+                      <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", background: ansagerId === p.id ? "rgba(249,212,35,0.1)" : "rgba(255,255,255,0.05)", borderRadius: "8px", marginBottom: "6px", border: ansagerId === p.id ? "1px solid #f9d423" : "none" }}>
+                        <span style={{ fontWeight: "bold" }}>{ansagerId === p.id && "📣 "}{p.name}{ansagerId === p.id && <span style={{ fontSize: "11px", color: "#f9d423", fontWeight: "normal" }}> (Ansage: {bidTricks})</span>}</span>
                         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                           <button onClick={() => setPlayerTricks({ ...playerTricks, [p.id]: Math.max(0, (playerTricks[p.id] || 0) - 1) })} style={{ width: "32px", height: "32px", borderRadius: "5px", border: "none", background: "#fff", fontWeight: "bold" }}>-</button>
                           <span style={{ fontSize: "20px", fontWeight: "900", minWidth: "25px", textAlign: "center" }}>{playerTricks[p.id] || 0}</span>
@@ -1013,21 +1086,29 @@ function RoundInlineEditor({ gamePlayers, roundData, onSave, onCancel }) {
   const [tricks, setTricks] = useState({ ...roundData.playerTricks });
 
   const total = gamePlayers.reduce((sum, p) => sum + (status[p.id] === "mit" ? (tricks[p.id] || 0) : 0), 0);
+  const ansagerName = roundData.ansagerId ? gamePlayers.find(p => p.id === roundData.ansagerId)?.name : null;
 
   return (
     <div style={{ background: "rgba(255,255,255,0.05)", padding: "10px", borderRadius: "8px", marginTop: "5px" }}>
+      {ansagerName && (
+        <div style={{ fontSize: "12px", color: "#f9d423", marginBottom: "8px" }}>
+          📣 Ansager: <strong>{ansagerName}</strong> (Ansage: {roundData.bidTricks} Stiche — Ansager selbst nicht änderbar, nur Status/Stiche)
+        </div>
+      )}
       <div style={{ textAlign: "right", fontSize: "12px", marginBottom: "10px", color: total === 6 ? "#43e97b" : "#ff4e50" }}>
         Stiche: {total} / 6
       </div>
-      {gamePlayers.map(p => (
+      {gamePlayers.map(p => {
+        const isAnsager = roundData.ansagerId === p.id;
+        return (
         <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px", borderBottom: "1px solid rgba(255,255,255,0.05)", paddingBottom: "5px" }}>
-          <span style={{ fontSize: "14px" }}>{p.name}</span>
+          <span style={{ fontSize: "14px" }}>{isAnsager && "📣 "}{p.name}</span>
           <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-            <select value={status[p.id] || "mit"} onChange={e => {
+            <select value={status[p.id] || "mit"} disabled={isAnsager} onChange={e => {
               const s = e.target.value;
               setStatus({ ...status, [p.id]: s });
               if (s === "raus") setTricks({ ...tricks, [p.id]: 0 });
-            }} style={{ background: "#000", color: "#fff", padding: "4px", border: "1px solid #555", borderRadius: "4px" }}>
+            }} style={{ background: "#000", color: "#fff", padding: "4px", border: "1px solid #555", borderRadius: "4px", opacity: isAnsager ? 0.5 : 1 }}>
               <option value="mit">Mit</option>
               <option value="raus">Raus</option>
             </select>
@@ -1037,7 +1118,8 @@ function RoundInlineEditor({ gamePlayers, roundData, onSave, onCancel }) {
             )}
           </div>
         </div>
-      ))}
+        );
+      })}
       <div style={{ display: "flex", gap: "6px", marginTop: "10px" }}>
         <button onClick={onCancel} style={{ padding: "4px 8px", background: "#888", border: "none", color: "#fff", borderRadius: "4px", cursor: "pointer" }}>Abbrechen</button>
         <button onClick={() => onSave(status, tricks)} style={{ padding: "4px 8px", background: "#43e97b", border: "none", color: "#000", fontWeight: "bold", borderRadius: "4px", cursor: "pointer" }}>Übernehmen</button>
