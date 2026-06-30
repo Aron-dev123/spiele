@@ -231,6 +231,7 @@ const firebaseConfig = {
 };
 let db = null;
 let registryRef = null;
+let activeSessionRef = null;
 let firebaseInitError = null;
 try {
   if (typeof firebase === "undefined") {
@@ -239,6 +240,7 @@ try {
   firebase.initializeApp(firebaseConfig);
   db = firebase.database();
   registryRef = db.ref("20ab/registry");
+  activeSessionRef = db.ref("20ab/activeSession"); // hält die aktuell laufende Session (geräteübergreifend!)
 } catch (e) {
   firebaseInitError = e.message;
   console.error("Firebase-Initialisierung fehlgeschlagen:", e);
@@ -271,6 +273,30 @@ function App() {
 
   // Welche Zeit-Reiter in der Historie aufgeklappt sind (standardmäßig alle zu)
   const [expandedBuckets, setExpandedBuckets] = useState({});
+
+  // ── SESSIONS ──
+  // Eine Session bündelt mehrere nacheinander gespielte Spiele, bis sie explizit beendet
+  // wird. `activeSession` ist GERÄTEÜBERGREIFEND synchron (wie registry), damit jeder am
+  // Tisch dieselbe laufende Session sieht, egal von welchem Handy aus gespielt wird.
+  // Struktur: { id, startedAt, playerIds: [...] } oder null, wenn keine Session läuft.
+  const [activeSession, setActiveSessionRaw] = useState(null);
+  const [sessionSyncReady, setSessionSyncReady] = useState(false);
+  const [sessionSummary, setSessionSummary] = useState(null); // Abschluss-Popup-Daten nach "Session beenden"
+
+  useEffect(() => {
+    if (!activeSessionRef) { setSessionSyncReady(true); return; }
+    const callback = (snapshot) => {
+      setActiveSessionRaw(snapshot.val() || null);
+      setSessionSyncReady(true);
+    };
+    activeSessionRef.on("value", callback, () => setSessionSyncReady(true));
+    return () => activeSessionRef.off("value", callback);
+  }, []);
+
+  function setActiveSession(value) {
+    setActiveSessionRaw(value);
+    if (activeSessionRef) activeSessionRef.set(value).catch(() => {});
+  }
 
   // Edit States für laufende Runden
   const [editingRoundIdx, setEditingRoundIdx] = useState(null);
@@ -338,6 +364,19 @@ function App() {
     setSelectedTrump(SUITS[0]);
     setAnsagerId(null);
     setBidTricks(2);
+
+    // Falls noch keine Session läuft: automatisch eine neue starten.
+    // Falls schon eine läuft: ggf. neue Mitspieler-IDs ergänzen (z.B. wenn jemand erst ab
+    // dem 2. Spiel der Session dazustößt).
+    if (!activeSession) {
+      setActiveSession({ id: uid(), startedAt: new Date().toISOString(), playerIds: selectedIds.slice() });
+    } else {
+      const merged = Array.from(new Set([...(activeSession.playerIds || []), ...selectedIds]));
+      if (merged.length !== (activeSession.playerIds || []).length) {
+        setActiveSession({ ...activeSession, playerIds: merged });
+      }
+    }
+
     initRound(gp, SUITS[0]);
     setScreen("game");
   }
@@ -472,6 +511,7 @@ function App() {
   function saveGameResult(finalScores, winnerIdx, finishedRounds) {
     const gameId = uid();
     const timestamp = new Date().toISOString();
+    const currentSessionId = activeSession ? activeSession.id : null;
     
     const losers = gamePlayers.map((p, i) => ({ id: p.id, pts: finalScores[i], idx: i })).filter(p => p.idx !== winnerIdx);
     const totalPrizeMoney = losers.reduce((sum, l) => sum + (l.pts * CENT_PER_POINT), 0);
@@ -488,6 +528,7 @@ function App() {
           ...p,
           games: [...(p.games || []), {
             id: gameId, timestamp, date: new Date().toLocaleDateString("de-DE"),
+            sessionId: currentSessionId, // null, falls (theoretisch) außerhalb einer Session gespielt
             players: gamePlayers.map(g => ({ id: g.id, name: g.name })),
             finalScores: [...finalScores],
             winnerIdx,
@@ -499,8 +540,76 @@ function App() {
     });
     
     alert(`Spiel beendet! 🏆 ${gamePlayers[winnerIdx].name} hat gewonnen!`);
+    setScreen("sessionEnd"); // Statt direkt ins Hauptmenü: Frage ob weiteres Spiel oder Session beenden
+  }
+
+  // ── Splitwise-artige Schulden-Vereinfachung ──
+  // Input: Map { spielerId: gesamtSaldoInDieserSession } (positiv = hat insgesamt gewonnen,
+  // negativ = hat insgesamt verloren). Output: minimale Liste von Transaktionen
+  // [{ fromId, fromName, toId, toName, amount }], die die Salden auf 0 ausgleichen.
+  // Klassischer Greedy-Algorithmus: größter Schuldner zahlt an größten Gläubiger, wiederholen.
+  function simplifyDebts(balances, idToName) {
+    const creditors = []; // { id, amount } mit amount > 0
+    const debtors = [];   // { id, amount } mit amount > 0 (Betrag den sie SCHULDEN)
+    Object.entries(balances).forEach(([id, amt]) => {
+      const rounded = Math.round(amt * 100) / 100;
+      if (rounded > 0.004) creditors.push({ id, amount: rounded });
+      else if (rounded < -0.004) debtors.push({ id, amount: -rounded });
+    });
+    creditors.sort((a, b) => b.amount - a.amount);
+    debtors.sort((a, b) => b.amount - a.amount);
+
+    const transactions = [];
+    let ci = 0, di = 0;
+    while (ci < creditors.length && di < debtors.length) {
+      const c = creditors[ci], d = debtors[di];
+      const amount = Math.round(Math.min(c.amount, d.amount) * 100) / 100;
+      if (amount > 0.004) {
+        transactions.push({ fromId: d.id, fromName: idToName[d.id] || "?", toId: c.id, toName: idToName[c.id] || "?", amount });
+      }
+      c.amount = Math.round((c.amount - amount) * 100) / 100;
+      d.amount = Math.round((d.amount - amount) * 100) / 100;
+      if (c.amount <= 0.004) ci++;
+      if (d.amount <= 0.004) di++;
+    }
+    return transactions;
+  }
+
+  // Berechnet die Gesamt-Session-Salden + Splitwise-Vorschläge für die aktuell laufende Session
+  function computeSessionSummary(session) {
+    const sessionGames = getUniqueGames().filter(g => g.sessionId === session.id && !g.deleted);
+    const balances = {}; // playerId -> Summe moneyDelta in dieser Session
+    const idToName = {};
+    sessionGames.forEach(g => {
+      g.players.forEach((p, i) => {
+        idToName[p.id] = p.name;
+        if (!(p.id in balances)) balances[p.id] = 0;
+        const regPlayer = registry.find(rp => rp.id === p.id);
+        const specificGame = regPlayer?.games?.find(rg => rg.id === g.id);
+        balances[p.id] += specificGame?.moneyDelta || 0;
+      });
+    });
+    // Auch Spieler, die zwar Teil der Session sind, aber evtl. nie ein moneyDelta bekommen
+    // haben (sollte normalerweise nicht vorkommen, aber zur Sicherheit), mit Namen ergänzen.
+    (session.playerIds || []).forEach(id => {
+      if (!(id in balances)) balances[id] = 0;
+      if (!idToName[id]) {
+        const rp = registry.find(p => p.id === id);
+        idToName[id] = rp ? rp.name : "Unbekannt";
+      }
+    });
+    const transactions = simplifyDebts(balances, idToName);
+    return { balances, idToName, transactions, gameCount: sessionGames.length };
+  }
+
+  function endSession() {
+    if (!activeSession) return;
+    const summary = computeSessionSummary(activeSession);
+    setSessionSummary(summary); // zeigt das Abschluss-Popup an (nur einmalig, wird nicht gespeichert)
+    setActiveSession(null); // Session ist damit beendet; ab jetzt zählt sie in "Alte Spiele"
     setScreen("home");
   }
+
 
   function saveEditedRound(rIdx, editedStatus, editedTricks) {
     const total = gamePlayers.reduce((sum, p) => sum + (editedStatus[p.id] === "mit" ? (editedTricks[p.id] || 0) : 0), 0);
@@ -633,6 +742,47 @@ function App() {
     return Array.from(allGamesMap.values()).sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
   }
 
+  // Gruppiert alle Spiele nach Session für die "Alte Spiele"-Ansicht. Spiele OHNE sessionId
+  // (z.B. vor Einführung des Session-Features gespielt) werden als eigenständige
+  // "Legacy-Einzelspiele" behandelt (jedes für sich wie eine Mini-Session mit 1 Spiel),
+  // damit ältere Daten nicht verschwinden, sondern weiter normal durchsuchbar bleiben.
+  // Eine laufende (noch nicht beendete) Session wird hier BEWUSST nicht aufgenommen -
+  // sie erscheint erst in der Historie, sobald sie via endSession() beendet wurde.
+  function getUniqueSessions() {
+    const games = getUniqueGames();
+    const bySession = new Map(); // sessionId -> games[]
+    const legacyGames = [];
+    games.forEach(g => {
+      if (g.sessionId && g.sessionId === (activeSession && activeSession.id)) return; // laufende Session ausblenden
+      if (!g.sessionId) { legacyGames.push(g); return; }
+      if (!bySession.has(g.sessionId)) bySession.set(g.sessionId, []);
+      bySession.get(g.sessionId).push(g);
+    });
+
+    const sessionEntries = Array.from(bySession.entries()).map(([sessionId, sGames]) => {
+      const sorted = [...sGames].sort((a,b) => new Date(a.timestamp) - new Date(b.timestamp));
+      const newestTimestamp = sorted[sorted.length - 1].timestamp;
+      const allDeleted = sorted.every(g => g.deleted);
+      return {
+        type: "session",
+        sessionId,
+        games: sorted,
+        timestamp: newestTimestamp, // für die Zeit-Reiter-Einordnung verwenden wir den Zeitpunkt des letzten Spiels
+        deleted: allDeleted, // eine Session gilt nur dann als "komplett gelöscht", wenn ALLE enthaltenen Spiele gelöscht sind
+      };
+    });
+
+    const legacyEntries = legacyGames.map(g => ({
+      type: "legacy",
+      sessionId: null,
+      games: [g],
+      timestamp: g.timestamp,
+      deleted: !!g.deleted,
+    }));
+
+    return [...sessionEntries, ...legacyEntries].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  }
+
   const sortedLeaderboard = [...registry].sort((a, b) => (b.session?.balance || 0) - (a.session?.balance || 0));
   const btnStyle = { padding: "14px 20px", borderRadius: "12px", border: "none", cursor: "pointer", fontWeight: "900", fontSize: "15px", color: "#fff", transition: "all 0.2s", textTransform: "uppercase", letterSpacing: "1px" };
 
@@ -669,9 +819,32 @@ function App() {
         {/* HOME SCREEN */}
         {screen === "home" && (
           <div>
+            {/* Banner für eine laufende Session */}
+            {activeSession && (
+              <div className="glass" style={{ padding: "16px 20px", marginBottom: "15px", border: "1px solid #f9d423", background: "rgba(249,212,35,0.08)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+                  <span style={{ fontWeight: "bold", color: "#f9d423" }}>🔥 Session läuft</span>
+                  <span style={{ fontSize: "12px", color: "#aaa" }}>
+                    seit {new Date(activeSession.startedAt).toLocaleString("de-DE")}
+                  </span>
+                </div>
+                <div style={{ fontSize: "13px", color: "#ccc", marginBottom: "12px" }}>
+                  Spieler: {(activeSession.playerIds || []).map(id => registry.find(p => p.id === id)?.name || "?").join(", ")}
+                </div>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <button onClick={() => { setSelectedIds(activeSession.playerIds || []); setScreen("select"); }} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #00f2fe, #4facfe)" }}>
+                    ▶️ Weiterspielen
+                  </button>
+                  <button onClick={endSession} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #ff512f, #f9d423)" }}>
+                    🏁 Session beenden
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="glass" style={{ padding: "20px", textAlign: "center" }}>
               <button className="pulse-btn" style={{ ...btnStyle, background: "linear-gradient(45deg, #00f2fe, #4facfe)", width: "100%", marginBottom: "15px", boxShadow: "0 0 15px #00f2fe" }} onClick={() => setScreen("select")}>
-                🎴 Neues Spiel starten
+                {activeSession ? "🎴 Weiteres Spiel in dieser Session" : "🎴 Neue Session starten"}
               </button>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
                 <button style={{ ...btnStyle, background: "linear-gradient(45deg, #f093fb, #f5576c)" }} onClick={() => setScreen("players")}>👤 Spieler</button>
@@ -694,6 +867,65 @@ function App() {
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Zwischenscreen nach einem beendeten Spiel: nächstes Spiel der Session oder Session beenden */}
+        {screen === "sessionEnd" && (
+          <div className="glass" style={{ padding: "25px", textAlign: "center" }}>
+            <div style={{ fontSize: "40px", marginBottom: "10px" }}>🃏</div>
+            <h3 style={{ color: "#f9d423", marginBottom: "8px" }}>Spiel beendet!</h3>
+            <p style={{ color: "#aaa", fontSize: "13px", marginBottom: "20px" }}>
+              Noch ein Spiel in dieser Session, oder jetzt abrechnen?
+            </p>
+            <button onClick={() => { setSelectedIds(activeSession ? activeSession.playerIds : gamePlayers.map(p => p.id)); setScreen("select"); }} style={{ ...btnStyle, width: "100%", marginBottom: "10px", background: "linear-gradient(45deg, #00f2fe, #4facfe)" }}>
+              ▶️ Weiteres Spiel starten
+            </button>
+            <button onClick={endSession} style={{ ...btnStyle, width: "100%", background: "linear-gradient(45deg, #ff512f, #f9d423)" }}>
+              🏁 Session beenden & abrechnen
+            </button>
+          </div>
+        )}
+
+        {/* Session-Abschluss-Popup: nur EINMALIG gezeigt, wird nicht gespeichert */}
+        {sessionSummary && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
+            <div className="glass" style={{ padding: "25px", maxWidth: "420px", width: "100%", maxHeight: "85vh", overflowY: "auto" }}>
+              <h2 style={{ color: "#f9d423", marginBottom: "5px", textAlign: "center" }}>🏁 Session beendet!</h2>
+              <p style={{ color: "#aaa", fontSize: "13px", textAlign: "center", marginBottom: "20px" }}>
+                {sessionSummary.gameCount} {sessionSummary.gameCount === 1 ? "Spiel" : "Spiele"} gespielt
+              </p>
+
+              <h3 style={{ color: "#00f2fe", fontSize: "14px", marginBottom: "10px" }}>💰 Gesamtbilanz dieser Session</h3>
+              <div style={{ marginBottom: "20px" }}>
+                {Object.entries(sessionSummary.balances).sort((a,b) => b[1]-a[1]).map(([id, amt]) => (
+                  <div key={id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                    <span>{sessionSummary.idToName[id]}</span>
+                    <span style={{ fontWeight: "bold", color: amt >= 0 ? "#43e97b" : "#ff4e50" }}>{euro(amt)}</span>
+                  </div>
+                ))}
+              </div>
+
+              <h3 style={{ color: "#00f2fe", fontSize: "14px", marginBottom: "10px" }}>🔄 Wer zahlt wem?</h3>
+              {sessionSummary.transactions.length === 0 ? (
+                <p style={{ color: "#888", fontSize: "13px", marginBottom: "20px" }}>Alles ausgeglichen, niemand muss etwas zahlen. 🎉</p>
+              ) : (
+                <div style={{ marginBottom: "20px" }}>
+                  {sessionSummary.transactions.map((t, i) => (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 12px", background: "rgba(0,0,0,0.3)", borderRadius: "8px", marginBottom: "6px", fontSize: "14px" }}>
+                      <span style={{ fontWeight: "bold" }}>{t.fromName}</span>
+                      <span style={{ color: "#aaa" }}>→</span>
+                      <span style={{ fontWeight: "bold" }}>{t.toName}</span>
+                      <span style={{ marginLeft: "auto", fontWeight: "900", color: "#f9d423" }}>{t.amount.toFixed(2).replace(".", ",")} €</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <button onClick={() => { setSessionSummary(null); setScreen("home"); }} style={{ ...btnStyle, width: "100%", background: "linear-gradient(45deg, #43e97b, #38f9d7)", color: "#000" }}>
+                Alles klar ✓
+              </button>
             </div>
           </div>
         )}
@@ -895,19 +1127,19 @@ function App() {
           <div>
             <h2 style={{ color: "#f9d423", marginBottom: "20px" }}>🕰️ Spielhistorie</h2>
             {(() => {
-              const allGames = getUniqueGames();
-              // Gruppiere alle Spiele nach Zeit-Reiter
+              const allSessions = getUniqueSessions();
+              // Gruppiere Sessions (bzw. Legacy-Einzelspiele) nach Zeit-Reiter
               const grouped = {};
               HISTORY_BUCKETS.forEach(b => { grouped[b.id] = []; });
-              allGames.forEach(g => { grouped[getHistoryBucket(g.timestamp)].push(g); });
+              allSessions.forEach(s => { grouped[getHistoryBucket(s.timestamp)].push(s); });
 
-              if (allGames.length === 0) {
+              if (allSessions.length === 0) {
                 return <div className="glass" style={{ padding: "20px", textAlign: "center", color: "#aaa" }}>Noch keine Spiele gespeichert.</div>;
               }
 
               return HISTORY_BUCKETS.map(bucket => {
-                const gamesInBucket = grouped[bucket.id];
-                if (gamesInBucket.length === 0) return null; // leere Reiter gar nicht erst anzeigen
+                const itemsInBucket = grouped[bucket.id];
+                if (itemsInBucket.length === 0) return null; // leere Reiter gar nicht erst anzeigen
                 const isOpen = !!expandedBuckets[bucket.id];
 
                 return (
@@ -924,7 +1156,7 @@ function App() {
                       <span style={{ fontWeight: "bold", fontSize: "15px", color: "#f9d423" }}>{bucket.label}</span>
                       <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                         <span style={{ fontSize: "12px", color: "#aaa", background: "rgba(255,255,255,0.08)", padding: "3px 10px", borderRadius: "20px" }}>
-                          {gamesInBucket.length} {gamesInBucket.length === 1 ? "Spiel" : "Spiele"}
+                          {itemsInBucket.length} {itemsInBucket.length === 1 ? "Session" : "Sessions"}
                         </span>
                         <span style={{ fontSize: "18px", transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>▾</span>
                       </div>
@@ -933,99 +1165,21 @@ function App() {
                     {/* Inhalt des Reiters: nur rendern wenn aufgeklappt */}
                     {isOpen && (
                       <div style={{ padding: "0 15px 15px" }}>
-                        {gamesInBucket.map(g => {
-                          const isDeleted = !!g.deleted;
-                          return (
-                            <div key={g.id} style={{ padding: "15px", marginTop: "12px", borderRadius: "12px", borderLeft: `5px solid ${isDeleted ? "#888" : "#00f2fe"}`, background: isDeleted ? "rgba(80,80,80,0.25)" : "rgba(0,0,0,0.4)", opacity: isDeleted ? 0.75 : 1 }}>
-                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px", fontSize: "13px", color: "#aaa" }}>
-                                <span>
-                                  {g.date}
-                                  {isDeleted && <span style={{ marginLeft: "10px", color: "#ff4e50", fontWeight: "bold", border: "1px solid #ff4e50", borderRadius: "5px", padding: "2px 8px", fontSize: "11px" }}>🗑️ GELÖSCHT</span>}
-                                </span>
-                                {editingGameId !== g.id && (
-                                  <div style={{ display: "flex", gap: "10px" }}>
-                                    {!isDeleted && (
-                                      <button onClick={() => {
-                                        setEditingGameId(g.id);
-                                        const initialScores = {};
-                                        g.players.forEach((p, idx) => { initialScores[p.id] = g.finalScores[idx]; });
-                                        setEditScores(initialScores);
-                                      }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "14px" }}>✏️ Endpunkte korrigieren</button>
-                                    )}
-                                    {isDeleted ? (
-                                      <button onClick={() => restorePastGame(g.id)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "14px", color: "#43e97b" }}>↩️ Wiederherstellen</button>
-                                    ) : (
-                                      <button onClick={() => deletePastGame(g.id)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "14px", color: "#ff4e50" }}>🗑️ Löschen</button>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-
-                              {editingGameId !== g.id ? (
-                                <div>
-                                  {g.players.map((p, i) => {
-                                    const regPlayer = registry.find(rp => rp.id === p.id);
-                                    const playerExists = !!regPlayer;
-                                    const specificGame = regPlayer?.games?.find(rg => rg.id === g.id);
-                                    return (
-                                      <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-                                        <span>
-                                          {g.winnerIdx === i ? "🏆" : ""} {p.name}{" "}
-                                          <span style={{ color: "#aaa", fontSize: "13px" }}>({g.finalScores[i]} Pkt)</span>
-                                          {!playerExists && (
-                                            <span style={{ marginLeft: "8px", fontSize: "11px", color: "#ff8c5a", fontStyle: "italic" }}>(Spieler existiert nicht mehr)</span>
-                                          )}
-                                        </span>
-                                        <span style={{ color: isDeleted ? "#888" : ((specificGame?.moneyDelta || 0) >= 0 ? "#43e97b" : "#ff4e50"), fontWeight: "bold", textDecoration: isDeleted ? "line-through" : "none" }}>
-                                          {playerExists ? euro(specificGame?.moneyDelta || 0) : "—"}
-                                        </span>
-                                      </div>
-                                    );
-                                  })}
-
-                                  {/* Änderungsprotokoll, falls dieses Spiel jemals korrigiert wurde */}
-                                  {g.editHistory && g.editHistory.length > 0 && (
-                                    <div style={{ marginTop: "10px", paddingTop: "10px", borderTop: "1px dashed rgba(255,255,255,0.15)" }}>
-                                      <div style={{ fontSize: "11px", color: "#f9d423", fontWeight: "bold", marginBottom: "6px" }}>📝 Änderungsverlauf:</div>
-                                      {g.editHistory.map((edit, ei) => (
-                                        <div key={ei} style={{ fontSize: "11px", color: "#bbb", marginBottom: "4px", lineHeight: "1.5" }}>
-                                          {new Date(edit.timestamp).toLocaleString("de-DE")}:{" "}
-                                          {edit.playerNames.map((pname, pi) => {
-                                            if (edit.oldScores[pi] === edit.newScores[pi]) return null;
-                                            return (
-                                              <span key={pi} style={{ marginRight: "10px" }}>
-                                                {pname}: <span style={{ color: "#ff8c5a" }}>{edit.oldScores[pi]}</span> → <span style={{ color: "#43e97b" }}>{edit.newScores[pi]}</span> Pkt
-                                              </span>
-                                            );
-                                          })}
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
-
-                                  {isDeleted && g.deletedAt && (
-                                    <div style={{ marginTop: "8px", fontSize: "11px", color: "#888", fontStyle: "italic" }}>
-                                      Gelöscht am {new Date(g.deletedAt).toLocaleString("de-DE")}
-                                    </div>
-                                  )}
-                                </div>
-                              ) : (
-                                <div style={{ background: "rgba(0,0,0,0.5)", padding: "10px", borderRadius: "8px" }}>
-                                  {g.players.map((p) => (
-                                    <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                                      <span>{p.name}:</span>
-                                      <input type="number" value={editScores[p.id] || 0} onChange={e => setEditScores({ ...editScores, [p.id]: e.target.value })} style={{ width: "70px", padding: "5px", borderRadius: "5px", border: "1px solid #ccc", background: "#000", color: "#fff", textAlign: "center" }} />
-                                    </div>
-                                  ))}
-                                  <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
-                                    <button onClick={() => setEditingGameId(null)} style={{ ...btnStyle, padding: "6px 12px", fontSize: "12px", background: "#aaa" }}>Abbrechen</button>
-                                    <button onClick={() => saveEditedPastGame(g.id)} style={{ ...btnStyle, padding: "6px 12px", fontSize: "12px", background: "#43e97b", color: "#000" }}>Speichern & Synchronisieren</button>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
+                        {itemsInBucket.map(sessionEntry => (
+                          <SessionCard
+                            key={sessionEntry.sessionId || sessionEntry.games[0].id}
+                            sessionEntry={sessionEntry}
+                            registry={registry}
+                            editingGameId={editingGameId}
+                            setEditingGameId={setEditingGameId}
+                            editScores={editScores}
+                            setEditScores={setEditScores}
+                            saveEditedPastGame={saveEditedPastGame}
+                            deletePastGame={deletePastGame}
+                            restorePastGame={restorePastGame}
+                            btnStyle={btnStyle}
+                          />
+                        ))}
                       </div>
                     )}
                   </div>
@@ -1081,6 +1235,156 @@ function App() {
 }
 
 // Sub-Komponente für die Inline-Korrektur laufender Runden
+// Sub-Komponente: zeigt eine Session (oder ein einzelnes Legacy-Spiel ohne Session) als
+// aufklappbare Karte in der Historie. Beim Aufklappen erscheinen die einzelnen enthaltenen
+// Spiele - jedes davon mit der unveränderten Bearbeiten/Löschen/Änderungsverlauf-Logik.
+function SessionCard({ sessionEntry, registry, editingGameId, setEditingGameId, editScores, setEditScores, saveEditedPastGame, deletePastGame, restorePastGame, btnStyle }) {
+  const [open, setOpen] = useState(false);
+  const { type, games, deleted: allDeleted } = sessionEntry;
+
+  // Gesamtsumme pro Spieler über ALLE (nicht gelöschten) Spiele dieser Session
+  const totals = {}; // playerId -> { name, sum }
+  games.forEach(g => {
+    if (g.deleted) return;
+    g.players.forEach((p, i) => {
+      const regPlayer = registry.find(rp => rp.id === p.id);
+      const specificGame = regPlayer?.games?.find(rg => rg.id === g.id);
+      const delta = specificGame?.moneyDelta || 0;
+      if (!totals[p.id]) totals[p.id] = { name: p.name, sum: 0 };
+      totals[p.id].sum += delta;
+    });
+  });
+  const totalsList = Object.values(totals).sort((a, b) => b.sum - a.sum);
+
+  const headerLabel = type === "session"
+    ? `Session vom ${games[0].date}${games[0].date !== games[games.length-1].date ? " – " + games[games.length-1].date : ""}`
+    : `Einzelspiel vom ${games[0].date} (vor Session-Feature)`;
+
+  return (
+    <div style={{ marginTop: "12px", borderRadius: "12px", overflow: "hidden", border: `1px solid ${allDeleted ? "#888" : "rgba(0,242,254,0.3)"}`, opacity: allDeleted ? 0.7 : 1 }}>
+      <div onClick={() => setOpen(o => !o)} style={{ padding: "14px 16px", cursor: "pointer", background: open ? "rgba(0,242,254,0.06)" : "rgba(0,0,0,0.3)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+          <span style={{ fontWeight: "bold", fontSize: "13px", color: "#00f2fe" }}>
+            {type === "session" ? "📦" : "🃏"} {headerLabel}
+            {allDeleted && <span style={{ marginLeft: "8px", color: "#ff4e50", fontWeight: "bold", border: "1px solid #ff4e50", borderRadius: "5px", padding: "1px 6px", fontSize: "10px" }}>🗑️ GELÖSCHT</span>}
+          </span>
+          <span style={{ fontSize: "18px", transform: open ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>▾</span>
+        </div>
+        <div style={{ fontSize: "11px", color: "#888", marginBottom: totalsList.length ? "8px" : 0 }}>
+          {games.length} {games.length === 1 ? "Spiel" : "Spiele"}
+        </div>
+        {!allDeleted && totalsList.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+            {totalsList.map(t => (
+              <span key={t.name} style={{ fontSize: "12px", padding: "3px 9px", borderRadius: "20px", background: "rgba(255,255,255,0.06)", color: t.sum >= 0 ? "#43e97b" : "#ff4e50", fontWeight: "bold" }}>
+                {t.name}: {euro(t.sum)}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {open && (
+        <div style={{ padding: "0 12px 12px" }}>
+          {games.map(g => {
+            const isDeleted = !!g.deleted;
+            return (
+              <div key={g.id} style={{ padding: "15px", marginTop: "10px", borderRadius: "12px", borderLeft: `5px solid ${isDeleted ? "#888" : "#00f2fe"}`, background: isDeleted ? "rgba(80,80,80,0.25)" : "rgba(0,0,0,0.4)", opacity: isDeleted ? 0.75 : 1 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px", fontSize: "13px", color: "#aaa" }}>
+                  <span>
+                    {g.date}
+                    {isDeleted && <span style={{ marginLeft: "10px", color: "#ff4e50", fontWeight: "bold", border: "1px solid #ff4e50", borderRadius: "5px", padding: "2px 8px", fontSize: "11px" }}>🗑️ GELÖSCHT</span>}
+                  </span>
+                  {editingGameId !== g.id && (
+                    <div style={{ display: "flex", gap: "10px" }}>
+                      {!isDeleted && (
+                        <button onClick={() => {
+                          setEditingGameId(g.id);
+                          const initialScores = {};
+                          g.players.forEach((p, idx) => { initialScores[p.id] = g.finalScores[idx]; });
+                          setEditScores(initialScores);
+                        }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "14px" }}>✏️ Endpunkte korrigieren</button>
+                      )}
+                      {isDeleted ? (
+                        <button onClick={() => restorePastGame(g.id)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "14px", color: "#43e97b" }}>↩️ Wiederherstellen</button>
+                      ) : (
+                        <button onClick={() => deletePastGame(g.id)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "14px", color: "#ff4e50" }}>🗑️ Löschen</button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {editingGameId !== g.id ? (
+                  <div>
+                    {g.players.map((p, i) => {
+                      const regPlayer = registry.find(rp => rp.id === p.id);
+                      const playerExists = !!regPlayer;
+                      const specificGame = regPlayer?.games?.find(rg => rg.id === g.id);
+                      return (
+                        <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                          <span>
+                            {g.winnerIdx === i ? "🏆" : ""} {p.name}{" "}
+                            <span style={{ color: "#aaa", fontSize: "13px" }}>({g.finalScores[i]} Pkt)</span>
+                            {!playerExists && (
+                              <span style={{ marginLeft: "8px", fontSize: "11px", color: "#ff8c5a", fontStyle: "italic" }}>(Spieler existiert nicht mehr)</span>
+                            )}
+                          </span>
+                          <span style={{ color: isDeleted ? "#888" : ((specificGame?.moneyDelta || 0) >= 0 ? "#43e97b" : "#ff4e50"), fontWeight: "bold", textDecoration: isDeleted ? "line-through" : "none" }}>
+                            {playerExists ? euro(specificGame?.moneyDelta || 0) : "—"}
+                          </span>
+                        </div>
+                      );
+                    })}
+
+                    {/* Änderungsprotokoll, falls dieses Spiel jemals korrigiert wurde */}
+                    {g.editHistory && g.editHistory.length > 0 && (
+                      <div style={{ marginTop: "10px", paddingTop: "10px", borderTop: "1px dashed rgba(255,255,255,0.15)" }}>
+                        <div style={{ fontSize: "11px", color: "#f9d423", fontWeight: "bold", marginBottom: "6px" }}>📝 Änderungsverlauf:</div>
+                        {g.editHistory.map((edit, ei) => (
+                          <div key={ei} style={{ fontSize: "11px", color: "#bbb", marginBottom: "4px", lineHeight: "1.5" }}>
+                            {new Date(edit.timestamp).toLocaleString("de-DE")}:{" "}
+                            {edit.playerNames.map((pname, pi) => {
+                              if (edit.oldScores[pi] === edit.newScores[pi]) return null;
+                              return (
+                                <span key={pi} style={{ marginRight: "10px" }}>
+                                  {pname}: <span style={{ color: "#ff8c5a" }}>{edit.oldScores[pi]}</span> → <span style={{ color: "#43e97b" }}>{edit.newScores[pi]}</span> Pkt
+                                </span>
+                              );
+                            })}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {isDeleted && g.deletedAt && (
+                      <div style={{ marginTop: "8px", fontSize: "11px", color: "#888", fontStyle: "italic" }}>
+                        Gelöscht am {new Date(g.deletedAt).toLocaleString("de-DE")}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ background: "rgba(0,0,0,0.5)", padding: "10px", borderRadius: "8px" }}>
+                    {g.players.map((p) => (
+                      <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                        <span>{p.name}:</span>
+                        <input type="number" value={editScores[p.id] || 0} onChange={e => setEditScores({ ...editScores, [p.id]: e.target.value })} style={{ width: "70px", padding: "5px", borderRadius: "5px", border: "1px solid #ccc", background: "#000", color: "#fff", textAlign: "center" }} />
+                      </div>
+                    ))}
+                    <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
+                      <button onClick={() => setEditingGameId(null)} style={{ ...btnStyle, padding: "6px 12px", fontSize: "12px", background: "#aaa" }}>Abbrechen</button>
+                      <button onClick={() => saveEditedPastGame(g.id)} style={{ ...btnStyle, padding: "6px 12px", fontSize: "12px", background: "#43e97b", color: "#000" }}>Speichern & Synchronisieren</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RoundInlineEditor({ gamePlayers, roundData, onSave, onCancel }) {
   const [status, setStatus] = useState({ ...roundData.playerStatus });
   const [tricks, setTricks] = useState({ ...roundData.playerTricks });
