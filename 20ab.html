@@ -131,9 +131,11 @@ function calculateScoresFromRounds(players, rounds) {
 }
 
 // Hilfsfunktion zur Neuberechnung aller Kontostände aus den Spieler-Historien
+// Gelöschte Spiele (g.deleted === true) zählen NICHT mehr in den Kontostand,
+// bleiben aber als Datensatz erhalten (für die sichtbare "gelöscht"-Markierung in der Historie).
 function refreshBalances(allPlayers) {
   return allPlayers.map(p => {
-    const totalBalance = (p.games || []).reduce((sum, g) => sum + g.moneyDelta, 0);
+    const totalBalance = (p.games || []).reduce((sum, g) => g.deleted ? sum : sum + g.moneyDelta, 0);
     return { ...p, session: { balance: totalBalance } };
   });
 }
@@ -238,8 +240,13 @@ function App() {
   const { scores: currentScores, consecutiveRaus } = calculateScoresFromRounds(gamePlayers, gameRounds);
 
   function addPlayer() {
-    if (!newName.trim()) return;
-    setRegistry([...registry, { id: uid(), name: newName.trim(), games: [], session: { balance: 0 } }]);
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    if (registry.some(p => p.name.toLowerCase() === trimmed.toLowerCase())) {
+      alert(`Ein Spieler namens "${trimmed}" existiert bereits!`);
+      return;
+    }
+    setRegistry([...registry, { id: uid(), name: trimmed, games: [], session: { balance: 0 } }]);
     setNewName("");
   }
 
@@ -416,8 +423,11 @@ function App() {
   }
 
   // Korrektur eines ALTEN, bereits beendeten Spiels aus der Historie
+  // Schreibt zusätzlich einen Eintrag in game.editHistory, damit nachvollziehbar
+  // bleibt WER/WAS geändert wurde (alte Punkte -> neue Punkte je Spieler).
   function saveEditedPastGame(gameId) {
     let hasValidationError = false;
+    const editTimestamp = new Date().toISOString();
     
     setRegistry(prev => {
       const updated = prev.map(p => {
@@ -452,12 +462,22 @@ function App() {
         const totalPrizeMoney = losers.reduce((sum, l) => sum + (l.pts * CENT_PER_POINT), 0);
         const moneyDelta = won ? totalPrizeMoney : -(newFinalScores[myGpIdx] * CENT_PER_POINT);
 
+        // Änderungsprotokoll: nur anlegen, wenn sich tatsächlich etwas geändert hat
+        const scoresChanged = JSON.stringify(game.finalScores) !== JSON.stringify(newFinalScores);
+        const newEditEntry = scoresChanged ? {
+          timestamp: editTimestamp,
+          oldScores: [...game.finalScores],
+          newScores: [...newFinalScores],
+          playerNames: game.players.map(pl => pl.name),
+        } : null;
+
         const updatedGames = [...p.games];
         updatedGames[gameIdx] = {
           ...game,
           finalScores: newFinalScores,
           winnerIdx: newWinnerIdx,
-          won, moneyDelta
+          won, moneyDelta,
+          editHistory: newEditEntry ? [...(game.editHistory || []), newEditEntry] : (game.editHistory || []),
         };
 
         return { ...p, games: updatedGames };
@@ -474,6 +494,37 @@ function App() {
 
     setEditingGameId(null);
     setEditScores({});
+  }
+
+  // "Löscht" ein altes Spiel: Es wird NICHT aus den Daten entfernt, sondern nur als
+  // gelöscht markiert (game.deleted = true). So bleibt es weiter sichtbar (mit Marker),
+  // zählt aber nicht mehr in die Bestenliste/Kontostände (siehe refreshBalances).
+  function deletePastGame(gameId) {
+    if (!window.confirm("Spiel wirklich löschen? Es bleibt als 'gelöscht' markiert in der Historie sichtbar, zählt aber nicht mehr für die Bestenliste.")) return;
+    setRegistry(prev => {
+      const updated = prev.map(p => {
+        const gameIdx = (p.games || []).findIndex(g => g.id === gameId);
+        if (gameIdx === -1) return p;
+        const updatedGames = [...p.games];
+        updatedGames[gameIdx] = { ...updatedGames[gameIdx], deleted: true, deletedAt: new Date().toISOString() };
+        return { ...p, games: updatedGames };
+      });
+      return refreshBalances(updated);
+    });
+  }
+
+  // "Stellt" ein gelöschtes Spiel wieder her (für den Fall eines Versehens).
+  function restorePastGame(gameId) {
+    setRegistry(prev => {
+      const updated = prev.map(p => {
+        const gameIdx = (p.games || []).findIndex(g => g.id === gameId);
+        if (gameIdx === -1) return p;
+        const updatedGames = [...p.games];
+        updatedGames[gameIdx] = { ...updatedGames[gameIdx], deleted: false };
+        return { ...p, games: updatedGames };
+      });
+      return refreshBalances(updated);
+    });
   }
 
   function getUniqueGames() {
@@ -697,17 +748,31 @@ function App() {
         {screen === "history" && (
           <div>
             <h2 style={{ color: "#f9d423", marginBottom: "20px" }}>🕰️ Spielhistorie</h2>
-            {getUniqueGames().map(g => (
-              <div key={g.id} className="glass" style={{ padding: "15px", borderLeft: "5px solid #00f2fe", background: "rgba(0,0,0,0.4)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "10px", fontSize: "13px", color: "#aaa" }}>
-                  <span>{g.date}</span>
+            {getUniqueGames().map(g => {
+              const isDeleted = !!g.deleted;
+              return (
+              <div key={g.id} className="glass" style={{ padding: "15px", borderLeft: `5px solid ${isDeleted ? "#888" : "#00f2fe"}`, background: isDeleted ? "rgba(80,80,80,0.25)" : "rgba(0,0,0,0.4)", opacity: isDeleted ? 0.75 : 1 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px", fontSize: "13px", color: "#aaa" }}>
+                  <span>
+                    {g.date}
+                    {isDeleted && <span style={{ marginLeft: "10px", color: "#ff4e50", fontWeight: "bold", border: "1px solid #ff4e50", borderRadius: "5px", padding: "2px 8px", fontSize: "11px" }}>🗑️ GELÖSCHT</span>}
+                  </span>
                   {editingGameId !== g.id && (
-                    <button onClick={() => {
-                      setEditingGameId(g.id);
-                      const initialScores = {};
-                      g.players.forEach((p, idx) => { initialScores[p.id] = g.finalScores[idx]; });
-                      setEditScores(initialScores);
-                    }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "14px" }}>✏️ Endpunkte korrigieren</button>
+                    <div style={{ display: "flex", gap: "10px" }}>
+                      {!isDeleted && (
+                        <button onClick={() => {
+                          setEditingGameId(g.id);
+                          const initialScores = {};
+                          g.players.forEach((p, idx) => { initialScores[p.id] = g.finalScores[idx]; });
+                          setEditScores(initialScores);
+                        }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "14px" }}>✏️ Endpunkte korrigieren</button>
+                      )}
+                      {isDeleted ? (
+                        <button onClick={() => restorePastGame(g.id)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "14px", color: "#43e97b" }}>↩️ Wiederherstellen</button>
+                      ) : (
+                        <button onClick={() => deletePastGame(g.id)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "14px", color: "#ff4e50" }}>🗑️ Löschen</button>
+                      )}
+                    </div>
                   )}
                 </div>
 
@@ -715,16 +780,49 @@ function App() {
                   <div>
                     {g.players.map((p, i) => {
                       const regPlayer = registry.find(rp => rp.id === p.id);
+                      const playerExists = !!regPlayer;
                       const specificGame = regPlayer?.games?.find(rg => rg.id === g.id);
                       return (
                         <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-                          <span>{g.winnerIdx === i ? "🏆" : ""} {p.name} <span style={{ color: "#aaa", fontSize: "13px" }}>({g.finalScores[i]} Pkt)</span></span>
-                          <span style={{ color: (specificGame?.moneyDelta || 0) >= 0 ? "#43e97b" : "#ff4e50", fontWeight: "bold" }}>
-                            {euro(specificGame?.moneyDelta || 0)}
+                          <span>
+                            {g.winnerIdx === i ? "🏆" : ""} {p.name}{" "}
+                            <span style={{ color: "#aaa", fontSize: "13px" }}>({g.finalScores[i]} Pkt)</span>
+                            {!playerExists && (
+                              <span style={{ marginLeft: "8px", fontSize: "11px", color: "#ff8c5a", fontStyle: "italic" }}>(Spieler existiert nicht mehr)</span>
+                            )}
+                          </span>
+                          <span style={{ color: isDeleted ? "#888" : ((specificGame?.moneyDelta || 0) >= 0 ? "#43e97b" : "#ff4e50"), fontWeight: "bold", textDecoration: isDeleted ? "line-through" : "none" }}>
+                            {playerExists ? euro(specificGame?.moneyDelta || 0) : "—"}
                           </span>
                         </div>
                       );
                     })}
+
+                    {/* Änderungsprotokoll, falls dieses Spiel jemals korrigiert wurde */}
+                    {g.editHistory && g.editHistory.length > 0 && (
+                      <div style={{ marginTop: "10px", paddingTop: "10px", borderTop: "1px dashed rgba(255,255,255,0.15)" }}>
+                        <div style={{ fontSize: "11px", color: "#f9d423", fontWeight: "bold", marginBottom: "6px" }}>📝 Änderungsverlauf:</div>
+                        {g.editHistory.map((edit, ei) => (
+                          <div key={ei} style={{ fontSize: "11px", color: "#bbb", marginBottom: "4px", lineHeight: "1.5" }}>
+                            {new Date(edit.timestamp).toLocaleString("de-DE")}:{" "}
+                            {edit.playerNames.map((pname, pi) => {
+                              if (edit.oldScores[pi] === edit.newScores[pi]) return null;
+                              return (
+                                <span key={pi} style={{ marginRight: "10px" }}>
+                                  {pname}: <span style={{ color: "#ff8c5a" }}>{edit.oldScores[pi]}</span> → <span style={{ color: "#43e97b" }}>{edit.newScores[pi]}</span> Pkt
+                                </span>
+                              );
+                            })}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {isDeleted && g.deletedAt && (
+                      <div style={{ marginTop: "8px", fontSize: "11px", color: "#888", fontStyle: "italic" }}>
+                        Gelöscht am {new Date(g.deletedAt).toLocaleString("de-DE")}
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div style={{ background: "rgba(0,0,0,0.5)", padding: "10px", borderRadius: "8px" }}>
@@ -741,7 +839,8 @@ function App() {
                   </div>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
