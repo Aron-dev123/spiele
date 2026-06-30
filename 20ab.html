@@ -6,2221 +6,831 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="20 Ab">
-<meta name="theme-color" content="#1a1a2e">
-<title>🃏 20 Ab</title>
+<meta name="theme-color" content="#0f2027">
+<title>🃏 20 Ab - Stammtisch Edition</title>
 <style>
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { background: #1a1a2e; font-family: Georgia, serif; color: #e9f5db; -webkit-tap-highlight-color: transparent; }
-input, textarea, button { font-family: Georgia, serif; }
-input:focus, textarea:focus { outline: none; }
-button:active { opacity: 0.8; }
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+  body { 
+    background: linear-gradient(135deg, #0f2027 0%, #112233 50%, #1f4068 100%); 
+    color: #e9f5db; 
+    -webkit-tap-highlight-color: transparent;
+    min-height: 100vh;
+    background-attachment: fixed;
+    overflow-x: hidden;
+  }
+  input, textarea, button { font-family: inherit; }
+  input:focus { outline: none; border-color: #00f2fe !important; box-shadow: 0 0 15px rgba(0, 242, 254, 0.8); }
+  button:active { transform: scale(0.95); }
+  
+  .glass {
+    background: rgba(255, 255, 255, 0.07);
+    backdrop-filter: blur(15px);
+    -webkit-backdrop-filter: blur(15px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 16px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    position: relative;
+    z-index: 10;
+    margin-bottom: 20px;
+  }
+  
+  .neon-text {
+    text-shadow: 0 0 10px #00f2fe, 0 0 20px #00f2fe, 0 0 30px #4facfe;
+    color: #fff;
+    font-size: 2.8rem;
+    font-weight: 900;
+    letter-spacing: 3px;
+    text-align: center;
+  }
+
+  .pulse-btn { animation: pulse 2s infinite; }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 10px rgba(0, 242, 254, 0.4); }
+    50% { box-shadow: 0 0 25px rgba(0, 242, 254, 0.8); }
+    100% { box-shadow: 0 0 10px rgba(0, 242, 254, 0.4); }
+  }
+
+  .suit-container {
+    position: fixed;
+    top: 0; left: 0; width: 100vw; height: 100vh;
+    overflow: hidden;
+    z-index: 1;
+    pointer-events: none;
+  }
+  .floating-suit {
+    position: absolute;
+    bottom: -10%;
+    font-size: 3rem;
+    animation: floatUp 12s infinite linear;
+  }
+  .floating-suit.red { color: rgba(255, 78, 80, 0.12); text-shadow: 0 0 10px rgba(255, 78, 80, 0.2); }
+  .floating-suit.blue { color: rgba(0, 242, 254, 0.10); text-shadow: 0 0 10px rgba(0, 242, 254, 0.2); }
+
+  @keyframes floatUp {
+    0% { transform: translateY(0) rotate(0deg); opacity: 0; }
+    10% { opacity: 1; }
+    90% { opacity: 1; }
+    100% { transform: translateY(-120vh) rotate(360deg); opacity: 0; }
+  }
 </style>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 </head>
 <body>
 <div id="root"></div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-<script>
-const { useState, useRef, useEffect } = React;
 
+<script type="text/babel">
+const { useState, useEffect } = React;
 
-const _jsxDEV = (type, props, key, isStatic, source, self) => { const { children, ...rest } = props || {}; return React.createElement(type, rest, ...(Array.isArray(children) ? children : children !== undefined ? [children] : [])); };
-const _Fragment = React.Fragment;
-const SUITS = [{
-  id: "herz",
-  label: "Herz",
-  emoji: "❤️",
-  double: true,
-  color: "#e63946"
-}, {
-  id: "blatt",
-  label: "Blatt",
-  emoji: "☘️",
-  double: false,
-  color: "#2d6a4f"
-}, {
-  id: "bollen",
-  label: "Bolle",
-  emoji: "🏐",
-  double: false,
-  color: "#c1121f"
-}, {
-  id: "eichel",
-  label: "Eichel",
-  emoji: "⚜️",
-  double: false,
-  color: "#8b5e3c"
-}];
+const SUITS = [
+  { id: "eichel", label: "Eichel", emoji: "🌰", color: "#a0522d", double: false },
+  { id: "herz", label: "Herz", emoji: "❤️", color: "#ff0844", double: true },
+  { id: "bollen", label: "Bollen", emoji: "🔔", color: "#ff512f", double: false },
+  { id: "blatt", label: "Blatt", emoji: "🍃", color: "#0ba360", double: false }
+];
+
 const MAX_POINTS = 20;
 const CENT_PER_POINT = 0.10;
-const HERZ_BLIND_THRESHOLD = 50;
-function getMarker(pts) {
-  if (pts <= 3) return "⚠️⚠️";
-  if (pts <= 6) return "⚠️";
-  return "";
-}
-function getPointColor(pts) {
-  if (pts <= 3) return "#e63946";
-  if (pts <= 6) return "#f4a261";
-  return "#e9f5db";
-}
-function uid() {
-  return Math.random().toString(36).slice(2, 9);
-}
-function euro(val) {
-  const sign = val >= 0 ? "+" : "";
-  return sign + val.toFixed(2).replace(".", ",") + " €";
+
+function uid() { return Math.random().toString(36).slice(2, 9); }
+function euro(val) { const sign = val >= 0 ? "+" : ""; return sign + val.toFixed(2).replace(".", ",") + " €"; }
+
+// Berechnet die dynamischen Spielstände basierend auf der Rundenhistorie eines Spiels
+function calculateScoresFromRounds(players, rounds) {
+  let currentScores = players.map(() => MAX_POINTS);
+  let currentRaus = {};
+  players.forEach(p => currentRaus[p.id] = 0);
+
+  rounds.forEach((r) => {
+    const multiplier = r.trump.double ? 2 : 1;
+    players.forEach((p, idx) => {
+      const forcedByTrump = r.trump.id === "eichel";
+      const forcedByPoints = currentScores[idx] <= 6;
+      const forcedByRaus = currentRaus[p.id] >= 2;
+      const isForced = forcedByTrump || forcedByPoints || forcedByRaus;
+      
+      const status = isForced ? "mit" : r.playerStatus[p.id];
+      const tricks = r.playerTricks[p.id] || 0;
+
+      if (status === "mit") {
+        currentRaus[p.id] = 0;
+        if (tricks > 0) {
+          currentScores[idx] -= (tricks * multiplier);
+        } else {
+          currentScores[idx] += (6 * multiplier);
+        }
+      } else {
+        currentRaus[p.id] = (currentRaus[p.id] || 0) + 1;
+      }
+    });
+  });
+  return { scores: currentScores, consecutiveRaus: currentRaus };
 }
 
-// ── Storage ──────────────────────────────────────────────────
-async function storageGet(key) {
-  try {
-    const v = localStorage.getItem(key);
-    return v ? JSON.parse(v) : null;
-  } catch(e) {
-    return null;
-  }
-}
-async function storageSet(key, val) {
-  try {
-    localStorage.setItem(key, JSON.stringify(val));
-  } catch(e) {}
+// Hilfsfunktion zur Neuberechnung aller Kontostände aus den Spieler-Historien
+function refreshBalances(allPlayers) {
+  return allPlayers.map(p => {
+    const totalBalance = (p.games || []).reduce((sum, g) => sum + g.moneyDelta, 0);
+    return { ...p, session: { balance: totalBalance } };
+  });
 }
 
-// ── Styles ────────────────────────────────────────────────────
-function btn(bg, extra = {}) {
-  return {
-    background: bg,
-    color: "#e9f5db",
-    border: "none",
-    borderRadius: 8,
-    padding: "8px 14px",
-    cursor: "pointer",
-    fontSize: 14,
-    fontFamily: "Georgia, serif",
-    transition: "opacity 0.15s",
-    ...extra
-  };
+function BackgroundEffects() {
+  const suits = [{ symbol: '🌰', color: 'blue' }, { symbol: '🔔', color: 'red' }, { symbol: '♥', color: 'red' }, { symbol: '🍃', color: 'blue' }];
+  return (
+    <div className="suit-container">
+      {Array.from({ length: 16 }).map((_, i) => {
+        const suit = suits[Math.floor(Math.random() * suits.length)];
+        return (
+          <div key={i} className={`floating-suit ${suit.color}`} style={{ left: `${Math.random() * 100}%`, animationDuration: `${10 + Math.random() * 10}s`, animationDelay: `-${Math.random() * 12}s`, fontSize: `${1.5 + Math.random() * 2.5}rem` }}>
+            {suit.symbol}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
-const lbl = {
-  fontSize: 11,
-  color: "#aaa",
-  textTransform: "uppercase",
-  letterSpacing: 1
-};
-const inp = {
-  width: "100%",
-  background: "rgba(255,255,255,0.07)",
-  border: "1px solid rgba(255,255,255,0.15)",
-  borderRadius: 8,
-  color: "#e9f5db",
-  padding: "10px 12px",
-  fontSize: 14,
-  fontFamily: "Georgia, serif",
-  marginTop: 6,
-  boxSizing: "border-box",
-  outline: "none"
-};
-const errBox = {
-  background: "rgba(230,57,70,0.15)",
-  border: "1px solid #e6394644",
-  borderRadius: 8,
-  padding: "10px 12px",
-  color: "#e63946",
-  fontSize: 13,
-  marginBottom: 12
-};
-const card = {
-  background: "rgba(0,0,0,0.35)",
-  borderRadius: 12,
-  border: "1px solid rgba(233,196,106,0.25)",
-  padding: 16,
-  marginBottom: 16
-};
 
-// ════════════════════════════════════════════════════════════
+// Zentraler Speicherschlüssel in der geteilten (geräteübergreifenden) Storage-API.
+// Wird von ALLEN Geräten/Browsern gelesen & geschrieben, die diese Seite öffnen.
+const STORAGE_KEY = "20ab-final-data";
+
 function App() {
-  // screens: home | players | playerStats | select | game | roundHistory | winner | session
   const [screen, setScreen] = useState("home");
+  const [registry, setRegistryRaw] = useState([]);
+  const [syncState, setSyncState] = useState("loading"); // loading | ready | error
+  const registryRef = React.useRef(registry);
+  registryRef.current = registry;
 
-  // registry: [{id, name, games:[...], session:{balance, games:[]}}]
-  const [registry, setRegistry] = useState([]);
-
-  // player mgmt
   const [newName, setNewName] = useState("");
-  const [regErr, setRegErr] = useState("");
-
-  // game setup
   const [selectedIds, setSelectedIds] = useState([]);
-  const [setupErr, setSetupErr] = useState("");
-  const [startDealerId, setStartDealerId] = useState(null); // for Revanche: previous winner deals first
-
-  // active game
+  
+  // Game States
   const [gamePlayers, setGamePlayers] = useState([]);
-  const [scores, setScores] = useState([]);
-  const [dealer, setDealer] = useState(0);
-  const [round, setRound] = useState(1);
-  const [roundLog, setRoundLog] = useState([]);
+  const [gameRounds, setGameRounds] = useState([]); 
+  const [dealerIdx, setDealerIdx] = useState(0);
+  const [roundPhase, setRoundPhase] = useState("setup"); 
+  const [selectedTrump, setSelectedTrump] = useState(SUITS[0]);
+  const [playerStatus, setPlayerStatus] = useState({}); 
+  const [playerTricks, setPlayerTricks] = useState({}); 
 
-  // round input
-  const [ansager, setAnsager] = useState(null);
-  const [suit, setSuit] = useState(null);
-  const [bid, setBid] = useState(1);
-  const [tricks, setTricks] = useState([]);
-  const [rausSet, setRausSet] = useState(new Set()); // indices of players who are "raus" this round
-  const [rausStreak, setRausStreak] = useState([]); // consecutive raus count per player index
-  const [herzBlind, setHerzBlind] = useState(false); // Herz Blind: x4 instead of x2
-  const [roundErr, setRoundErr] = useState("");
-  const [snapshotStack, setSnapshotStack] = useState([]); // stack of round snapshots, for stepwise undo
+  // Edit States für alte Spiele
+  const [editingGameId, setEditingGameId] = useState(null);
+  const [editScores, setEditScores] = useState({});
 
-  // winner screen
-  const [winnerIdx, setWinnerIdx] = useState(null);
-  const [winnerPayout, setWinnerPayout] = useState(null); // {winnerName, breakdown:[{name,pts,amount}], total}
+  // Edit States für laufende Runden
+  const [editingRoundIdx, setEditingRoundIdx] = useState(null);
 
-  // stats view
-  const [statsId, setStatsId] = useState(null);
+  // ── Initiales Laden vom geteilten Speicher (geräteübergreifend) ──
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await window.storage.get(STORAGE_KEY, true); // shared = true
+        if (cancelled) return;
+        if (result && result.value) {
+          const parsed = JSON.parse(result.value);
+          setRegistryRaw(refreshBalances(parsed));
+        }
+        setSyncState("ready");
+      } catch (e) {
+        // Key existiert noch nicht (erstes Mal) ODER Fehler -> einfach leer starten
+        if (!cancelled) setSyncState("ready");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
-  // Adi easter egg
-  const [showAdi, setShowAdi] = useState(false);
-  const [adiAsAnsager, setAdiAsAnsager] = useState(false);
-  function triggerAdi(isAnsager) {
-    setAdiAsAnsager(isAnsager);
-    setShowAdi(true);
-    setTimeout(() => setShowAdi(false), 5000);
+  // setRegistry: aktualisiert lokalen State sofort UND schreibt in den geteilten Speicher
+  function setRegistry(updater) {
+    setRegistryRaw(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      window.storage.set(STORAGE_KEY, JSON.stringify(next), true).catch(() => {
+        setSyncState("error");
+      });
+      return next;
+    });
   }
 
-  // ── Player management ──
+  // Periodisches Nachladen, damit Änderungen von anderen Geräten (z.B. Kumpel am Handy)
+  // auch ohne Neuladen der Seite sichtbar werden (z.B. beim Wechsel zurück ins Hauptmenü)
+  useEffect(() => {
+    if (syncState !== "ready") return;
+    async function pull() {
+      try {
+        const result = await window.storage.get(STORAGE_KEY, true);
+        if (result && result.value) {
+          const parsed = JSON.parse(result.value);
+          // Nur übernehmen, wenn wir gerade NICHT mitten in einer aktiven Partie sind,
+          // damit lokale ungespeicherte Rundenstände nicht überschrieben werden.
+          if (screen === "home" || screen === "players" || screen === "select" || screen === "history") {
+            setRegistryRaw(refreshBalances(parsed));
+          }
+        }
+      } catch (e) { /* still no data, ignore */ }
+    }
+    pull();
+    const iv = setInterval(pull, 5000);
+    return () => clearInterval(iv);
+  }, [screen, syncState]);
+
+  // Berechne aktuelle Spielstände basierend auf aktiver Historie
+  const { scores: currentScores, consecutiveRaus } = calculateScoresFromRounds(gamePlayers, gameRounds);
+
   function addPlayer() {
-    const name = newName.trim();
-    if (!name) {
-      setRegErr("Name darf nicht leer sein.");
-      return;
-    }
-    if (registry.some(p => p.name.toLowerCase() === name.toLowerCase())) {
-      setRegErr("Existiert bereits.");
-      return;
-    }
-    setRegistry(prev => [...prev, {
-      id: uid(),
-      name,
-      games: [],
-      session: {
-        balance: 0,
-        games: []
-      }
-    }]);
+    if (!newName.trim()) return;
+    setRegistry([...registry, { id: uid(), name: newName.trim(), games: [], session: { balance: 0 } }]);
     setNewName("");
-    setRegErr("");
   }
+
   function deletePlayer(id) {
-    setRegistry(prev => prev.filter(p => p.id !== id));
-    setSelectedIds(prev => prev.filter(x => x !== id));
-  }
-
-  // ── Session helpers ──
-  function hasActiveSession() {
-    return registry.some(p => p.session && p.session.games.length > 0);
-  }
-  const [confirmClose, setConfirmClose] = useState(false);
-  function closeSession() {
-    setRegistry(prev => prev.map(p => ({
-      ...p,
-      session: {
-        balance: 0,
-        games: []
-      }
-    })));
-    setConfirmClose(false);
-  }
-
-  // ── Game setup ──
-  function toggleSelect(id) {
-    setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : prev.length < 5 ? [...prev, id] : prev);
-  }
-  function startGame() {
-    if (selectedIds.length < 2) {
-      setSetupErr("Mindestens 2 Spieler auswählen.");
-      return;
+    if (window.confirm("Spieler wirklich löschen?")) {
+      setRegistry(prev => refreshBalances(prev.filter(p => p.id !== id)));
+      setSelectedIds(prev => prev.filter(selId => selId !== id));
     }
+  }
+
+  function startGame() {
+    if (selectedIds.length < 2) return;
     const gp = selectedIds.map(id => registry.find(p => p.id === id));
     setGamePlayers(gp);
-    setScores(gp.map(() => MAX_POINTS));
-    const dealerIdx = startDealerId ? gp.findIndex(p => p.id === startDealerId) : 0;
-    setDealer(dealerIdx >= 0 ? dealerIdx : 0);
-    setRound(1);
-    setRoundLog([]);
-    setStartDealerId(null);
-    setAnsager(null);
-    setSuit(null);
-    setBid(1);
-    setTricks(Array(gp.length).fill(0));
-    setRausSet(new Set());
-    setRausStreak(Array(gp.length).fill(0));
-    setSnapshotStack([]);
-    setHerzBlind(false);
-    setWinnerIdx(null);
-    setWinnerPayout(null);
-    setRoundErr("");
-    setSetupErr("");
+    setGameRounds([]);
+    setDealerIdx(0);
+    setSelectedTrump(SUITS[0]);
+    initRound(gp, SUITS[0]);
     setScreen("game");
   }
 
-  // ── Round logic ──
-  const numPlayers = gamePlayers.length;
-  function getActivePlayers() {
-    // All players minus "raus" players
-    return gamePlayers.map((p, i) => ({
-      ...p,
-      index: i
-    })).filter(p => !rausSet.has(p.index));
-  }
-  function maxRaus() {
-    // bei 5 Spielern: Geber setzt aus → effektiv 4 spielen → max 2 raus
-    // Formel: numPlayers - (dealer sitzt aus bei 5) - 2 (Ansager + min 1 Mitspieler)
-    const effective = numPlayers === 5 ? numPlayers - 1 : numPlayers;
-    return Math.max(0, effective - 2);
-  }
-  function isRausForced(idx) {
-    // Pflicht wenn 2x in Folge raus ODER Punktzahl <= 6
-    if ((rausStreak[idx] || 0) >= 2) return "streak";
-    if ((scores[idx] ?? MAX_POINTS) <= 6) return "score";
-    return false;
-  }
-  function toggleRaus(idx) {
-    if (numPlayers <= 2) return; // kein Raus bei 2 Spielern
-    if (suit === "eichel") return; // Bei Eichel müssen alle mitspielen
-    if (idx === ansager) return; // Ansager kann nicht raus
-    if (isRausForced(idx)) return; // Pflichtmitspieler
-    const newSet = new Set(rausSet);
-    if (newSet.has(idx)) {
-      newSet.delete(idx);
-    } else {
-      // Check max raus limit
-      if (newSet.size >= maxRaus()) return;
-      newSet.add(idx);
-    }
-    setRausSet(newSet);
-  }
-  // When ansager is set, remove them from raus
-  function setAnsagerSafe(idx) {
-    setAnsager(idx);
-    if (rausSet.has(idx)) {
-      const newSet = new Set(rausSet);
-      newSet.delete(idx);
-      setRausSet(newSet);
-    }
-  }
-  // When suit changes, handle Eichel (no raus) and reset Herz Blind if not Herz
-  function setSuitSafe(suitId) {
-    setSuit(suitId);
-    if (suitId === "eichel") setRausSet(new Set()); // alle müssen mitspielen
-    if (suitId !== "herz") setHerzBlind(false);
-  }
-  function calcDelta(idx) {
-    const isHerz = SUITS.find(s => s.id === suit)?.double;
-    const mult = isHerz ? herzBlind ? 4 : 2 : 1;
-    const t = tricks[idx] ?? 0;
-    if (idx === ansager && !herzBlind) return t >= bid ? -(t * mult) : (6 + bid) * mult;
-    // Bei Herz Blind: Ansager zählt wie ein normaler Mitspieler (kein Stich = +6, sonst -Stiche)
-    return t === 0 ? 6 * mult : -(t * mult);
-  }
-  function canHerzBlind() {
-    // Ansager braucht mind. 50 Punkte um Herz Blind zu spielen (automatisch, via Checkbox)
-    return ansager !== null && (scores[ansager] ?? 0) >= HERZ_BLIND_THRESHOLD && suit === "herz";
+  function initRound(playersList, trump) {
+    setRoundPhase("setup");
+    const initialStatus = {};
+    const initialTricks = {};
+    playersList.forEach(p => {
+      initialTricks[p.id] = 0;
+      initialStatus[p.id] = "mit"; 
+    });
+    setPlayerStatus(initialStatus);
+    setPlayerTricks(initialTricks);
   }
 
-  // Manueller Start: Herz Blind jederzeit, fragt zuerst nach dem Ansager
-  const [showHerzBlindPicker, setShowHerzBlindPicker] = useState(false);
-  function startHerzBlindManual(idx) {
-    setAnsagerSafe(idx);
-    setSuit("herz");
-    setHerzBlind(true);
-    setRausSet(new Set()); // bei manuellem Start alles zurücksetzen
-    setShowHerzBlindPicker(false);
+  function getForcedReason(player, idx, trump, overrideScores = currentScores, overrideRaus = consecutiveRaus) {
+    if (trump.id === "eichel") return "🌰 Eichel-Runde Pflicht";
+    if (overrideScores[idx] <= 6) return "⚠️ Punkte ≤ 6 Pflicht";
+    if (overrideRaus[player.id] >= 2) return "🚨 3. Mal Pflicht";
+    return null;
   }
-  function submitRound() {
-    setRoundErr("");
-    if (ansager === null) {
-      setRoundErr("Bitte den Ansager wählen.");
-      return;
-    }
-    if (!suit) {
-      setRoundErr("Bitte eine Farbe wählen.");
-      return;
-    }
-    if (suit === "eichel" && rausSet.size > 0) {
-      setRoundErr("Bei Eichel müssen alle mitspielen.");
-      return;
-    }
-    const activeForCheck = getActivePlayers();
-    const trickTotal = activeForCheck.reduce((s, a) => s + (tricks[a.index] || 0), 0);
-    if (trickTotal !== 6) {
-      setRoundErr(`Es müssen genau 6 Stiche verteilt werden (aktuell ${trickTotal}/6).`);
-      return;
-    }
 
-    // Snapshot for potential correction (undo) — captured BEFORE this round's effects
-    const snapshot = {
-      scores: [...scores],
-      round,
-      dealer,
-      rausSet: new Set(rausSet),
-      rausStreak: [...rausStreak],
-      registrySnapshot: registry,
-      // full registry state before this round (for undoing a win)
-      wasWinningRound: false // set to true below if this round wins the game
-    };
-    const active = getActivePlayers();
-    const newScores = [...scores];
-    const rausIndices = [...rausSet];
-    const logEntry = {
-      round,
-      suit,
-      bid,
-      ansager,
-      dealer,
-      deltas: [],
-      playerNames: gamePlayers.map(p => p.name),
-      rausIndices,
-      herzBlind
-    };
-    for (const ap of active) {
-      const delta = calcDelta(ap.index);
-      newScores[ap.index] = Math.max(0, newScores[ap.index] + delta);
-      logEntry.deltas.push({
-        playerIndex: ap.index,
-        delta,
-        tricks: tricks[ap.index]
-      });
+  function handleTrumpChange(trump) {
+    setSelectedTrump(trump);
+    if (trump.id === "eichel") {
+      const updatedStatus = { ...playerStatus };
+      gamePlayers.forEach(p => { updatedStatus[p.id] = "mit"; });
+      setPlayerStatus(updatedStatus);
     }
-    setRoundLog(prev => [...prev, logEntry]);
-    setScores(newScores);
+  }
 
-    // Adi easter egg: Adi lost at Herz (as Ansager or Mitspieler)
-    const adiIdx = gamePlayers.findIndex(p => p.name.toLowerCase() === "adi");
-    if (adiIdx !== -1 && suit === "herz") {
-      const adiDelta = logEntry.deltas.find(d => d.playerIndex === adiIdx);
-      if (adiDelta && adiDelta.delta > 0) {
-        const isAnsager = ansager === adiIdx;
-        triggerAdi(isAnsager);
-      }
-    }
-    const wIdx = newScores.findIndex(s => s === 0);
-    if (wIdx !== -1) {
-      // ── Calculate payout ──
-      // Each loser pays their remaining points × 10ct; winner collects the sum
-      const losers = gamePlayers.map((p, i) => ({
-        name: p.name,
-        pts: newScores[i],
-        id: p.id,
-        idx: i
-      })).filter(p => p.idx !== wIdx);
-      const breakdown = losers.map(p => ({
-        ...p,
-        amount: Math.round(p.pts * CENT_PER_POINT * 100) / 100
-      }));
-      const total = Math.round(breakdown.reduce((s, x) => s + x.amount, 0) * 100) / 100;
-      const payout = {
-        winnerName: gamePlayers[wIdx].name,
-        winnerId: gamePlayers[wIdx].id,
-        breakdown,
-        total
-      };
-      setWinnerPayout(payout);
-      setWinnerIdx(wIdx);
-
-      // ── Save to registry ──
-      const date = new Date().toLocaleDateString("de-DE");
-      // Build moneyDelta map once so it's consistent
-      const moneyMap = {};
-      gamePlayers.forEach((p, i) => {
-        if (i === wIdx) moneyMap[p.id] = total;else moneyMap[p.id] = -(Math.round(newScores[i] * CENT_PER_POINT * 100) / 100);
-      });
-      setRegistry(prev => prev.map(p => {
-        const gpIdx = gamePlayers.findIndex(gp => gp.id === p.id);
-        if (gpIdx === -1) return p;
-        const place = newScores.map((s, i) => ({
-          s,
-          i
-        })).sort((a, b) => a.s - b.s).findIndex(x => x.i === gpIdx) + 1;
-        const won = gpIdx === wIdx;
-        const moneyDelta = moneyMap[p.id] ?? 0;
-        const gameEntry = {
-          id: uid(),
-          date,
-          players: gamePlayers.map(gp => gp.name),
-          rounds: round,
-          finalScore: newScores[gpIdx],
-          place,
-          won,
-          moneyDelta
-        };
-        const existingSession = p.session || {
-          balance: 0,
-          games: []
-        };
-        return {
-          ...p,
-          games: [...p.games, gameEntry],
-          session: {
-            balance: Math.round((existingSession.balance + moneyDelta) * 100) / 100,
-            games: [...existingSession.games, gameEntry]
-          }
-        };
-      }));
-      // Push snapshot marked as winning round, so it can still be corrected from winner screen
-      setSnapshotStack(prev => [...prev, {
-        ...snapshot,
-        wasWinningRound: true
-      }]);
-      setScreen("winner");
-      return;
-    }
-    // Update raus streak
-    const newStreak = [...(rausStreak.length ? rausStreak : Array(numPlayers).fill(0))];
-    gamePlayers.forEach((_, i) => {
-      if (rausSet.has(i)) {
-        newStreak[i] = (newStreak[i] || 0) + 1;
-      } else {
-        newStreak[i] = 0;
+  function proceedToTricks() {
+    let updatedStatus = { ...playerStatus };
+    gamePlayers.forEach((p, idx) => {
+      if (getForcedReason(p, idx, selectedTrump)) {
+        updatedStatus[p.id] = "mit";
       }
     });
-    setRausStreak(newStreak);
-    setSnapshotStack(prev => [...prev, snapshot]);
-    setDealer((dealer + 1) % numPlayers);
-    setRound(r => r + 1);
-    setAnsager(null);
-    setSuit(null);
-    setBid(1);
-    setHerzBlind(false);
-    setTricks(Array(numPlayers).fill(0));
-    setRausSet(new Set());
-  }
-  function correctLastRound() {
-    if (snapshotStack.length === 0) return;
-    const last = snapshotStack[snapshotStack.length - 1];
+    setPlayerStatus(updatedStatus);
 
-    // If the round we're undoing was the winning round, restore registry too
-    if (last.wasWinningRound) {
-      setRegistry(last.registrySnapshot);
-      setWinnerPayout(null);
-      setWinnerIdx(null);
-      setScreen("game");
+    if (!Object.values(updatedStatus).includes("mit")) {
+      alert("Es muss mindestens ein Spieler mitgehen!");
+      return;
     }
-    setScores(last.scores);
-    setRound(last.round);
-    setDealer(last.dealer);
-    setRausSet(last.rausSet);
-    setRausStreak(last.rausStreak);
-    setRoundLog(prev => prev.slice(0, -1));
-    setSnapshotStack(prev => prev.slice(0, -1));
-    setAnsager(null);
-    setSuit(null);
-    setBid(1);
-    setHerzBlind(false);
-    setTricks(Array(numPlayers).fill(0));
-    setRoundErr("");
+    
+    const updatedTricks = { ...playerTricks };
+    gamePlayers.forEach(p => {
+      if (updatedStatus[p.id] === "raus") updatedTricks[p.id] = 0;
+    });
+    setPlayerTricks(updatedTricks);
+    setRoundPhase("tricks");
   }
-  function abortGame() {
+
+  function getTotalTricksEntered(tricksObj, statusObj) {
+    return gamePlayers.reduce((sum, p) => {
+      return sum + (statusObj[p.id] === "mit" ? (tricksObj[p.id] || 0) : 0);
+    }, 0);
+  }
+
+  function evaluateRound() {
+    const total = getTotalTricksEntered(playerTricks, playerStatus);
+    if (total !== 6) {
+      alert(`Es müssen genau 6 Stiche verteilt werden! Aktuell verteilt: ${total}`);
+      return;
+    }
+
+    const newRoundData = {
+      roundNum: gameRounds.length + 1,
+      trump: selectedTrump,
+      playerStatus: { ...playerStatus },
+      playerTricks: { ...playerTricks },
+      dealerIdx: dealerIdx
+    };
+
+    const updatedRounds = [...gameRounds, newRoundData];
+    const { scores: nextScores } = calculateScoresFromRounds(gamePlayers, updatedRounds);
+
+    setGameRounds(updatedRounds);
+
+    const hasWinner = nextScores.some(s => s <= 0);
+    if (hasWinner) {
+      let winnerIdx = 0;
+      let minScore = nextScores[0];
+      nextScores.forEach((s, idx) => {
+        if (s < minScore) { minScore = s; winnerIdx = idx; }
+      });
+      
+      // Kappe alle Minusstände für die Historie/Abrechnung auf exakt 0
+      const clampedScores = nextScores.map(s => s < 0 ? 0 : s);
+      saveGameResult(clampedScores, winnerIdx, updatedRounds);
+    } else {
+      setDealerIdx(d => (d + 1) % gamePlayers.length);
+      setSelectedTrump(SUITS[0]);
+      setRoundPhase("setup");
+      
+      const freshStatus = {};
+      const freshTricks = {};
+      gamePlayers.forEach(p => {
+        freshStatus[p.id] = "mit";
+        freshTricks[p.id] = 0;
+      });
+      setPlayerStatus(freshStatus);
+      setPlayerTricks(freshTricks);
+    }
+  }
+
+  function saveGameResult(finalScores, winnerIdx, finishedRounds) {
+    const gameId = uid();
+    const timestamp = new Date().toISOString();
+    
+    const losers = gamePlayers.map((p, i) => ({ id: p.id, pts: finalScores[i], idx: i })).filter(p => p.idx !== winnerIdx);
+    const totalPrizeMoney = losers.reduce((sum, l) => sum + (l.pts * CENT_PER_POINT), 0);
+    
+    setRegistry(prev => {
+      const updated = prev.map(p => {
+        const gpIdx = gamePlayers.findIndex(gp => gp.id === p.id);
+        if (gpIdx === -1) return p; 
+        
+        const won = gpIdx === winnerIdx;
+        const moneyDelta = won ? totalPrizeMoney : -(finalScores[gpIdx] * CENT_PER_POINT);
+        
+        return {
+          ...p,
+          games: [...(p.games || []), {
+            id: gameId, timestamp, date: new Date().toLocaleDateString("de-DE"),
+            players: gamePlayers.map(g => ({ id: g.id, name: g.name })),
+            finalScores: [...finalScores],
+            winnerIdx,
+            won, moneyDelta
+          }]
+        };
+      });
+      return refreshBalances(updated);
+    });
+    
+    alert(`Spiel beendet! 🏆 ${gamePlayers[winnerIdx].name} hat gewonnen!`);
     setScreen("home");
-    setSelectedIds([]);
   }
 
-  // ── Export / Import ──
-  const [showExport, setShowExport] = useState(false);
-  const [importText, setImportText] = useState("");
-  const [importErr, setImportErr] = useState("");
-  function exportData() {
-    setShowExport(true);
-  }
-  function copyExport() {
-    const json = JSON.stringify(registry);
-    navigator.clipboard.writeText(json).then(() => alert("✓ In Zwischenablage kopiert!")).catch(() => alert("Bitte den Text manuell kopieren."));
-  }
-  function importData() {
-    setImportErr("");
-    try {
-      const data = JSON.parse(importText.trim());
-      if (Array.isArray(data)) {
-        setRegistry(data);
-        setImportText("");
-        setScreen("home");
-        alert("✓ Daten erfolgreich geladen!");
-      } else {
-        setImportErr("Ungültige Daten.");
-      }
-    } catch {
-      setImportErr("Ungültiges Format — bitte den kopierten Text einfügen.");
+  function saveEditedRound(rIdx, editedStatus, editedTricks) {
+    const total = gamePlayers.reduce((sum, p) => sum + (editedStatus[p.id] === "mit" ? (editedTricks[p.id] || 0) : 0), 0);
+    if (total !== 6) {
+      alert(`Fehler: Eine Runde muss immer genau 6 Stiche haben! (Aktuell: ${total})`);
+      return;
     }
-  }
-  const activePlayers = screen === "game" ? getActivePlayers() : [];
 
-  // ════════════════════════════════════════════════════════════
-  return /*#__PURE__*/_jsxDEV("div", {
-    style: {
-      minHeight: "100vh",
-      background: "linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)",
-      fontFamily: "'Georgia','Times New Roman',serif",
-      color: "#e9f5db",
-      overflowX: "hidden"
-    },
-    children: [showHerzBlindPicker && /*#__PURE__*/_jsxDEV("div", {
-      style: {
-        position: "fixed",
-        inset: 0,
-        zIndex: 9997,
-        background: "rgba(0,0,0,0.92)",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "30px 20px"
-      },
-      children: [/*#__PURE__*/_jsxDEV("div", {
-        style: {
-          fontSize: 44,
-          marginBottom: 12
-        },
-        children: "🃏❤️"
-      }, void 0, false), /*#__PURE__*/_jsxDEV("h2", {
-        style: {
-          color: "#e63946",
-          fontSize: 20,
-          marginBottom: 6,
-          textAlign: "center"
-        },
-        children: "Herz Blind starten"
-      }, void 0, false), /*#__PURE__*/_jsxDEV("p", {
-        style: {
-          color: "#999",
-          fontSize: 13,
-          marginBottom: 22,
-          textAlign: "center"
-        },
-        children: "Wer sagt Herz Blind an? (Alles ×4)"
-      }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-        style: {
-          display: "flex",
-          flexDirection: "column",
-          gap: 10,
-          width: "100%",
-          maxWidth: 280
-        },
-        children: [gamePlayers.map((p, i) => {
-          const sitsOutDealer = numPlayers === 5 && i === dealer;
-          if (sitsOutDealer) return null;
-          return /*#__PURE__*/_jsxDEV("button", {
-            onClick: () => startHerzBlindManual(i),
-            style: btn("#e63946", {
-              fontSize: 15,
-              fontWeight: "bold",
-              padding: 14
-            }),
-            children: p.name
-          }, i, false);
-        }), /*#__PURE__*/_jsxDEV("button", {
-          onClick: () => setShowHerzBlindPicker(false),
-          style: btn("#334", {
-            fontSize: 14,
-            padding: 12,
-            marginTop: 6
-          }),
-          children: "Abbrechen"
-        }, void 0, false)]
-      }, void 0, true)]
-    }, void 0, true), showExport && /*#__PURE__*/_jsxDEV("div", {
-      style: {
-        position: "fixed",
-        inset: 0,
-        zIndex: 9998,
-        background: "rgba(0,0,0,0.92)",
-        display: "flex",
-        flexDirection: "column",
-        padding: "30px 20px",
-        overflowY: "auto"
-      },
-      children: [/*#__PURE__*/_jsxDEV("h2", {
-        style: {
-          color: "#e9c46a",
-          marginBottom: 8,
-          fontSize: 18
-        },
-        children: "💾 Daten sichern"
-      }, void 0, false), /*#__PURE__*/_jsxDEV("p", {
-        style: {
-          color: "#999",
-          fontSize: 13,
-          marginBottom: 12
-        },
-        children: "Kopiere den Text unten und speichere ihn z.B. in Notizen auf deinem Handy."
-      }, void 0, false), /*#__PURE__*/_jsxDEV("textarea", {
-        readOnly: true,
-        value: JSON.stringify(registry),
-        style: {
-          flex: 1,
-          minHeight: 200,
-          background: "rgba(255,255,255,0.07)",
-          border: "1px solid rgba(255,255,255,0.2)",
-          borderRadius: 8,
-          color: "#e9f5db",
-          padding: 12,
-          fontSize: 11,
-          fontFamily: "monospace",
-          marginBottom: 14,
-          resize: "none"
+    const updatedRounds = [...gameRounds];
+    updatedRounds[rIdx] = {
+      ...updatedRounds[rIdx],
+      playerStatus: editedStatus,
+      playerTricks: editedTricks
+    };
+
+    setGameRounds(updatedRounds);
+    setEditingRoundIdx(null);
+  }
+
+  // Korrektur eines ALTEN, bereits beendeten Spiels aus der Historie
+  function saveEditedPastGame(gameId) {
+    let hasValidationError = false;
+    
+    setRegistry(prev => {
+      const updated = prev.map(p => {
+        const gameIdx = (p.games || []).findIndex(g => g.id === gameId);
+        if (gameIdx === -1) return p;
+
+        const game = p.games[gameIdx];
+        
+        // Hole alle eingetragenen Punkte ab
+        const enteredScores = game.players.map(pl => parseInt(editScores[pl.id]) || 0);
+        
+        // VALIDIERUNG: Mindestens ein Spieler muss 0 (oder weniger) Punkte haben
+        if (!enteredScores.some(s => s <= 0)) {
+          hasValidationError = true;
+          return p;
         }
-      }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-        style: {
-          display: "flex",
-          gap: 10
-        },
-        children: [/*#__PURE__*/_jsxDEV("button", {
-          onClick: copyExport,
-          style: btn("#e9c46a", {
-            flex: 1,
-            color: "#1a1a2e",
-            fontWeight: "bold",
-            padding: 13
-          }),
-          children: "📋 Kopieren"
-        }, void 0, false), /*#__PURE__*/_jsxDEV("button", {
-          onClick: () => setShowExport(false),
-          style: btn("#334", {
-            flex: 1,
-            padding: 13
-          }),
-          children: "Schließen"
-        }, void 0, false)]
-      }, void 0, true)]
-    }, void 0, true), showAdi && /*#__PURE__*/_jsxDEV("div", {
-      onClick: () => setShowAdi(false),
-      style: {
-        position: "fixed",
-        inset: 0,
-        zIndex: 9999,
-        background: "rgba(0,0,0,0.92)",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center"
-      },
-      children: [/*#__PURE__*/_jsxDEV("div", {
-        style: {
-          fontSize: 40,
-          marginBottom: 12
-        },
-        children: "😱💔"
-      }, void 0, false), /*#__PURE__*/_jsxDEV("img", {
-        src: "",
-        style: {
-          maxWidth: "85vw",
-          maxHeight: "65vh",
-          borderRadius: 16,
-          border: "4px solid #e63946",
-          boxShadow: "0 0 40px #e6394688"
-        },
-        alt: "Adi"
-      }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-        style: {
-          marginTop: 16,
-          fontSize: 22,
-          fontWeight: "bold",
-          color: "#e63946",
-          textAlign: "center",
-          letterSpacing: 1
-        },
-        children: adiAsAnsager ? "ADI LÄUFT BEI HERZ! 😂❤️" : "Adi läuft 😂😂😂"
-      }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-        style: {
-          fontSize: 13,
-          color: "#888",
-          marginTop: 8
-        },
-        children: "Tippen zum Schließen"
-      }, void 0, false)]
-    }, void 0, true), /*#__PURE__*/_jsxDEV("div", {
-      style: {
-        background: "rgba(0,0,0,0.45)",
-        borderBottom: "2px solid #e9c46a",
-        padding: "14px 18px",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between"
-      },
-      children: [/*#__PURE__*/_jsxDEV("div", {
-        style: {
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          cursor: "pointer"
-        },
-        onClick: () => {
-          if (!["game"].includes(screen)) setScreen("home");
-        },
-        children: [/*#__PURE__*/_jsxDEV("span", {
-          style: {
-            fontSize: 26
-          },
-          children: "🃏"
-        }, void 0, false), /*#__PURE__*/_jsxDEV("span", {
-          style: {
-            fontSize: 20,
-            fontWeight: "bold",
-            color: "#e9c46a",
-            letterSpacing: 2
-          },
-          children: "20 AB"
-        }, void 0, false)]
-      }, void 0, true), /*#__PURE__*/_jsxDEV("div", {
-        style: {
-          display: "flex",
-          gap: 8
-        },
-        children: [screen === "game" && /*#__PURE__*/_jsxDEV(_Fragment, {
-          children: [/*#__PURE__*/_jsxDEV("button", {
-            onClick: () => setScreen("roundHistory"),
-            style: btn("#334", {
-              fontSize: 13
-            }),
-            children: "Verlauf"
-          }, void 0, false), /*#__PURE__*/_jsxDEV("button", {
-            onClick: abortGame,
-            style: btn("#5c1a1a", {
-              fontSize: 13
-            }),
-            children: "Abbruch"
-          }, void 0, false)]
-        }, void 0, true), ["roundHistory", "playerStats", "session"].includes(screen) && /*#__PURE__*/_jsxDEV("button", {
-          onClick: () => setScreen(screen === "roundHistory" ? "game" : screen === "playerStats" ? "players" : "home"),
-          style: btn("#334", {
-            fontSize: 13
-          }),
-          children: "← Zurück"
-        }, void 0, false), ["players", "select", "import"].includes(screen) && /*#__PURE__*/_jsxDEV("button", {
-          onClick: () => setScreen("home"),
-          style: btn("#334", {
-            fontSize: 13
-          }),
-          children: "← Zurück"
-        }, void 0, false), screen === "winner" && /*#__PURE__*/_jsxDEV("button", {
-          onClick: () => setScreen("home"),
-          style: btn("#334", {
-            fontSize: 13
-          }),
-          children: "Hauptmenü"
-        }, void 0, false)]
-      }, void 0, true)]
-    }, void 0, true), /*#__PURE__*/_jsxDEV("div", {
-      style: {
-        maxWidth: 520,
-        margin: "0 auto",
-        padding: "20px 16px"
-      },
-      children: [screen === "home" && /*#__PURE__*/_jsxDEV("div", {
-        style: {
-          textAlign: "center",
-          paddingTop: 16
-        },
-        children: [/*#__PURE__*/_jsxDEV("div", {
-          style: {
-            fontSize: 64,
-            marginBottom: 6
-          },
-          children: "🃏"
-        }, void 0, false), /*#__PURE__*/_jsxDEV("h1", {
-          style: {
-            color: "#e9c46a",
-            fontSize: 26,
-            marginBottom: 4,
-            letterSpacing: 3
-          },
-          children: "20 AB"
-        }, void 0, false), /*#__PURE__*/_jsxDEV("p", {
-          style: {
-            color: "#666",
-            marginBottom: 32,
-            fontSize: 13
-          },
-          children: "Das Kartenspiel"
-        }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-          style: {
-            display: "flex",
-            flexDirection: "column",
-            gap: 12,
-            maxWidth: 260,
-            margin: "0 auto"
-          },
-          children: [/*#__PURE__*/_jsxDEV("button", {
-            onClick: () => {
-              setStartDealerId(null);
-              setScreen("select");
-            },
-            style: btn("#e9c46a", {
-              color: "#1a1a2e",
-              fontWeight: "bold",
-              fontSize: 16,
-              padding: 14
-            }),
-            children: "🎴 Neues Spiel"
-          }, void 0, false), /*#__PURE__*/_jsxDEV("button", {
-            onClick: () => setScreen("session"),
-            style: btn(hasActiveSession() ? "#1a3a1a" : "#334", {
-              fontSize: 15,
-              padding: 12
-            }),
-            children: ["💰 Session", hasActiveSession() ? " (aktiv)" : ""]
-          }, void 0, true), /*#__PURE__*/_jsxDEV("button", {
-            onClick: () => setScreen("players"),
-            style: btn("#334", {
-              fontSize: 15,
-              padding: 12
-            }),
-            children: "👤 Spielerverwaltung"
-          }, void 0, false)]
-        }, void 0, true), /*#__PURE__*/_jsxDEV("div", {
-          style: {
-            display: "flex",
-            gap: 8,
-            justifyContent: "center",
-            marginTop: 28
-          },
-          children: [/*#__PURE__*/_jsxDEV("button", {
-            onClick: exportData,
-            style: btn("#1a2a1a", {
-              fontSize: 12,
-              padding: "8px 14px"
-            }),
-            children: "💾 Sichern"
-          }, void 0, false), /*#__PURE__*/_jsxDEV("button", {
-            onClick: () => setScreen("import"),
-            style: btn("#1a1a2a", {
-              fontSize: 12,
-              padding: "8px 14px"
-            }),
-            children: "📂 Wiederherstellen"
-          }, void 0, false)]
-        }, void 0, true), /*#__PURE__*/_jsxDEV("p", {
-          style: {
-            color: "#444",
-            fontSize: 11,
-            marginTop: 16
-          },
-          children: [registry.length, " Spieler registriert"]
-        }, void 0, true)]
-      }, void 0, true), screen === "session" && (() => {
-        const sessionPlayers = registry.filter(p => p.session && p.session.games.length > 0);
-        const allGamesInSession = sessionPlayers.length > 0 ? sessionPlayers[0].session.games.length : 0;
-        return /*#__PURE__*/_jsxDEV("div", {
-          children: [/*#__PURE__*/_jsxDEV("h2", {
-            style: {
-              color: "#e9c46a",
-              marginBottom: 4,
-              fontSize: 18
-            },
-            children: "💰 Session-Abrechnung"
-          }, void 0, false), /*#__PURE__*/_jsxDEV("p", {
-            style: {
-              color: "#888",
-              fontSize: 13,
-              marginBottom: 18
-            },
-            children: "Alle Beträge seit Session-Start · 10 Cent pro Restpunkt"
-          }, void 0, false), sessionPlayers.length === 0 ? /*#__PURE__*/_jsxDEV("div", {
-            style: {
-              ...card,
-              textAlign: "center",
-              color: "#666",
-              padding: 30
-            },
-            children: "Noch keine Spiele in dieser Session."
-          }, void 0, false) : /*#__PURE__*/_jsxDEV(_Fragment, {
-            children: [/*#__PURE__*/_jsxDEV("div", {
-              style: card,
-              children: [/*#__PURE__*/_jsxDEV("div", {
-                style: {
-                  ...lbl,
-                  marginBottom: 12
-                },
-                children: "Aktueller Stand"
-              }, void 0, false), [...sessionPlayers].sort((a, b) => b.session.balance - a.session.balance).map(p => /*#__PURE__*/_jsxDEV("div", {
-                style: {
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  padding: "10px 0",
-                  borderBottom: "1px solid rgba(255,255,255,0.06)"
-                },
-                children: [/*#__PURE__*/_jsxDEV("span", {
-                  style: {
-                    fontSize: 15
-                  },
-                  children: p.name
-                }, void 0, false), /*#__PURE__*/_jsxDEV("span", {
-                  style: {
-                    fontSize: 18,
-                    fontWeight: "bold",
-                    color: p.session.balance >= 0 ? "#57cc99" : "#e63946"
-                  },
-                  children: euro(p.session.balance)
-                }, void 0, false)]
-              }, p.id, true))]
-            }, void 0, true), /*#__PURE__*/_jsxDEV("div", {
-              style: card,
-              children: [/*#__PURE__*/_jsxDEV("div", {
-                style: {
-                  ...lbl,
-                  marginBottom: 12
-                },
-                children: ["Spiele (", sessionPlayers[0].session.games.length, ")"]
-              }, void 0, true), [...sessionPlayers[0].session.games].reverse().map((g, i) => /*#__PURE__*/_jsxDEV("div", {
-                style: {
-                  padding: "10px 0",
-                  borderBottom: "1px solid rgba(255,255,255,0.06)"
-                },
-                children: [/*#__PURE__*/_jsxDEV("div", {
-                  style: {
-                    display: "flex",
-                    justifyContent: "space-between",
-                    marginBottom: 5
-                  },
-                  children: [/*#__PURE__*/_jsxDEV("span", {
-                    style: {
-                      fontWeight: "bold",
-                      fontSize: 13
-                    },
-                    children: ["Spiel ", sessionPlayers[0].session.games.length - i]
-                  }, void 0, true), /*#__PURE__*/_jsxDEV("span", {
-                    style: {
-                      fontSize: 11,
-                      color: "#888"
-                    },
-                    children: g.date
-                  }, void 0, false)]
-                }, void 0, true), sessionPlayers.map(p => {
-                  const myGame = p.session.games.find(x => x.id === g.id);
-                  if (!myGame) return null;
-                  return /*#__PURE__*/_jsxDEV("div", {
-                    style: {
-                      display: "flex",
-                      justifyContent: "space-between",
-                      fontSize: 13,
-                      padding: "2px 0"
-                    },
-                    children: [/*#__PURE__*/_jsxDEV("span", {
-                      style: {
-                        color: "#ccc"
-                      },
-                      children: [myGame.won ? "🏆 " : "", p.name, " (", myGame.finalScore, " Pkt)"]
-                    }, void 0, true), /*#__PURE__*/_jsxDEV("span", {
-                      style: {
-                        color: myGame.moneyDelta >= 0 ? "#57cc99" : "#e63946",
-                        fontWeight: "bold"
-                      },
-                      children: euro(myGame.moneyDelta)
-                    }, void 0, false)]
-                  }, p.id, true);
-                })]
-              }, g.id || i, true))]
-            }, void 0, true), /*#__PURE__*/_jsxDEV("div", {
-              style: {
-                background: "rgba(230,57,70,0.08)",
-                border: "1px solid #e6394622",
-                borderRadius: 12,
-                padding: 16,
-                marginBottom: 16
-              },
-              children: [/*#__PURE__*/_jsxDEV("div", {
-                style: {
-                  fontWeight: "bold",
-                  marginBottom: 6,
-                  fontSize: 14
-                },
-                children: "Session abschließen"
-              }, void 0, false), /*#__PURE__*/_jsxDEV("p", {
-                style: {
-                  color: "#999",
-                  fontSize: 12,
-                  marginBottom: 12
-                },
-                children: "Verrechnet das Geld z.B. via PayPal und startet beim nächsten Mal bei Null."
-              }, void 0, false), !confirmClose ? /*#__PURE__*/_jsxDEV("button", {
-                onClick: () => setConfirmClose(true),
-                style: btn("#e63946", {
-                  width: "100%",
-                  fontWeight: "bold",
-                  padding: 12,
-                  fontSize: 14
-                }),
-                children: "Session abschließen & Nullen"
-              }, void 0, false) : /*#__PURE__*/_jsxDEV("div", {
-                children: [/*#__PURE__*/_jsxDEV("p", {
-                  style: {
-                    color: "#e63946",
-                    fontWeight: "bold",
-                    fontSize: 13,
-                    marginBottom: 10,
-                    textAlign: "center"
-                  },
-                  children: "Wirklich abschließen? Alle Salden werden auf 0 gesetzt."
-                }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-                  style: {
-                    display: "flex",
-                    gap: 8
-                  },
-                  children: [/*#__PURE__*/_jsxDEV("button", {
-                    onClick: () => setConfirmClose(false),
-                    style: btn("#334", {
-                      flex: 1,
-                      padding: 11
-                    }),
-                    children: "Abbrechen"
-                  }, void 0, false), /*#__PURE__*/_jsxDEV("button", {
-                    onClick: closeSession,
-                    style: btn("#e63946", {
-                      flex: 1,
-                      fontWeight: "bold",
-                      padding: 11
-                    }),
-                    children: "✓ Ja, nullen"
-                  }, void 0, false)]
-                }, void 0, true)]
-              }, void 0, true)]
-            }, void 0, true)]
-          }, void 0, true)]
-        }, void 0, true);
-      })(), screen === "players" && /*#__PURE__*/_jsxDEV("div", {
-        children: [/*#__PURE__*/_jsxDEV("h2", {
-          style: {
-            color: "#e9c46a",
-            marginBottom: 16,
-            fontSize: 18
-          },
-          children: "👤 Spielerverwaltung"
-        }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-          style: card,
-          children: [/*#__PURE__*/_jsxDEV("div", {
-            style: {
-              ...lbl,
-              marginBottom: 8
-            },
-            children: "Neuen Spieler anlegen"
-          }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-            style: {
-              display: "flex",
-              gap: 8
-            },
-            children: [/*#__PURE__*/_jsxDEV("input", {
-              value: newName,
-              onChange: e => setNewName(e.target.value),
-              onKeyDown: e => e.key === "Enter" && addPlayer(),
-              placeholder: "Name eingeben…",
-              style: {
-                ...inp,
-                marginTop: 0,
-                flex: 1
-              }
-            }, void 0, false), /*#__PURE__*/_jsxDEV("button", {
-              onClick: addPlayer,
-              style: btn("#e9c46a", {
-                color: "#1a1a2e",
-                fontWeight: "bold",
-                padding: "10px 16px"
-              }),
-              children: "+"
-            }, void 0, false)]
-          }, void 0, true), regErr && /*#__PURE__*/_jsxDEV("div", {
-            style: {
-              ...errBox,
-              marginTop: 10,
-              marginBottom: 0
-            },
-            children: regErr
-          }, void 0, false)]
-        }, void 0, true), registry.length === 0 && /*#__PURE__*/_jsxDEV("p", {
-          style: {
-            color: "#555",
-            textAlign: "center",
-            marginTop: 16
-          },
-          children: "Noch keine Spieler angelegt."
-        }, void 0, false), registry.map(p => {
-          const wins = p.games.filter(g => g.won).length;
-          const totalEarned = p.games.reduce((s, g) => s + (g.moneyDelta || 0), 0);
-          return /*#__PURE__*/_jsxDEV("div", {
-            style: {
-              display: "flex",
-              alignItems: "center",
-              gap: 12,
-              background: "rgba(255,255,255,0.05)",
-              borderRadius: 10,
-              padding: "12px 14px",
-              marginBottom: 8,
-              border: "1px solid rgba(255,255,255,0.08)"
-            },
-            children: [/*#__PURE__*/_jsxDEV("div", {
-              style: {
-                flex: 1
-              },
-              children: [/*#__PURE__*/_jsxDEV("div", {
-                style: {
-                  fontWeight: "bold",
-                  fontSize: 15
-                },
-                children: p.name
-              }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-                style: {
-                  fontSize: 11,
-                  color: "#888",
-                  marginTop: 2
-                },
-                children: [p.games.length, " Spiele · ", wins, " Siege ·", " ", /*#__PURE__*/_jsxDEV("span", {
-                  style: {
-                    color: totalEarned >= 0 ? "#57cc99" : "#e63946"
-                  },
-                  children: [euro(totalEarned), " gesamt"]
-                }, void 0, true)]
-              }, void 0, true)]
-            }, void 0, true), /*#__PURE__*/_jsxDEV("button", {
-              onClick: () => {
-                setStatsId(p.id);
-                setScreen("playerStats");
-              },
-              style: btn("#334", {
-                fontSize: 12,
-                padding: "6px 10px"
-              }),
-              children: "📊"
-            }, void 0, false), /*#__PURE__*/_jsxDEV("button", {
-              onClick: () => deletePlayer(p.id),
-              style: btn("#5c1a1a", {
-                fontSize: 12,
-                padding: "6px 10px"
-              }),
-              children: "✕"
-            }, void 0, false)]
-          }, p.id, true);
-        })]
-      }, void 0, true), screen === "playerStats" && (() => {
-        const p = registry.find(x => x.id === statsId);
-        if (!p) return null;
-        const wins = p.games.filter(g => g.won).length;
-        const totalMoney = p.games.reduce((s, g) => s + (g.moneyDelta || 0), 0);
-        const sessionBalance = p.session?.balance || 0;
-        return /*#__PURE__*/_jsxDEV("div", {
-          children: [/*#__PURE__*/_jsxDEV("h2", {
-            style: {
-              color: "#e9c46a",
-              marginBottom: 4,
-              fontSize: 18
-            },
-            children: ["📊 ", p.name]
-          }, void 0, true), /*#__PURE__*/_jsxDEV("div", {
-            style: {
-              display: "flex",
-              gap: 10,
-              marginBottom: 20,
-              flexWrap: "wrap"
-            },
-            children: [["Spiele", p.games.length], ["Siege", wins], ["Winrate", p.games.length > 0 ? Math.round(wins / p.games.length * 100) + "%" : "–"], ["Gesamt", euro(totalMoney)], ["Session", euro(sessionBalance)]].map(([k, v]) => /*#__PURE__*/_jsxDEV("div", {
-              style: {
-                background: "rgba(255,255,255,0.07)",
-                borderRadius: 10,
-                padding: "10px 14px",
-                flex: "1 1 80px",
-                textAlign: "center"
-              },
-              children: [/*#__PURE__*/_jsxDEV("div", {
-                style: {
-                  fontSize: 11,
-                  color: "#888"
-                },
-                children: k
-              }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-                style: {
-                  fontSize: 16,
-                  fontWeight: "bold",
-                  marginTop: 3,
-                  color: typeof v === "string" && v.includes("−") ? "#e63946" : typeof v === "string" && v.includes("+") ? "#57cc99" : "#e9f5db"
-                },
-                children: v
-              }, void 0, false)]
-            }, k, true))
-          }, void 0, false), p.games.length === 0 && /*#__PURE__*/_jsxDEV("p", {
-            style: {
-              color: "#555"
-            },
-            children: "Noch keine Spiele gespielt."
-          }, void 0, false), [...p.games].reverse().map((g, i) => /*#__PURE__*/_jsxDEV("div", {
-            style: {
-              background: "rgba(0,0,0,0.3)",
-              borderRadius: 10,
-              padding: 14,
-              marginBottom: 10,
-              border: `1px solid ${g.won ? "#e9c46a44" : "rgba(255,255,255,0.07)"}`
-            },
-            children: [/*#__PURE__*/_jsxDEV("div", {
-              style: {
-                display: "flex",
-                justifyContent: "space-between",
-                marginBottom: 5
-              },
-              children: [/*#__PURE__*/_jsxDEV("span", {
-                style: {
-                  fontWeight: "bold",
-                  color: g.won ? "#e9c46a" : "#e9f5db"
-                },
-                children: [g.won ? "🏆 " : "", g.place, ". Platz"]
-              }, void 0, true), /*#__PURE__*/_jsxDEV("span", {
-                style: {
-                  fontSize: 12,
-                  color: "#888"
-                },
-                children: [g.date, " · ", g.rounds, " Runden"]
-              }, void 0, true)]
-            }, void 0, true), /*#__PURE__*/_jsxDEV("div", {
-              style: {
-                fontSize: 12,
-                color: "#999",
-                marginBottom: 4
-              },
-              children: ["Mitspieler: ", g.players.filter(n => n !== p.name).join(", ")]
-            }, void 0, true), /*#__PURE__*/_jsxDEV("div", {
-              style: {
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center"
-              },
-              children: [/*#__PURE__*/_jsxDEV("span", {
-                style: {
-                  fontSize: 13,
-                  color: getPointColor(g.finalScore)
-                },
-                children: [g.finalScore, " Punkte ", getMarker(g.finalScore)]
-              }, void 0, true), /*#__PURE__*/_jsxDEV("span", {
-                style: {
-                  fontSize: 15,
-                  fontWeight: "bold",
-                  color: (g.moneyDelta || 0) >= 0 ? "#57cc99" : "#e63946"
-                },
-                children: euro(g.moneyDelta || 0)
-              }, void 0, false)]
-            }, void 0, true)]
-          }, g.id || i, true))]
-        }, void 0, true);
-      })(), screen === "select" && /*#__PURE__*/_jsxDEV("div", {
-        children: [/*#__PURE__*/_jsxDEV("h2", {
-          style: {
-            color: "#e9c46a",
-            marginBottom: 6,
-            fontSize: 18
-          },
-          children: "🎴 Spieler auswählen"
-        }, void 0, false), /*#__PURE__*/_jsxDEV("p", {
-          style: {
-            color: "#888",
-            fontSize: 13,
-            marginBottom: 16
-          },
-          children: ["2–5 Spieler · ", selectedIds.length, " gewählt"]
-        }, void 0, true), registry.length < 2 && /*#__PURE__*/_jsxDEV("div", {
-          style: errBox,
-          children: ["Mindestens 2 Spieler anlegen.", " ", /*#__PURE__*/_jsxDEV("span", {
-            style: {
-              cursor: "pointer",
-              textDecoration: "underline"
-            },
-            onClick: () => setScreen("players"),
-            children: "Jetzt →"
-          }, void 0, false)]
-        }, void 0, true), /*#__PURE__*/_jsxDEV("div", {
-          style: {
-            display: "flex",
-            flexDirection: "column",
-            gap: 8,
-            marginBottom: 18
-          },
-          children: registry.map(p => {
-            const sel = selectedIds.includes(p.id);
-            const disabled = !sel && selectedIds.length >= 5;
-            return /*#__PURE__*/_jsxDEV("div", {
-              onClick: () => !disabled && toggleSelect(p.id),
-              style: {
-                display: "flex",
-                alignItems: "center",
-                gap: 12,
-                background: sel ? "rgba(233,196,106,0.12)" : "rgba(255,255,255,0.05)",
-                borderRadius: 10,
-                padding: "12px 14px",
-                cursor: disabled ? "not-allowed" : "pointer",
-                border: `1px solid ${sel ? "#e9c46a66" : "rgba(255,255,255,0.07)"}`,
-                opacity: disabled ? 0.4 : 1,
-                transition: "all 0.15s"
-              },
-              children: [/*#__PURE__*/_jsxDEV("div", {
-                style: {
-                  width: 22,
-                  height: 22,
-                  borderRadius: "50%",
-                  background: sel ? "#e9c46a" : "rgba(255,255,255,0.1)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: 12,
-                  color: "#1a1a2e",
-                  fontWeight: "bold",
-                  flexShrink: 0
-                },
-                children: sel ? selectedIds.indexOf(p.id) + 1 : ""
-              }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-                style: {
-                  flex: 1
-                },
-                children: [/*#__PURE__*/_jsxDEV("div", {
-                  style: {
-                    fontWeight: sel ? "bold" : "normal"
-                  },
-                  children: p.name
-                }, void 0, false), p.session && p.session.balance !== 0 && /*#__PURE__*/_jsxDEV("div", {
-                  style: {
-                    fontSize: 11,
-                    color: p.session.balance >= 0 ? "#57cc99" : "#e63946"
-                  },
-                  children: ["Session: ", euro(p.session.balance)]
-                }, void 0, true)]
-              }, void 0, true), sel && /*#__PURE__*/_jsxDEV("span", {
-                style: {
-                  color: "#e9c46a",
-                  fontSize: 13
-                },
-                children: "✓"
-              }, void 0, false)]
-            }, p.id, true);
-          })
-        }, void 0, false), setupErr && /*#__PURE__*/_jsxDEV("div", {
-          style: errBox,
-          children: setupErr
-        }, void 0, false), /*#__PURE__*/_jsxDEV("button", {
-          onClick: startGame,
-          disabled: selectedIds.length < 2,
-          style: {
-            ...btn(selectedIds.length >= 2 ? "#e9c46a" : "#333"),
-            color: selectedIds.length >= 2 ? "#1a1a2e" : "#666",
-            width: "100%",
-            fontWeight: "bold",
-            fontSize: 16,
-            padding: 14
-          },
-          children: "Spiel starten 🎴"
-        }, void 0, false)]
-      }, void 0, true), screen === "game" && /*#__PURE__*/_jsxDEV("div", {
-        children: [/*#__PURE__*/_jsxDEV("div", {
-          style: card,
-          children: [/*#__PURE__*/_jsxDEV("div", {
-            style: {
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              marginBottom: 12
-            },
-            children: [/*#__PURE__*/_jsxDEV("span", {
-              style: {
-                color: "#e9c46a",
-                fontWeight: "bold"
-              },
-              children: "Punkte"
-            }, void 0, false), /*#__PURE__*/_jsxDEV("span", {
-              style: {
-                fontSize: 12,
-                color: "#888"
-              },
-              children: ["Runde ", round, " · Geber: ", gamePlayers[dealer]?.name]
-            }, void 0, true)]
-          }, void 0, true), /*#__PURE__*/_jsxDEV("div", {
-            style: {
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 8
-            },
-            children: gamePlayers.map((p, i) => {
-              const pts = scores[i];
-              const sitsOut = numPlayers === 5 && i === dealer;
-              return /*#__PURE__*/_jsxDEV("div", {
-                style: {
-                  flex: "1 1 calc(50% - 4px)",
-                  background: "rgba(255,255,255,0.07)",
-                  borderRadius: 10,
-                  padding: "10px 12px",
-                  border: `1px solid ${sitsOut ? "rgba(255,255,255,0.05)" : getPointColor(pts) + "44"}`,
-                  opacity: sitsOut ? 0.5 : 1
-                },
-                children: [/*#__PURE__*/_jsxDEV("div", {
-                  style: {
-                    fontSize: 11,
-                    color: "#999",
-                    marginBottom: 3
-                  },
-                  children: [p.name, i === dealer ? " 🃏" : "", sitsOut ? " (aus)" : "", !sitsOut && rausSet.has(i) ? " 🚫" : "", !sitsOut && !rausSet.has(i) && isRausForced(i) === "streak" ? " ⚠️" : "", !sitsOut && !rausSet.has(i) && isRausForced(i) === "score" ? " 🔴" : ""]
-                }, void 0, true), /*#__PURE__*/_jsxDEV("div", {
-                  style: {
-                    display: "flex",
-                    alignItems: "baseline",
-                    gap: 5
-                  },
-                  children: [/*#__PURE__*/_jsxDEV("span", {
-                    style: {
-                      fontSize: 26,
-                      fontWeight: "bold",
-                      color: getPointColor(pts),
-                      lineHeight: 1
-                    },
-                    children: pts
-                  }, void 0, false), /*#__PURE__*/_jsxDEV("span", {
-                    style: {
-                      fontSize: 15
-                    },
-                    children: getMarker(pts)
-                  }, void 0, false)]
-                }, void 0, true), /*#__PURE__*/_jsxDEV("div", {
-                  style: {
-                    marginTop: 5,
-                    height: 3,
-                    background: "rgba(255,255,255,0.08)",
-                    borderRadius: 2
-                  },
-                  children: /*#__PURE__*/_jsxDEV("div", {
-                    style: {
-                      width: `${Math.min(100, pts / MAX_POINTS * 100)}%`,
-                      height: "100%",
-                      background: getPointColor(pts),
-                      borderRadius: 2,
-                      transition: "width 0.4s"
+        
+        // Finde den wahren Gewinner (kleinster Wert vor der Kappung)
+        let newWinnerIdx = 0;
+        let minS = enteredScores[0];
+        enteredScores.forEach((s, i) => {
+          if (s < minS) { minS = s; newWinnerIdx = i; }
+        });
+
+        // Alle Minuswerte für das Endergebnis auf 0 kappen
+        const newFinalScores = enteredScores.map(s => s < 0 ? 0 : s);
+
+        const myGpIdx = game.players.findIndex(x => x.id === p.id);
+        const won = myGpIdx === newWinnerIdx;
+        
+        const losers = game.players.map((pl, i) => ({ pts: newFinalScores[i], idx: i })).filter(l => l.idx !== newWinnerIdx);
+        const totalPrizeMoney = losers.reduce((sum, l) => sum + (l.pts * CENT_PER_POINT), 0);
+        const moneyDelta = won ? totalPrizeMoney : -(newFinalScores[myGpIdx] * CENT_PER_POINT);
+
+        const updatedGames = [...p.games];
+        updatedGames[gameIdx] = {
+          ...game,
+          finalScores: newFinalScores,
+          winnerIdx: newWinnerIdx,
+          won, moneyDelta
+        };
+
+        return { ...p, games: updatedGames };
+      });
+
+      if (hasValidationError) return prev; // Keine Änderungen vornehmen
+      return refreshBalances(updated);
+    });
+
+    if (hasValidationError) {
+      alert("Fehler beim Speichern: Ein beendetes Spiel benötigt zwingend einen Gewinner mit genau 0 Punkten! Bitte korrigiere deine Eingabe.");
+      return;
+    }
+
+    setEditingGameId(null);
+    setEditScores({});
+  }
+
+  function getUniqueGames() {
+    const allGamesMap = new Map();
+    registry.forEach(p => {
+      (p.games || []).forEach(g => { if (!allGamesMap.has(g.id)) allGamesMap.set(g.id, g); });
+    });
+    return Array.from(allGamesMap.values()).sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
+  }
+
+  const sortedLeaderboard = [...registry].sort((a, b) => (b.session?.balance || 0) - (a.session?.balance || 0));
+  const btnStyle = { padding: "14px 20px", borderRadius: "12px", border: "none", cursor: "pointer", fontWeight: "900", fontSize: "15px", color: "#fff", transition: "all 0.2s", textTransform: "uppercase", letterSpacing: "1px" };
+
+  if (syncState === "loading") {
+    return (
+      <div style={{ position: "relative", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <BackgroundEffects />
+        <div style={{ position: "relative", zIndex: 10, textAlign: "center" }}>
+          <div className="neon-text" style={{ fontSize: "2rem" }}>🃏 20 AB</div>
+          <div style={{ marginTop: "15px", color: "#aaa", fontSize: "14px" }}>Lade gemeinsamen Spielstand…</div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ position: "relative", minHeight: "100vh" }}>
+      <BackgroundEffects />
+      <div style={{ padding: "15px", maxWidth: "600px", margin: "0 auto", position: "relative", zIndex: 10 }}>
+        
+        <h1 className="neon-text" onClick={() => setScreen("home")} style={{ cursor: "pointer", margin: "15px 0 5px 0" }}>🃏 20 AB</h1>
+        <div style={{ textAlign: "center", marginBottom: "20px", fontSize: "11px", color: syncState === "error" ? "#ff4e50" : "#43e97b", letterSpacing: "1px" }}>
+          {syncState === "error" ? "⚠️ Sync-Fehler — Änderung evtl. nicht gespeichert" : "● Live synchronisiert"}
+        </div>
+
+        {screen !== "home" && (
+          <button style={{ ...btnStyle, padding: "8px 15px", fontSize: "13px", background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", marginBottom: "15px" }} onClick={() => setScreen("home")}>
+            ← HAUPTMENÜ
+          </button>
+        )}
+
+        {/* HOME SCREEN */}
+        {screen === "home" && (
+          <div>
+            <div className="glass" style={{ padding: "20px", textAlign: "center" }}>
+              <button className="pulse-btn" style={{ ...btnStyle, background: "linear-gradient(45deg, #00f2fe, #4facfe)", width: "100%", marginBottom: "15px", boxShadow: "0 0 15px #00f2fe" }} onClick={() => setScreen("select")}>
+                🎴 Neues Spiel starten
+              </button>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                <button style={{ ...btnStyle, background: "linear-gradient(45deg, #f093fb, #f5576c)" }} onClick={() => setScreen("players")}>👤 Spieler</button>
+                <button style={{ ...btnStyle, background: "linear-gradient(45deg, #f9d423, #ff4e50)" }} onClick={() => setScreen("history")}>🕰️ alte Spiele</button>
+              </div>
+            </div>
+
+            <div className="glass" style={{ padding: "20px" }}>
+              <h2 style={{ textAlign: "center", color: "#f9d423", marginBottom: "15px", fontSize: "20px" }}>🏆 BESTENLISTE</h2>
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                {sortedLeaderboard.map((p, index) => (
+                  <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 15px", background: index < 3 ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.3)", borderRadius: "10px", border: index === 0 ? "1px solid #f9d423" : "1px solid transparent" }}>
+                    <span style={{ fontSize: "16px", fontWeight: "bold" }}>
+                      <span style={{ marginRight: "8px" }}>{index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : "⚫"}</span> 
+                      {p.name}
+                    </span>
+                    <span style={{ fontWeight: "900", color: (p.session?.balance || 0) >= 0 ? "#43e97b" : "#ff4e50", fontSize: "16px" }}>
+                      {euro(p.session?.balance || 0)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* IN-GAME SCREEN */}
+        {screen === "game" && (
+          <div>
+            <div className="glass" style={{ padding: "20px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", borderBottom: "1px solid rgba(255,255,255,0.1)", paddingBottom: "10px" }}>
+                <span style={{ fontSize: "20px", fontWeight: "bold", color: "#00f2fe" }}>🔥 Runde {gameRounds.length + 1}</span>
+                <span style={{ fontSize: "14px", color: "#ccc" }}>Geber: <strong style={{color:"#f9d423"}}>{gamePlayers[dealerIdx]?.name}</strong></span>
+              </div>
+
+              {/* Punkte-Tafel */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "25px" }}>
+                {gamePlayers.map((p, i) => (
+                  <div key={p.id} style={{ padding: "12px", background: "rgba(0,0,0,0.4)", borderRadius: "10px", textAlign: "center", border: i === dealerIdx ? "1px solid #f9d423" : "1px solid rgba(255,255,255,0.05)" }}>
+                    <div style={{ fontSize: "14px", color: "#aaa" }}>
+                      {p.name} {currentScores[i] <= 3 && <span style={{ color: "#ff4e50" }}>🚫🔄</span>}
+                    </div>
+                    {/* Live-Kappung auf 0 in der Punkte-Tafel */}
+                    <div style={{ fontSize: "28px", fontWeight: "900", color: currentScores[i] <= 3 ? "#ff0844" : currentScores[i] <= 7 ? "#ffb199" : "#00f2fe" }}>
+                      {currentScores[i] < 0 ? 0 : currentScores[i]}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* PHASE 1: TRUMPF & STATUS */}
+              {roundPhase === "setup" && (
+                <div>
+                  <h3 style={{ color: "#f9d423", marginBottom: "10px", fontSize: "15px" }}>1. Trumpf auswählen:</h3>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "8px", marginBottom: "20px" }}>
+                    {SUITS.map(s => (
+                      <button key={s.id} onClick={() => handleTrumpChange(s)} style={{ ...btnStyle, padding: "10px 5px", fontSize: "13px", background: selectedTrump.id === s.id ? s.color : "rgba(0,0,0,0.4)", border: selectedTrump.id === s.id ? "2px solid #fff" : "none" }}>
+                        {s.emoji} {s.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <h3 style={{ color: "#f9d423", marginBottom: "10px", fontSize: "15px" }}>2. Wer geht mit?</h3>
+                  {gamePlayers.map((p, idx) => {
+                    const forcedReason = getForcedReason(p, idx, selectedTrump);
+                    const isForced = forcedReason !== null;
+                    const currentStatus = isForced ? "mit" : (playerStatus[p.id] || "mit");
+
+                    return (
+                      <div key={p.id} style={{ display: "flex", flexDirection: "column", padding: "10px", background: "rgba(255,255,255,0.05)", borderRadius: "8px", marginBottom: "8px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span style={{ fontWeight: "bold" }}>{p.name} {currentScores[idx] <= 3 && <span style={{ color: "#ff4e50", fontSize: "11px" }}>🚫🔄</span>}</span>
+                          <div style={{ display: "flex", gap: "5px" }}>
+                            <button onClick={() => !isForced && setPlayerStatus({ ...playerStatus, [p.id]: "mit" })} style={{ padding: "6px 14px", borderRadius: "6px", border: "none", fontWeight: "bold", background: currentStatus === "mit" ? "#43e97b" : "rgba(0,0,0,0.3)", color: currentStatus === "mit" ? "#000" : "#fff" }}>Mit</button>
+                            <button onClick={() => !isForced && setPlayerStatus({ ...playerStatus, [p.id]: "raus" })} disabled={isForced} style={{ padding: "6px 14px", borderRadius: "6px", border: "none", fontWeight: "bold", background: currentStatus === "raus" ? "#ff4e50" : "rgba(0,0,0,0.3)", color: "#fff", opacity: isForced ? 0.2 : 1 }}>Raus</button>
+                          </div>
+                        </div>
+                        {isForced && <div style={{ fontSize: "11px", color: "#ffb199", marginTop: "4px" }}>{forcedReason}</div>}
+                      </div>
+                    );
+                  })}
+                  <button onClick={proceedToTricks} style={{ ...btnStyle, background: "linear-gradient(45deg, #00f2fe, #4facfe)", width: "100%", marginTop: "15px" }}>Stiche eintragen →</button>
+                </div>
+              )}
+
+              {/* PHASE 2: STICHE EINTRAGEN */}
+              {roundPhase === "tricks" && (
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "15px" }}>
+                    <h3 style={{ color: "#f9d423", fontSize: "16px" }}>Stiche ({selectedTrump.emoji}):</h3>
+                    <span style={{ fontWeight: "900", color: getTotalTricksEntered(playerTricks, playerStatus) === 6 ? "#43e97b" : "#ff4e50" }}>
+                      Verteilt: {getTotalTricksEntered(playerTricks, playerStatus)} / 6
+                    </span>
+                  </div>
+                  
+                  {gamePlayers.map((p, idx) => {
+                    const forced = getForcedReason(p, idx, selectedTrump);
+                    const status = forced ? "mit" : playerStatus[p.id];
+
+                    if (status === "raus") {
+                      return (
+                        <div key={p.id} style={{ padding: "10px 12px", background: "rgba(0,0,0,0.2)", borderRadius: "8px", marginBottom: "6px", opacity: 0.5 }}>
+                          <span>{p.name} - <i style={{color: "#ff4e50"}}>Raus gegangen</i></span>
+                        </div>
+                      );
                     }
-                  }, void 0, false)
-                }, void 0, false)]
-              }, p.id, true);
-            })
-          }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-            style: {
-              marginTop: 8,
-              fontSize: 11,
-              color: "#444"
-            },
-            children: "⚠️ = 6 Pkt · ⚠️⚠️ = 3 Pkt"
-          }, void 0, false)]
-        }, void 0, true), snapshotStack.length > 0 && /*#__PURE__*/_jsxDEV("button", {
-          onClick: correctLastRound,
-          style: btn("#e63946", {
-            width: "100%",
-            fontWeight: "bold",
-            fontSize: 14,
-            padding: 13,
-            marginBottom: 16
-          }),
-          children: ["↩️ Letzte Runde korrigieren (Runde ", snapshotStack[snapshotStack.length - 1].round, ")"]
-        }, void 0, true), /*#__PURE__*/_jsxDEV("div", {
-          style: card,
-          children: [/*#__PURE__*/_jsxDEV("h3", {
-            style: {
-              color: "#e9c46a",
-              margin: "0 0 14px",
-              fontSize: 15
-            },
-            children: ["Runde ", round]
-          }, void 0, true), /*#__PURE__*/_jsxDEV("button", {
-            onClick: () => setShowHerzBlindPicker(true),
-            style: {
-              ...btn("#5c1a1a", {
-                width: "100%",
-                fontSize: 13,
-                padding: 10,
-                marginBottom: 14
-              }),
-              border: "1px solid #e6394666"
-            },
-            children: "🃏❤️ Herz Blind starten (×4)"
-          }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-            style: {
-              marginBottom: 14
-            },
-            children: [/*#__PURE__*/_jsxDEV("div", {
-              style: lbl,
-              children: "Ansager"
-            }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-              style: {
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 6,
-                marginTop: 7
-              },
-              children: gamePlayers.map((p, i) => {
-                const sitsOutDealer = numPlayers === 5 && i === dealer;
-                if (sitsOutDealer) return null;
-                return /*#__PURE__*/_jsxDEV("button", {
-                  onClick: () => setAnsagerSafe(i),
-                  style: {
-                    ...btn(ansager === i ? "#e9c46a" : "#334"),
-                    color: ansager === i ? "#1a1a2e" : "#e9f5db",
-                    fontWeight: ansager === i ? "bold" : "normal",
-                    fontSize: 13,
-                    padding: "7px 12px"
-                  },
-                  children: p.name
-                }, i, false);
-              })
-            }, void 0, false)]
-          }, void 0, true), numPlayers >= 3 && maxRaus() > 0 && suit !== "eichel" && /*#__PURE__*/_jsxDEV("div", {
-            style: {
-              marginBottom: 14
-            },
-            children: [/*#__PURE__*/_jsxDEV("div", {
-              style: {
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center"
-              },
-              children: [/*#__PURE__*/_jsxDEV("div", {
-                style: lbl,
-                children: "Raus diese Runde"
-              }, void 0, false), /*#__PURE__*/_jsxDEV("span", {
-                style: {
-                  fontSize: 11,
-                  color: "#888"
-                },
-                children: ["max. ", maxRaus(), " · ", rausSet.size, " raus"]
-              }, void 0, true)]
-            }, void 0, true), /*#__PURE__*/_jsxDEV("div", {
-              style: {
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 6,
-                marginTop: 7
-              },
-              children: gamePlayers.map((p, i) => {
-                const sitsOutDealer = numPlayers === 5 && i === dealer;
-                if (sitsOutDealer) return null;
-                if (i === ansager) return null; // Ansager kann nicht raus
-                const isRaus = rausSet.has(i);
-                const forced = isRausForced(i);
-                const streak = rausStreak[i] || 0;
-                const canToggle = !forced && (isRaus || rausSet.size < maxRaus());
-                return /*#__PURE__*/_jsxDEV("button", {
-                  onClick: () => canToggle && toggleRaus(i),
-                  style: {
-                    ...btn(isRaus ? "#e63946" : forced ? "#5c4000" : "#334"),
-                    fontSize: 13,
-                    padding: "7px 12px",
-                    opacity: forced ? 0.7 : 1,
-                    cursor: forced ? "not-allowed" : "pointer",
-                    border: forced ? "1px solid #f4a261" : "none"
-                  },
-                  title: forced === "streak" ? "Pflicht: 2x in Folge raus" : forced === "score" ? "Pflicht: ≤6 Punkte" : "",
-                  children: [p.name, isRaus ? " 🚫" : "", forced === "streak" ? " ⚠️Pflicht" : forced === "score" ? " 🔴Pflicht" : streak === 1 ? " (1x raus)" : ""]
-                }, i, true);
-              })
-            }, void 0, false), gamePlayers.some((_, i) => isRausForced(i) === "streak") && /*#__PURE__*/_jsxDEV("div", {
-              style: {
-                fontSize: 11,
-                color: "#f4a261",
-                marginTop: 4
-              },
-              children: "⚠️ 2x in Folge raus → Pflichtmitspieler"
-            }, void 0, false), gamePlayers.some((_, i) => isRausForced(i) === "score") && /*#__PURE__*/_jsxDEV("div", {
-              style: {
-                fontSize: 11,
-                color: "#e63946",
-                marginTop: 4
-              },
-              children: "🔴 ≤6 Punkte → Pflichtmitspieler"
-            }, void 0, false)]
-          }, void 0, true), numPlayers >= 3 && maxRaus() > 0 && suit === "eichel" && /*#__PURE__*/_jsxDEV("div", {
-            style: {
-              marginBottom: 14,
-              background: "rgba(139,94,60,0.15)",
-              border: "1px solid #8b5e3c44",
-              borderRadius: 8,
-              padding: "10px 12px",
-              fontSize: 12,
-              color: "#c9a876"
-            },
-            children: "⚜️ Bei Eichel müssen alle Spieler mitspielen — niemand darf raus."
-          }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-            style: {
-              marginBottom: 14
-            },
-            children: [/*#__PURE__*/_jsxDEV("div", {
-              style: lbl,
-              children: "Farbe"
-            }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-              style: {
-                display: "flex",
-                gap: 8,
-                marginTop: 7
-              },
-              children: SUITS.map(s => /*#__PURE__*/_jsxDEV("button", {
-                onClick: () => setSuitSafe(s.id),
-                style: {
-                  ...btn(suit === s.id ? s.color : "#334"),
-                  flex: 1,
-                  fontSize: 20,
-                  padding: "8px 4px",
-                  border: suit === s.id ? `2px solid ${s.color}` : "2px solid transparent"
-                },
-                title: s.label + (s.double ? " ×2" : ""),
-                children: s.emoji
-              }, s.id, false))
-            }, void 0, false), suit && /*#__PURE__*/_jsxDEV("div", {
-              style: {
-                fontSize: 11,
-                color: "#aaa",
-                marginTop: 4
-              },
-              children: [SUITS.find(s => s.id === suit)?.label, SUITS.find(s => s.id === suit)?.double ? " — ❗ Alles ×2!" : "", suit === "eichel" ? " — 🚫 Alle müssen mitspielen!" : ""]
-            }, void 0, true), canHerzBlind() && /*#__PURE__*/_jsxDEV("div", {
-              onClick: () => setHerzBlind(b => !b),
-              style: {
-                marginTop: 10,
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                background: herzBlind ? "rgba(230,57,70,0.2)" : "rgba(255,255,255,0.06)",
-                border: `1px solid ${herzBlind ? "#e63946" : "rgba(255,255,255,0.15)"}`,
-                borderRadius: 8,
-                padding: "10px 12px",
-                cursor: "pointer"
-              },
-              children: [/*#__PURE__*/_jsxDEV("div", {
-                style: {
-                  width: 20,
-                  height: 20,
-                  borderRadius: 5,
-                  background: herzBlind ? "#e63946" : "rgba(255,255,255,0.1)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: 12,
-                  flexShrink: 0
-                },
-                children: herzBlind ? "✓" : ""
-              }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-                style: {
-                  flex: 1
-                },
-                children: [/*#__PURE__*/_jsxDEV("div", {
-                  style: {
-                    fontSize: 13,
-                    fontWeight: "bold",
-                    color: herzBlind ? "#e63946" : "#e9f5db"
-                  },
-                  children: "🃏 Herz Blind spielen"
-                }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-                  style: {
-                    fontSize: 11,
-                    color: "#999"
-                  },
-                  children: ["Alles ×4 statt ×2 (ab ", HERZ_BLIND_THRESHOLD, " Pkt)"]
-                }, void 0, true)]
-              }, void 0, true)]
-            }, void 0, true)]
-          }, void 0, true), !herzBlind && /*#__PURE__*/_jsxDEV("div", {
-            style: {
-              marginBottom: 16
-            },
-            children: [/*#__PURE__*/_jsxDEV("div", {
-              style: lbl,
-              children: ["Ansage: ", /*#__PURE__*/_jsxDEV("b", {
-                style: {
-                  color: "#e9c46a"
-                },
-                children: bid
-              }, void 0, false)]
-            }, void 0, true), /*#__PURE__*/_jsxDEV("div", {
-              style: {
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                marginTop: 7
-              },
-              children: [/*#__PURE__*/_jsxDEV("button", {
-                onClick: () => setBid(b => Math.max(1, b - 1)),
-                style: btn("#334", {
-                  fontSize: 17,
-                  padding: "4px 13px"
-                }),
-                children: "−"
-              }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-                style: {
-                  flex: 1,
-                  height: 5,
-                  background: "rgba(255,255,255,0.1)",
-                  borderRadius: 3
-                },
-                children: /*#__PURE__*/_jsxDEV("div", {
-                  style: {
-                    width: `${bid / 6 * 100}%`,
-                    height: "100%",
-                    background: "#e9c46a",
-                    borderRadius: 3
-                  }
-                }, void 0, false)
-              }, void 0, false), /*#__PURE__*/_jsxDEV("button", {
-                onClick: () => setBid(b => Math.min(6, b + 1)),
-                style: btn("#334", {
-                  fontSize: 17,
-                  padding: "4px 13px"
-                }),
-                children: "+"
-              }, void 0, false)]
-            }, void 0, true)]
-          }, void 0, true), herzBlind && /*#__PURE__*/_jsxDEV("div", {
-            style: {
-              marginBottom: 16,
-              background: "rgba(230,57,70,0.1)",
-              border: "1px solid #e6394644",
-              borderRadius: 8,
-              padding: "10px 12px",
-              fontSize: 12,
-              color: "#e9b9bd"
-            },
-            children: "🃏❤️ Herz Blind — keine Ansage nötig. Der Starter zählt wie ein normaler Mitspieler (0 Stiche = +24, sonst −Stiche×4)."
-          }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-            style: {
-              marginBottom: 16
-            },
-            children: [/*#__PURE__*/_jsxDEV("div", {
-              style: {
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                marginBottom: 7
-              },
-              children: [/*#__PURE__*/_jsxDEV("div", {
-                style: lbl,
-                children: "Gemachte Stiche"
-              }, void 0, false), /*#__PURE__*/_jsxDEV("span", {
-                style: {
-                  fontSize: 12,
-                  fontWeight: "bold",
-                  color: activePlayers.reduce((s, a) => s + (tricks[a.index] || 0), 0) === 6 ? "#57cc99" : "#e9c46a"
-                },
-                children: [activePlayers.reduce((s, a) => s + (tricks[a.index] || 0), 0), " / 6"]
-              }, void 0, true)]
-            }, void 0, true), /*#__PURE__*/_jsxDEV("div", {
-              style: {
-                display: "flex",
-                flexDirection: "column",
-                gap: 7
-              },
-              children: activePlayers.map(p => /*#__PURE__*/_jsxDEV("div", {
-                style: {
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 9,
-                  background: "rgba(255,255,255,0.05)",
-                  borderRadius: 8,
-                  padding: "8px 11px",
-                  border: p.index === ansager ? "1px solid #e9c46a44" : "1px solid transparent"
-                },
-                children: [/*#__PURE__*/_jsxDEV("span", {
-                  style: {
-                    flex: 1,
-                    fontSize: 13
-                  },
-                  children: [p.name, p.index === ansager && /*#__PURE__*/_jsxDEV("span", {
-                    style: {
-                      color: "#e9c46a",
-                      fontSize: 11
-                    },
-                    children: [" ", herzBlind ? "(Starter)" : "(Ansager)"]
-                  }, void 0, true)]
-                }, void 0, true), /*#__PURE__*/_jsxDEV("button", {
-                  onClick: () => {
-                    const t = [...tricks];
-                    t[p.index] = Math.max(0, (t[p.index] || 0) - 1);
-                    setTricks(t);
-                  },
-                  style: btn("#334", {
-                    fontSize: 15,
-                    padding: "2px 10px"
-                  }),
-                  children: "−"
-                }, void 0, false), /*#__PURE__*/_jsxDEV("span", {
-                  style: {
-                    minWidth: 22,
-                    textAlign: "center",
-                    fontSize: 17,
-                    fontWeight: "bold",
-                    color: "#e9c46a"
-                  },
-                  children: tricks[p.index] || 0
-                }, void 0, false), /*#__PURE__*/_jsxDEV("button", {
-                  onClick: () => {
-                    const t = [...tricks];
-                    const total = activePlayers.reduce((s, a) => s + (t[a.index] || 0), 0);
-                    if (total < 6) {
-                      t[p.index] = (t[p.index] || 0) + 1;
-                      setTricks(t);
-                    }
-                  },
-                  style: btn("#334", {
-                    fontSize: 15,
-                    padding: "2px 10px"
-                  }),
-                  children: "+"
-                }, void 0, false), ansager !== null && suit && (() => {
-                  const delta = calcDelta(p.index);
-                  return /*#__PURE__*/_jsxDEV("span", {
-                    style: {
-                      fontSize: 12,
-                      minWidth: 34,
-                      textAlign: "right",
-                      fontWeight: "bold",
-                      color: delta < 0 ? "#57cc99" : "#e63946"
-                    },
-                    children: delta > 0 ? `+${delta}` : delta
-                  }, void 0, false);
-                })()]
-              }, p.index, true))
-            }, void 0, false)]
-          }, void 0, true), roundErr && /*#__PURE__*/_jsxDEV("div", {
-            style: errBox,
-            children: roundErr
-          }, void 0, false), /*#__PURE__*/_jsxDEV("button", {
-            onClick: submitRound,
-            style: btn(activePlayers.reduce((s, a) => s + (tricks[a.index] || 0), 0) === 6 ? "#e9c46a" : "#555", {
-              color: activePlayers.reduce((s, a) => s + (tricks[a.index] || 0), 0) === 6 ? "#1a1a2e" : "#999",
-              width: "100%",
-              fontWeight: "bold",
-              fontSize: 15,
-              padding: 13
-            }),
-            children: "Runde abschließen ✓"
-          }, void 0, false)]
-        }, void 0, true)]
-      }, void 0, true), screen === "roundHistory" && /*#__PURE__*/_jsxDEV("div", {
-        children: [/*#__PURE__*/_jsxDEV("h2", {
-          style: {
-            color: "#e9c46a",
-            marginBottom: 16,
-            fontSize: 18
-          },
-          children: "Rundenverlauf"
-        }, void 0, false), roundLog.length === 0 && /*#__PURE__*/_jsxDEV("p", {
-          style: {
-            color: "#555"
-          },
-          children: "Noch keine Runden."
-        }, void 0, false), [...roundLog].reverse().map((log, idx) => {
-          const s = SUITS.find(x => x.id === log.suit);
-          return /*#__PURE__*/_jsxDEV("div", {
-            style: {
-              background: "rgba(0,0,0,0.3)",
-              borderRadius: 10,
-              padding: 14,
-              marginBottom: 10,
-              border: "1px solid rgba(255,255,255,0.08)"
-            },
-            children: [/*#__PURE__*/_jsxDEV("div", {
-              style: {
-                display: "flex",
-                justifyContent: "space-between",
-                marginBottom: 7
-              },
-              children: [/*#__PURE__*/_jsxDEV("span", {
-                style: {
-                  color: "#e9c46a",
-                  fontWeight: "bold"
-                },
-                children: ["Runde ", log.round]
-              }, void 0, true), /*#__PURE__*/_jsxDEV("span", {
-                style: {
-                  fontSize: 12,
-                  color: "#888"
-                },
-                children: [s?.emoji, " ", s?.label, log.herzBlind ? " ×4 (Blind)" : s?.double ? " ×2" : "", " · ", log.bid, " · ", log.playerNames[log.ansager]]
-              }, void 0, true)]
-            }, void 0, true), log.playerNames.map((name, pi) => {
-              const wasRaus = log.rausIndices && log.rausIndices.includes(pi);
-              const delta = log.deltas.find(d => d.playerIndex === pi);
-              if (wasRaus) return /*#__PURE__*/_jsxDEV("div", {
-                style: {
-                  display: "flex",
-                  justifyContent: "space-between",
-                  padding: "3px 0",
-                  borderTop: "1px solid rgba(255,255,255,0.05)",
-                  fontSize: 13,
-                  opacity: 0.5
-                },
-                children: [/*#__PURE__*/_jsxDEV("span", {
-                  children: [name, " 🚫 Raus"]
-                }, void 0, true), /*#__PURE__*/_jsxDEV("span", {
-                  style: {
-                    color: "#888"
-                  },
-                  children: "—"
-                }, void 0, false)]
-              }, pi, true);
-              if (!delta) return null;
-              return /*#__PURE__*/_jsxDEV("div", {
-                style: {
-                  display: "flex",
-                  justifyContent: "space-between",
-                  padding: "3px 0",
-                  borderTop: "1px solid rgba(255,255,255,0.05)",
-                  fontSize: 13
-                },
-                children: [/*#__PURE__*/_jsxDEV("span", {
-                  children: [name, " (", delta.tricks, " Stiche)"]
-                }, void 0, true), /*#__PURE__*/_jsxDEV("span", {
-                  style: {
-                    color: delta.delta < 0 ? "#57cc99" : "#e63946",
-                    fontWeight: "bold"
-                  },
-                  children: delta.delta > 0 ? `+${delta.delta}` : delta.delta
-                }, void 0, false)]
-              }, pi, true);
-            })]
-          }, idx, true);
-        })]
-      }, void 0, true), screen === "winner" && winnerPayout && /*#__PURE__*/_jsxDEV("div", {
-        style: {
-          paddingTop: 20
-        },
-        children: [/*#__PURE__*/_jsxDEV("div", {
-          style: {
-            textAlign: "center",
-            marginBottom: 24
-          },
-          children: [/*#__PURE__*/_jsxDEV("div", {
-            style: {
-              fontSize: 60,
-              marginBottom: 8
-            },
-            children: "🏆"
-          }, void 0, false), /*#__PURE__*/_jsxDEV("h2", {
-            style: {
-              color: "#e9c46a",
-              fontSize: 24,
-              marginBottom: 4
-            },
-            children: winnerPayout.winnerName
-          }, void 0, false), /*#__PURE__*/_jsxDEV("p", {
-            style: {
-              color: "#aaa",
-              marginBottom: 2
-            },
-            children: "hat gewonnen!"
-          }, void 0, false), /*#__PURE__*/_jsxDEV("p", {
-            style: {
-              color: "#555",
-              fontSize: 13
-            },
-            children: ["nach ", round - 1, " Runden"]
-          }, void 0, true)]
-        }, void 0, true), /*#__PURE__*/_jsxDEV("div", {
-          style: {
-            ...card,
-            border: "1px solid #57cc9944"
-          },
-          children: [/*#__PURE__*/_jsxDEV("div", {
-            style: {
-              ...lbl,
-              marginBottom: 12
-            },
-            children: "💰 Auszahlung"
-          }, void 0, false), winnerPayout.breakdown.map((x, i) => /*#__PURE__*/_jsxDEV("div", {
-            style: {
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              padding: "8px 0",
-              borderBottom: "1px solid rgba(255,255,255,0.06)"
-            },
-            children: [/*#__PURE__*/_jsxDEV("span", {
-              style: {
-                fontSize: 14
-              },
-              children: x.name
-            }, void 0, false), /*#__PURE__*/_jsxDEV("span", {
-              style: {
-                fontSize: 13,
-                color: "#888"
-              },
-              children: [x.pts, " Pkt × 10 Cent"]
-            }, void 0, true), /*#__PURE__*/_jsxDEV("span", {
-              style: {
-                fontSize: 15,
-                fontWeight: "bold",
-                color: "#e63946"
-              },
-              children: ["−", x.amount.toFixed(2).replace(".", ","), " €"]
-            }, void 0, true)]
-          }, i, true)), /*#__PURE__*/_jsxDEV("div", {
-            style: {
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              paddingTop: 10,
-              marginTop: 4
-            },
-            children: [/*#__PURE__*/_jsxDEV("span", {
-              style: {
-                fontWeight: "bold",
-                fontSize: 15
-              },
-              children: ["🏆 ", winnerPayout.winnerName, " erhält"]
-            }, void 0, true), /*#__PURE__*/_jsxDEV("span", {
-              style: {
-                fontSize: 20,
-                fontWeight: "bold",
-                color: "#57cc99"
-              },
-              children: ["+", winnerPayout.total.toFixed(2).replace(".", ","), " €"]
-            }, void 0, true)]
-          }, void 0, true)]
-        }, void 0, true), /*#__PURE__*/_jsxDEV("div", {
-          style: card,
-          children: [/*#__PURE__*/_jsxDEV("div", {
-            style: {
-              ...lbl,
-              marginBottom: 10
-            },
-            children: "Endstand"
-          }, void 0, false), gamePlayers.map((p, i) => ({
-            name: p.name,
-            pts: scores[i]
-          })).sort((a, b) => a.pts - b.pts).map((p, i) => /*#__PURE__*/_jsxDEV("div", {
-            style: {
-              display: "flex",
-              justifyContent: "space-between",
-              padding: "5px 0",
-              borderTop: "1px solid rgba(255,255,255,0.06)",
-              fontSize: 14
-            },
-            children: [/*#__PURE__*/_jsxDEV("span", {
-              children: [["🥇", "🥈", "🥉", "4.", "5."][i], " ", p.name]
-            }, void 0, true), /*#__PURE__*/_jsxDEV("span", {
-              style: {
-                color: getPointColor(p.pts),
-                fontWeight: "bold"
-              },
-              children: p.pts
-            }, void 0, false)]
-          }, i, true))]
-        }, void 0, true), /*#__PURE__*/_jsxDEV("div", {
-          style: {
-            display: "flex",
-            gap: 10
-          },
-          children: [/*#__PURE__*/_jsxDEV("button", {
-            onClick: () => {
-              setSelectedIds(gamePlayers.map(p => p.id));
-              setStartDealerId(winnerPayout?.winnerId ?? null);
-              setScreen("select");
-            },
-            style: btn("#e9c46a", {
-              flex: 1,
-              color: "#1a1a2e",
-              fontWeight: "bold",
-              fontSize: 15,
-              padding: 13
-            }),
-            children: "Revanche 🔁"
-          }, void 0, false), /*#__PURE__*/_jsxDEV("button", {
-            onClick: () => setScreen("home"),
-            style: btn("#334", {
-              flex: 1,
-              fontSize: 15,
-              padding: 13
-            }),
-            children: "Hauptmenü"
-          }, void 0, false)]
-        }, void 0, true), snapshotStack.length > 0 && /*#__PURE__*/_jsxDEV("button", {
-          onClick: correctLastRound,
-          style: btn("#5c1a1a", {
-            width: "100%",
-            fontSize: 13,
-            padding: 12,
-            marginTop: 10,
-            border: "1px solid #e6394666"
-          }),
-          children: "↩️ Letzte Runde korrigieren (Sieg zurücknehmen)"
-        }, void 0, false)]
-      }, void 0, true), screen === "import" && /*#__PURE__*/_jsxDEV("div", {
-        children: [/*#__PURE__*/_jsxDEV("h2", {
-          style: {
-            color: "#e9c46a",
-            marginBottom: 8,
-            fontSize: 18
-          },
-          children: "📂 Daten wiederherstellen"
-        }, void 0, false), /*#__PURE__*/_jsxDEV("p", {
-          style: {
-            color: "#999",
-            fontSize: 13,
-            marginBottom: 14
-          },
-          children: "Füge den gesicherten Text hier ein und tippe auf \"Laden\"."
-        }, void 0, false), /*#__PURE__*/_jsxDEV("textarea", {
-          value: importText,
-          onChange: e => setImportText(e.target.value),
-          placeholder: "Gesicherten Text hier einfügen…",
-          style: {
-            width: "100%",
-            minHeight: 180,
-            background: "rgba(255,255,255,0.07)",
-            border: "1px solid rgba(255,255,255,0.2)",
-            borderRadius: 8,
-            color: "#e9f5db",
-            padding: 12,
-            fontSize: 12,
-            fontFamily: "monospace",
-            boxSizing: "border-box",
-            marginBottom: 10,
-            resize: "none",
-            outline: "none"
-          }
-        }, void 0, false), importErr && /*#__PURE__*/_jsxDEV("div", {
-          style: {
-            ...errBox,
-            marginBottom: 10
-          },
-          children: importErr
-        }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-          style: {
-            display: "flex",
-            gap: 10
-          },
-          children: [/*#__PURE__*/_jsxDEV("button", {
-            onClick: importData,
-            style: btn("#e9c46a", {
-              flex: 1,
-              color: "#1a1a2e",
-              fontWeight: "bold",
-              padding: 13
-            }),
-            children: "✓ Laden"
-          }, void 0, false), /*#__PURE__*/_jsxDEV("button", {
-            onClick: () => {
-              setScreen("home");
-              setImportText("");
-              setImportErr("");
-            },
-            style: btn("#334", {
-              flex: 1,
-              padding: 13
-            }),
-            children: "Abbrechen"
-          }, void 0, false)]
-        }, void 0, true)]
-      }, void 0, true)]
-    }, void 0, true)]
-  }, void 0, true);
+                    return (
+                      <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", background: "rgba(255,255,255,0.05)", borderRadius: "8px", marginBottom: "6px" }}>
+                        <span style={{ fontWeight: "bold" }}>{p.name}</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                          <button onClick={() => setPlayerTricks({ ...playerTricks, [p.id]: Math.max(0, (playerTricks[p.id] || 0) - 1) })} style={{ width: "32px", height: "32px", borderRadius: "5px", border: "none", background: "#fff", fontWeight: "bold" }}>-</button>
+                          <span style={{ fontSize: "20px", fontWeight: "900", minWidth: "25px", textAlign: "center" }}>{playerTricks[p.id] || 0}</span>
+                          <button onClick={() => {
+                            if(getTotalTricksEntered(playerTricks, playerStatus) < 6) {
+                              setPlayerTricks({ ...playerTricks, [p.id]: (playerTricks[p.id] || 0) + 1 });
+                            }
+                          }} style={{ width: "32px", height: "32px", borderRadius: "5px", border: "none", background: "#fff", fontWeight: "bold" }}>+</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div style={{ display: "flex", gap: "10px", marginTop: "20px" }}>
+                    <button onClick={() => setRoundPhase("setup")} style={{ ...btnStyle, background: "rgba(255,255,255,0.1)", flex: 1 }}>Zurück</button>
+                    <button onClick={evaluateRound} style={{ ...btnStyle, background: "linear-gradient(45deg, #43e97b, #38f9d7)", color: "#000", flex: 2 }}>Runde auswerten ✓</button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* RUNDEN-HISTORIE DES LAUFENDEN SPIELS */}
+            {gameRounds.length > 0 && (
+              <div className="glass" style={{ padding: "20px" }}>
+                <h3 style={{ color: "#f093fb", marginBottom: "15px", fontSize: "16px" }}>🛠️ Vergangene Runden dieser Partie korrigieren:</h3>
+                {gameRounds.map((r, rIdx) => (
+                  <div key={rIdx} style={{ background: "rgba(0,0,0,0.3)", padding: "12px", borderRadius: "10px", marginBottom: "10px", border: "1px solid rgba(255,255,255,0.05)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                      <strong style={{ color: "#00f2fe" }}>Runde {r.roundNum} ({r.trump.emoji})</strong>
+                      {editingRoundIdx !== rIdx ? (
+                        <button onClick={() => setEditingRoundIdx(rIdx)} style={{ background: "none", border: "none", color: "#f9d423", cursor: "pointer", fontSize: "14px" }}>✏️ Bearbeiten</button>
+                      ) : (
+                        <span style={{ fontSize: "12px", color: "#43e97b" }}>Wird editiert...</span>
+                      )}
+                    </div>
+
+                    {editingRoundIdx !== rIdx ? (
+                      <div style={{ fontSize: "13px", color: "#ccc" }}>
+                        {gamePlayers.map(p => {
+                          const st = r.playerStatus[p.id] || "mit";
+                          return (
+                            <span key={p.id} style={{ marginRight: "12px" }}>
+                              {p.name}: {st === "raus" ? "❌ Raus" : `🎮 ${r.playerTricks[p.id] || 0} St.`}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <RoundInlineEditor 
+                        gamePlayers={gamePlayers} 
+                        roundData={r} 
+                        onSave={(edStatus, edTricks) => saveEditedRound(rIdx, edStatus, edTricks)}
+                        onCancel={() => setEditingRoundIdx(null)}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* HISTORIE SCREEN (ALTE SPIELE) */}
+        {screen === "history" && (
+          <div>
+            <h2 style={{ color: "#f9d423", marginBottom: "20px" }}>🕰️ Spielhistorie</h2>
+            {getUniqueGames().map(g => (
+              <div key={g.id} className="glass" style={{ padding: "15px", borderLeft: "5px solid #00f2fe", background: "rgba(0,0,0,0.4)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "10px", fontSize: "13px", color: "#aaa" }}>
+                  <span>{g.date}</span>
+                  {editingGameId !== g.id && (
+                    <button onClick={() => {
+                      setEditingGameId(g.id);
+                      const initialScores = {};
+                      g.players.forEach((p, idx) => { initialScores[p.id] = g.finalScores[idx]; });
+                      setEditScores(initialScores);
+                    }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "14px" }}>✏️ Endpunkte korrigieren</button>
+                  )}
+                </div>
+
+                {editingGameId !== g.id ? (
+                  <div>
+                    {g.players.map((p, i) => {
+                      const regPlayer = registry.find(rp => rp.id === p.id);
+                      const specificGame = regPlayer?.games?.find(rg => rg.id === g.id);
+                      return (
+                        <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                          <span>{g.winnerIdx === i ? "🏆" : ""} {p.name} <span style={{ color: "#aaa", fontSize: "13px" }}>({g.finalScores[i]} Pkt)</span></span>
+                          <span style={{ color: (specificGame?.moneyDelta || 0) >= 0 ? "#43e97b" : "#ff4e50", fontWeight: "bold" }}>
+                            {euro(specificGame?.moneyDelta || 0)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div style={{ background: "rgba(0,0,0,0.5)", padding: "10px", borderRadius: "8px" }}>
+                    {g.players.map((p) => (
+                      <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                        <span>{p.name}:</span>
+                        <input type="number" value={editScores[p.id] || 0} onChange={e => setEditScores({ ...editScores, [p.id]: e.target.value })} style={{ width: "70px", padding: "5px", borderRadius: "5px", border: "1px solid #ccc", background: "#000", color: "#fff", textAlign: "center" }} />
+                      </div>
+                    ))}
+                    <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
+                      <button onClick={() => setEditingGameId(null)} style={{ ...btnStyle, padding: "6px 12px", fontSize: "12px", background: "#aaa" }}>Abbrechen</button>
+                      <button onClick={() => saveEditedPastGame(g.id)} style={{ ...btnStyle, padding: "6px 12px", fontSize: "12px", background: "#43e97b", color: "#000" }}>Speichern & Synchronisieren</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* SPIELER SCREEN */}
+        {screen === "players" && (
+          <div className="glass" style={{ padding: "25px" }}>
+            <h3 style={{ marginBottom: "20px", color: "#f093fb" }}>👤 Spieler verwalten</h3>
+            <div style={{ display: "flex", gap: "10px", marginBottom: "25px" }}>
+              <input value={newName} onChange={e => setNewName(e.target.value)} style={{ flex: 1, padding: "12px", borderRadius: "12px", border: "1px solid #f093fb", background: "rgba(0,0,0,0.3)", color: "#fff", fontSize: "16px" }} placeholder="Spielername..." />
+              <button onClick={addPlayer} style={{ ...btnStyle, background: "linear-gradient(45deg, #f093fb, #f5576c)", padding: "0 20px", fontSize: "20px" }}>+</button>
+            </div>
+            <div>
+              {registry.map(p => (
+                <div key={p.id} style={{ padding: "12px 15px", background: "rgba(0,0,0,0.4)", marginBottom: "10px", borderRadius: "12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: "16px", fontWeight: "bold" }}>{p.name}</span> 
+                  <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
+                    <span style={{ color: (p.session?.balance || 0) >= 0 ? "#43e97b" : "#ff4e50", fontWeight: "bold" }}>{euro(p.session?.balance || 0)}</span>
+                    <button onClick={() => deletePlayer(p.id)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "18px" }}>🗑️</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* SPIELER AUSWAHL SCREEN */}
+        {screen === "select" && (
+          <div className="glass" style={{ padding: "25px" }}>
+            <h3 style={{ marginBottom: "20px", color: "#00f2fe" }}>🎴 Wer spielt mit?</h3>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+              {registry.map(p => (
+                <div key={p.id} onClick={() => setSelectedIds(prev => prev.includes(p.id) ? prev.filter(id=>id!==p.id) : [...prev, p.id])} 
+                     style={{ padding: "15px", textAlign: "center", fontWeight: "bold", background: selectedIds.includes(p.id) ? "linear-gradient(45deg, #00f2fe, #4facfe)" : "rgba(0,0,0,0.4)", border: selectedIds.includes(p.id) ? "none" : "1px solid rgba(255,255,255,0.15)", borderRadius: "12px", cursor: "pointer" }}>
+                  {p.name}
+                </div>
+              ))}
+            </div>
+            <button onClick={startGame} className="pulse-btn" style={{ ...btnStyle, background: "linear-gradient(45deg, #f9d423, #ff4e50)", width: "100%", marginTop: "25px", opacity: selectedIds.length < 2 ? 0.4 : 1 }} disabled={selectedIds.length < 2}>
+              🚀 SPIEL STARTEN
+            </button>
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
 }
 
+// Sub-Komponente für die Inline-Korrektur laufender Runden
+function RoundInlineEditor({ gamePlayers, roundData, onSave, onCancel }) {
+  const [status, setStatus] = useState({ ...roundData.playerStatus });
+  const [tricks, setTricks] = useState({ ...roundData.playerTricks });
+
+  const total = gamePlayers.reduce((sum, p) => sum + (status[p.id] === "mit" ? (tricks[p.id] || 0) : 0), 0);
+
+  return (
+    <div style={{ background: "rgba(255,255,255,0.05)", padding: "10px", borderRadius: "8px", marginTop: "5px" }}>
+      <div style={{ textAlign: "right", fontSize: "12px", marginBottom: "10px", color: total === 6 ? "#43e97b" : "#ff4e50" }}>
+        Stiche: {total} / 6
+      </div>
+      {gamePlayers.map(p => (
+        <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px", borderBottom: "1px solid rgba(255,255,255,0.05)", paddingBottom: "5px" }}>
+          <span style={{ fontSize: "14px" }}>{p.name}</span>
+          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            <select value={status[p.id] || "mit"} onChange={e => {
+              const s = e.target.value;
+              setStatus({ ...status, [p.id]: s });
+              if (s === "raus") setTricks({ ...tricks, [p.id]: 0 });
+            }} style={{ background: "#000", color: "#fff", padding: "4px", border: "1px solid #555", borderRadius: "4px" }}>
+              <option value="mit">Mit</option>
+              <option value="raus">Raus</option>
+            </select>
+            
+            {status[p.id] !== "raus" && (
+              <input type="number" min="0" max="6" value={tricks[p.id] || 0} onChange={e => setTricks({ ...tricks, [p.id]: parseInt(e.target.value) || 0 })} style={{ width: "45px", textAlign: "center", background: "#000", color: "#fff", border: "1px solid #555", borderRadius: "4px", padding: "4px" }} />
+            )}
+          </div>
+        </div>
+      ))}
+      <div style={{ display: "flex", gap: "6px", marginTop: "10px" }}>
+        <button onClick={onCancel} style={{ padding: "4px 8px", background: "#888", border: "none", color: "#fff", borderRadius: "4px", cursor: "pointer" }}>Abbrechen</button>
+        <button onClick={() => onSave(status, tricks)} style={{ padding: "4px 8px", background: "#43e97b", border: "none", color: "#000", fontWeight: "bold", borderRadius: "4px", cursor: "pointer" }}>Übernehmen</button>
+      </div>
+    </div>
+  );
+}
 
 const container = document.getElementById('root');
 const root = ReactDOM.createRoot(container);
-root.render(React.createElement(App));
+root.render(<App />);
 </script>
 </body>
 </html>
