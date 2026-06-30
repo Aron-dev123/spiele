@@ -165,6 +165,20 @@ function calculateScoresFromRounds(players, rounds) {
   players.forEach(p => currentRaus[p.id] = 0);
 
   rounds.forEach((r) => {
+    // Sonderfall: manuell angepasste Runde (entsteht beim "Runde abbrechen" -> manuell
+    // werten, falls dabei noch KEIN Sieger entsteht). Hier wird der Punktestand direkt
+    // aus r.manualScores übernommen, statt aus Trumpf/Stichen berechnet zu werden -
+    // raus/Pflicht/Ansager-Logik ist hier irrelevant, da es kein normales Rundenschema ist.
+    if (r.isManualAdjustment) {
+      players.forEach((p, idx) => {
+        if (typeof r.manualScores[idx] === "number") {
+          currentScores[idx] = r.manualScores[idx];
+        }
+      });
+      players.forEach(p => currentRaus[p.id] = 0); // Raus-Streak wird durch eine manuelle Anpassung zurückgesetzt
+      return; // nächste Runde
+    }
+
     const multiplier = r.trump.multiplier ?? (r.trump.double ? 2 : 1); // Fallback für alte gespeicherte Runden ohne multiplier-Feld
     const isAnsagerRound = r.trump.id !== "herzblind" && !!r.ansagerId;
     players.forEach((p, idx) => {
@@ -282,6 +296,13 @@ function App() {
   const [activeSession, setActiveSessionRaw] = useState(null);
   const [sessionSyncReady, setSessionSyncReady] = useState(false);
   const [sessionSummary, setSessionSummary] = useState(null); // Abschluss-Popup-Daten nach "Session beenden"
+
+  // ── Runde/Session abbrechen ──
+  // abortFlow: null | "round" | "session" steuert, welches Abbruch-Modal gerade offen ist.
+  const [abortFlow, setAbortFlow] = useState(null);
+  // abortSubStep: "choice" (Discard vs. Manuell werten) | "manualScore" (Punkte-Eingabe)
+  const [abortSubStep, setAbortSubStep] = useState("choice");
+  const [manualScores, setManualScores] = useState({}); // playerId -> eingegebener Punktestand
 
   useEffect(() => {
     if (!activeSessionRef) { setSessionSyncReady(true); return; }
@@ -617,6 +638,181 @@ function App() {
     setScreen("home");
   }
 
+  // ── Runde/Session abbrechen: gemeinsame Helfer ──
+
+  // Öffnet das Abbruch-Modal (für "round" oder "session"), vorausgefüllt mit dem
+  // aktuellen Punktestand jedes Spielers als Default für die manuelle Eingabe.
+  function openAbortFlow(flow) {
+    const defaults = {};
+    gamePlayers.forEach((p, idx) => {
+      defaults[p.id] = currentScores[idx] < 0 ? 0 : currentScores[idx];
+    });
+    setManualScores(defaults);
+    setAbortSubStep("choice");
+    setAbortFlow(flow);
+  }
+
+  function closeAbortFlow() {
+    setAbortFlow(null);
+    setAbortSubStep("choice");
+    setManualScores({});
+  }
+
+  // Setzt den Punktestand eines einzelnen Spielers im Abbruch-Editor auf 0 (Sieg-Shortcut),
+  // ohne sonst irgendetwas zu speichern - reine Zeitersparnis beim Eintippen.
+  function markManualScoreAsWin(playerId) {
+    setManualScores(prev => ({ ...prev, [playerId]: 0 }));
+  }
+
+  // "Runde abbrechen" -> Option A: Runde verwerfen, Session läuft normal mit dem Stand
+  // VOR dieser Runde weiter (so, als wäre die angefangene Runde nie passiert).
+  function discardCurrentRound() {
+    setSelectedTrump(SUITS[0]);
+    setRoundPhase("setup");
+    setAnsagerId(null);
+    setBidTricks(2);
+    const freshStatus = {};
+    const freshTricks = {};
+    gamePlayers.forEach(p => {
+      freshStatus[p.id] = "mit";
+      freshTricks[p.id] = 0;
+    });
+    setPlayerStatus(freshStatus);
+    setPlayerTricks(freshTricks);
+    closeAbortFlow();
+  }
+
+  // "Runde abbrechen" -> Option B: Runde MIT manuell eingegebenem Punktestand werten.
+  // Keine Einschränkung, dass irgendwer bei 0 sein muss - alle Werte sind frei editierbar.
+  // Falls dadurch (zufällig oder absichtlich) jemand auf <= 0 landet, gewinnt das Spiel
+  // GENAUSO, als wäre es über die normale Stiche-Eingabe passiert (inkl. Mehrfachsieg-Logik).
+  function applyManualRoundScore() {
+    const enteredScores = gamePlayers.map(p => {
+      const v = parseInt(manualScores[p.id]);
+      return isNaN(v) ? 0 : v;
+    });
+    const hasWinner = enteredScores.some(s => s <= 0);
+    closeAbortFlow();
+
+    if (hasWinner) {
+      const winnerIndices = enteredScores.map((s, idx) => s <= 0 ? idx : -1).filter(idx => idx !== -1);
+      const clampedScores = enteredScores.map(s => s < 0 ? 0 : s);
+      saveGameResult(clampedScores, winnerIndices, gameRounds);
+    } else {
+      // Kein Sieger -> Spiel geht normal weiter, aber mit dem manuell gesetzten Punktestand.
+      // Dafür wird eine synthetische "Korrektur-Runde" angehängt, die calculateScoresFromRounds
+      // exakt auf die eingegebenen Werte bringt (Differenz zum bisherigen Stand als reiner
+      // Punkte-Sprung ohne Trumpf/Stiche-Semantik).
+      const adjustRoundData = {
+        roundNum: gameRounds.length + 1,
+        isManualAdjustment: true, // Markierung, damit Folge-KIs/Code diese Sonderrunden erkennen können
+        manualScores: enteredScores,
+        trump: { id: "manuell", label: "Manuell angepasst", emoji: "✏️", multiplier: 1 },
+        playerStatus: {}, playerTricks: {}, dealerIdx: dealerIdx,
+        ansagerId: null, bidTricks: null,
+      };
+      setGameRounds(prev => [...prev, adjustRoundData]);
+      setDealerIdx(d => (d + 1) % gamePlayers.length);
+      setSelectedTrump(SUITS[0]);
+      setRoundPhase("setup");
+      setAnsagerId(null);
+      setBidTricks(2);
+      const freshStatus = {};
+      const freshTricks = {};
+      gamePlayers.forEach(p => {
+        freshStatus[p.id] = "mit";
+        freshTricks[p.id] = 0;
+      });
+      setPlayerStatus(freshStatus);
+      setPlayerTricks(freshTricks);
+    }
+  }
+
+  // "Session abbrechen" -> Option A: angefangene Runde NICHT werten, Session direkt mit
+  // dem bisherigen (vor dieser Runde gültigen) Stand beenden & abrechnen.
+  function abortSessionDiscardRound() {
+    closeAbortFlow();
+    endSession();
+  }
+
+  // "Session abbrechen" -> Option B: angefangene Runde MIT manuellem Punktestand werten,
+  // DANACH die Session direkt beenden & abrechnen (unabhängig davon, ob die manuellen
+  // Werte schon einen Sieger ergeben oder nicht - die Session endet so oder so jetzt).
+  function abortSessionWithManualScore() {
+    const enteredScores = gamePlayers.map(p => {
+      const v = parseInt(manualScores[p.id]);
+      return isNaN(v) ? 0 : v;
+    });
+    closeAbortFlow();
+
+    // Es muss IMMER ein Sieger für ein abgeschlossenes Spiel feststehen, damit die
+    // Geld-Abrechnung funktioniert. Falls die manuellen Werte keinen Sieger ergeben
+    // (niemand <= 0), gilt automatisch der Spieler mit dem NIEDRIGSTEN Stand als Sieger -
+    // analog zur alten Single-Winner-Logik, aber nur für diesen Sonderfall beim
+    // erzwungenen Session-Abbruch.
+    let winnerIndices = enteredScores.map((s, idx) => s <= 0 ? idx : -1).filter(idx => idx !== -1);
+    if (winnerIndices.length === 0) {
+      let minIdx = 0, minVal = enteredScores[0];
+      enteredScores.forEach((s, idx) => { if (s < minVal) { minVal = s; minIdx = idx; } });
+      winnerIndices = [minIdx];
+    }
+    const clampedScores = enteredScores.map(s => s < 0 ? 0 : s);
+    saveGameResultThenEndSession(clampedScores, winnerIndices);
+  }
+
+  // Wie saveGameResult, aber beendet danach SOFORT die (gerade noch aktive) Session -
+  // wird nur beim erzwungenen Session-Abbruch mit gewerteter Runde gebraucht, da
+  // saveGameResult() normalerweise auf den "sessionEnd"-Zwischenscreen navigiert (wo der
+  // Nutzer selbst entscheidet, ob er weiterspielt) - hier ist die Entscheidung "beenden"
+  // aber bereits vom Nutzer getroffen worden.
+  function saveGameResultThenEndSession(finalScores, winnerIndices) {
+    const gameId = uid();
+    const timestamp = new Date().toISOString();
+    const sessionToEnd = activeSession;
+    const currentSessionId = sessionToEnd ? sessionToEnd.id : null;
+
+    const losers = gamePlayers.map((p, i) => ({ id: p.id, pts: finalScores[i], idx: i })).filter(p => !winnerIndices.includes(p.idx));
+    const totalPrizeMoney = losers.reduce((sum, l) => sum + (l.pts * CENT_PER_POINT), 0);
+    const prizePerWinner = winnerIndices.length > 0 ? Math.round((totalPrizeMoney / winnerIndices.length) * 100) / 100 : 0;
+
+    setRegistry(prev => {
+      const updated = prev.map(p => {
+        const gpIdx = gamePlayers.findIndex(gp => gp.id === p.id);
+        if (gpIdx === -1) return p;
+        const won = winnerIndices.includes(gpIdx);
+        const moneyDelta = won ? prizePerWinner : -(finalScores[gpIdx] * CENT_PER_POINT);
+        return {
+          ...p,
+          games: [...(p.games || []), {
+            id: gameId, timestamp, date: new Date().toLocaleDateString("de-DE"),
+            sessionId: currentSessionId,
+            players: gamePlayers.map(g => ({ id: g.id, name: g.name })),
+            finalScores: [...finalScores],
+            winnerIndices: [...winnerIndices],
+            won, moneyDelta,
+            abortedManually: true, // Kennzeichnet, dass dieses Spiel via Abbruch-Funktion beendet wurde
+          }]
+        };
+      });
+      return refreshBalances(updated);
+    });
+
+    // Session-Abrechnung erst NACH dem Speichern berechnen (sonst fehlt das gerade
+    // gespeicherte letzte Spiel in der Summe) - daher hier ein kurzer Timeout-freier Trick:
+    // wir berechnen die Summary direkt aus den lokal bekannten Daten statt aus dem
+    // (asynchron über Firebase aktualisierten) `registry`-State.
+    if (sessionToEnd) {
+      setTimeout(() => {
+        const summary = computeSessionSummary(sessionToEnd);
+        setSessionSummary(summary);
+        setActiveSession(null);
+        setScreen("home");
+      }, 300); // kurze Verzögerung, damit setRegistry oben sicher durchgelaufen ist
+    } else {
+      setScreen("home");
+    }
+  }
+
 
   function saveEditedRound(rIdx, editedStatus, editedTricks) {
     const total = gamePlayers.reduce((sum, p) => sum + (editedStatus[p.id] === "mit" ? (editedTricks[p.id] || 0) : 0), 0);
@@ -945,7 +1141,7 @@ function App() {
               </div>
 
               {/* Punkte-Tafel */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "25px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "15px" }}>
                 {gamePlayers.map((p, i) => (
                   <div key={p.id} style={{ padding: "12px", background: "rgba(0,0,0,0.4)", borderRadius: "10px", textAlign: "center", border: i === dealerIdx ? "1px solid #f9d423" : "1px solid rgba(255,255,255,0.05)" }}>
                     <div style={{ fontSize: "14px", color: "#aaa" }}>
@@ -957,6 +1153,16 @@ function App() {
                     </div>
                   </div>
                 ))}
+              </div>
+
+              {/* Abbruch-Buttons: jederzeit während einer laufenden Partie verfügbar */}
+              <div style={{ display: "flex", gap: "8px", marginBottom: "25px" }}>
+                <button onClick={() => openAbortFlow("round")} style={{ ...btnStyle, flex: 1, padding: "9px", fontSize: "12px", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)" }}>
+                  ⏹️ Runde abbrechen
+                </button>
+                <button onClick={() => openAbortFlow("session")} style={{ ...btnStyle, flex: 1, padding: "9px", fontSize: "12px", background: "rgba(255,78,80,0.12)", border: "1px solid rgba(255,78,80,0.35)", color: "#ff8c8c" }}>
+                  🚫 Session abbrechen
+                </button>
               </div>
 
               {/* PHASE 1: TRUMPF & STATUS */}
@@ -1231,6 +1437,74 @@ function App() {
             <button onClick={startGame} className="pulse-btn" style={{ ...btnStyle, background: "linear-gradient(45deg, #f9d423, #ff4e50)", width: "100%", marginTop: "25px", opacity: selectedIds.length < 2 ? 0.4 : 1 }} disabled={selectedIds.length < 2}>
               🚀 SPIEL STARTEN
             </button>
+          </div>
+        )}
+
+        {/* ── ABBRUCH-MODAL: "Runde abbrechen" ODER "Session abbrechen" ── */}
+        {abortFlow && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex: 998, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
+            <div className="glass" style={{ padding: "25px", maxWidth: "420px", width: "100%", maxHeight: "85vh", overflowY: "auto" }}>
+
+              {/* SCHRITT 1: Auswahl-Bildschirm */}
+              {abortSubStep === "choice" && (
+                <div>
+                  <h2 style={{ color: "#ff8c8c", marginBottom: "5px", textAlign: "center" }}>
+                    {abortFlow === "round" ? "⏹️ Runde abbrechen" : "🚫 Session abbrechen"}
+                  </h2>
+                  <p style={{ color: "#aaa", fontSize: "13px", textAlign: "center", marginBottom: "22px" }}>
+                    {abortFlow === "round"
+                      ? "Was soll mit der gerade laufenden Runde passieren?"
+                      : "Was soll mit der gerade angefangenen Runde passieren, bevor die Session beendet wird?"}
+                  </p>
+
+                  <button onClick={abortFlow === "round" ? discardCurrentRound : abortSessionDiscardRound} style={{ ...btnStyle, width: "100%", marginBottom: "10px", padding: "16px", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)" }}>
+                    {abortFlow === "round" ? "❌ Runde zählt nicht — neue Runde starten" : "❌ Runde nicht werten — Session direkt beenden"}
+                  </button>
+                  <button onClick={() => setAbortSubStep("manualScore")} style={{ ...btnStyle, width: "100%", marginBottom: "16px", padding: "16px", background: "linear-gradient(45deg, #f9d423, #ff512f)" }}>
+                    ✏️ Runde mit manuellem Punktestand werten
+                  </button>
+
+                  <button onClick={closeAbortFlow} style={{ ...btnStyle, width: "100%", background: "transparent", border: "1px solid rgba(255,255,255,0.15)", color: "#aaa" }}>
+                    Zurück zum Spiel
+                  </button>
+                </div>
+              )}
+
+              {/* SCHRITT 2: Manueller Punktestand-Editor */}
+              {abortSubStep === "manualScore" && (
+                <div>
+                  <h2 style={{ color: "#f9d423", marginBottom: "5px", textAlign: "center" }}>✏️ Punktestand anpassen</h2>
+                  <p style={{ color: "#aaa", fontSize: "12px", textAlign: "center", marginBottom: "18px" }}>
+                    Frei editierbar — es muss niemand bei 0 sein. "Sieg" setzt nur den Wert auf 0, ohne sofort zu speichern.
+                  </p>
+
+                  {gamePlayers.map(p => (
+                    <div key={p.id} style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
+                      <span style={{ flex: 1, fontSize: "14px", fontWeight: "bold" }}>{p.name}</span>
+                      <input
+                        type="number"
+                        value={manualScores[p.id] ?? 0}
+                        onChange={e => setManualScores(prev => ({ ...prev, [p.id]: e.target.value === "" ? "" : parseInt(e.target.value) }))}
+                        style={{ width: "70px", padding: "8px", borderRadius: "8px", border: "1px solid #555", background: "#000", color: "#fff", textAlign: "center", fontSize: "15px" }}
+                      />
+                      <button onClick={() => markManualScoreAsWin(p.id)} style={{ ...btnStyle, padding: "8px 12px", fontSize: "12px", background: Number(manualScores[p.id]) === 0 ? "linear-gradient(45deg, #43e97b, #38f9d7)" : "rgba(67,233,123,0.12)", color: Number(manualScores[p.id]) === 0 ? "#000" : "#43e97b", border: "1px solid rgba(67,233,123,0.4)" }}>
+                        🏆 Sieg
+                      </button>
+                    </div>
+                  ))}
+
+                  <div style={{ display: "flex", gap: "8px", marginTop: "18px" }}>
+                    <button onClick={() => setAbortSubStep("choice")} style={{ ...btnStyle, flex: 1, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)" }}>
+                      ← Zurück
+                    </button>
+                    <button onClick={abortFlow === "round" ? applyManualRoundScore : abortSessionWithManualScore} style={{ ...btnStyle, flex: 2, background: "linear-gradient(45deg, #43e97b, #38f9d7)", color: "#000", fontWeight: "900" }}>
+                      {abortFlow === "round" ? "✓ Übernehmen" : "✓ Werten & Session beenden"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+            </div>
           </div>
         )}
 
