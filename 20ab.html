@@ -76,6 +76,8 @@
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 </head>
 <body>
 <div id="root"></div>
@@ -152,16 +154,22 @@ function BackgroundEffects() {
   );
 }
 
-// Zentraler Speicherschlüssel in der geteilten (geräteübergreifenden) Storage-API.
-// Wird von ALLEN Geräten/Browsern gelesen & geschrieben, die diese Seite öffnen.
-const STORAGE_KEY = "20ab-final-data";
+// ── Firebase Setup ──────────────────────────────────────────
+// Zentrale Cloud-Datenbank: alle Geräte, die diese Seite öffnen, lesen/schreiben
+// denselben Datensatz unter dem Pfad "20ab/registry".
+const firebaseConfig = {
+  databaseURL: "https://schaefer-games-default-rtdb.europe-west1.firebasedatabase.app/"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+const registryRef = db.ref("20ab/registry");
+
+const STORAGE_KEY = "20ab-final-data"; // (nur noch als Bezeichner verwendet, kein localStorage mehr)
 
 function App() {
   const [screen, setScreen] = useState("home");
   const [registry, setRegistryRaw] = useState([]);
   const [syncState, setSyncState] = useState("loading"); // loading | ready | error
-  const registryRef = React.useRef(registry);
-  registryRef.current = registry;
 
   const [newName, setNewName] = useState("");
   const [selectedIds, setSelectedIds] = useState([]);
@@ -182,58 +190,35 @@ function App() {
   // Edit States für laufende Runden
   const [editingRoundIdx, setEditingRoundIdx] = useState(null);
 
-  // ── Initiales Laden vom geteilten Speicher (geräteübergreifend) ──
+  // ── Firebase: Live-Listener auf die Registry ──
+  // onValue feuert sofort beim ersten Laden UND danach jedes Mal, wenn sich
+  // irgendein anderes Gerät ändert -> echte Echtzeit-Synchronisation, kein Polling nötig.
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const result = await window.storage.get(STORAGE_KEY, true); // shared = true
-        if (cancelled) return;
-        if (result && result.value) {
-          const parsed = JSON.parse(result.value);
-          setRegistryRaw(refreshBalances(parsed));
-        }
-        setSyncState("ready");
-      } catch (e) {
-        // Key existiert noch nicht (erstes Mal) ODER Fehler -> einfach leer starten
-        if (!cancelled) setSyncState("ready");
+    const callback = (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setRegistryRaw(refreshBalances(data));
       }
-    })();
-    return () => { cancelled = true; };
+      setSyncState("ready");
+    };
+    const errorCallback = () => {
+      setSyncState("error");
+    };
+    registryRef.on("value", callback, errorCallback);
+    return () => registryRef.off("value", callback);
   }, []);
 
-  // setRegistry: aktualisiert lokalen State sofort UND schreibt in den geteilten Speicher
+  // setRegistry: aktualisiert lokalen State sofort UND schreibt nach Firebase.
+  // Während einer laufenden Partie (screen === "game") wird NICHT in Firebase
+  // geschrieben, da dort kein registry-Update passiert (Live-Rundenstand lebt in
+  // gameRounds/gamePlayers) - geschrieben wird erst beim Speichern eines Spielergebnisses.
   function setRegistry(updater) {
     setRegistryRaw(prev => {
       const next = typeof updater === "function" ? updater(prev) : updater;
-      window.storage.set(STORAGE_KEY, JSON.stringify(next), true).catch(() => {
-        setSyncState("error");
-      });
+      registryRef.set(next).catch(() => setSyncState("error"));
       return next;
     });
   }
-
-  // Periodisches Nachladen, damit Änderungen von anderen Geräten (z.B. Kumpel am Handy)
-  // auch ohne Neuladen der Seite sichtbar werden (z.B. beim Wechsel zurück ins Hauptmenü)
-  useEffect(() => {
-    if (syncState !== "ready") return;
-    async function pull() {
-      try {
-        const result = await window.storage.get(STORAGE_KEY, true);
-        if (result && result.value) {
-          const parsed = JSON.parse(result.value);
-          // Nur übernehmen, wenn wir gerade NICHT mitten in einer aktiven Partie sind,
-          // damit lokale ungespeicherte Rundenstände nicht überschrieben werden.
-          if (screen === "home" || screen === "players" || screen === "select" || screen === "history") {
-            setRegistryRaw(refreshBalances(parsed));
-          }
-        }
-      } catch (e) { /* still no data, ignore */ }
-    }
-    pull();
-    const iv = setInterval(pull, 5000);
-    return () => clearInterval(iv);
-  }, [screen, syncState]);
 
   // Berechne aktuelle Spielstände basierend auf aktiver Historie
   const { scores: currentScores, consecutiveRaus } = calculateScoresFromRounds(gamePlayers, gameRounds);
@@ -507,7 +492,7 @@ function App() {
         
         <h1 className="neon-text" onClick={() => setScreen("home")} style={{ cursor: "pointer", margin: "15px 0 5px 0" }}>🃏 20 AB</h1>
         <div style={{ textAlign: "center", marginBottom: "20px", fontSize: "11px", color: syncState === "error" ? "#ff4e50" : "#43e97b", letterSpacing: "1px" }}>
-          {syncState === "error" ? "⚠️ Sync-Fehler — Änderung evtl. nicht gespeichert" : "● Live synchronisiert"}
+          {syncState === "error" ? "⚠️ Sync-Fehler — Änderung evtl. nicht gespeichert" : "● Live verbunden (Firebase)"}
         </div>
 
         {screen !== "home" && (
