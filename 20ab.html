@@ -282,6 +282,7 @@ const firebaseConfig = {
 let db = null;
 let registryRef = null;
 let activeSessionRef = null;
+let lastSessionMovementRef = null;
 let firebaseInitError = null;
 try {
   if (typeof firebase === "undefined") {
@@ -291,6 +292,7 @@ try {
   db = firebase.database();
   registryRef = db.ref("20ab/registry");
   activeSessionRef = db.ref("20ab/activeSession"); // hält die aktuell laufende Session (geräteübergreifend!)
+  lastSessionMovementRef = db.ref("20ab/lastSessionMovement"); // Bestenlisten-Platzierungs-Bewegung der zuletzt beendeten Session
 } catch (e) {
   firebaseInitError = e.message;
   console.error("Firebase-Initialisierung fehlgeschlagen:", e);
@@ -333,6 +335,10 @@ function App() {
   const [sessionSyncReady, setSessionSyncReady] = useState(false);
   const [sessionSummary, setSessionSummary] = useState(null); // Abschluss-Popup-Daten nach "Session beenden"
 
+  // Bestenlisten-Platzierungsbewegung der zuletzt beendeten Session: { playerId: +/-Plätze }.
+  // Wird geräteübergreifend synchronisiert und bleibt bis zur nächsten beendeten Session stehen.
+  const [lastSessionMovement, setLastSessionMovementRaw] = useState({});
+
   useEffect(() => {
     if (!activeSessionRef) { setSessionSyncReady(true); return; }
     const callback = (snapshot) => {
@@ -343,6 +349,18 @@ function App() {
     return () => activeSessionRef.off("value", callback);
   }, []);
 
+  useEffect(() => {
+    if (!lastSessionMovementRef) return;
+    const callback = (snapshot) => setLastSessionMovementRaw(snapshot.val() || {});
+    lastSessionMovementRef.on("value", callback, () => {});
+    return () => lastSessionMovementRef.off("value", callback);
+  }, []);
+
+  function setLastSessionMovement(value) {
+    setLastSessionMovementRaw(value);
+    if (lastSessionMovementRef) lastSessionMovementRef.set(value).catch(() => {});
+  }
+
   function setActiveSession(value) {
     setActiveSessionRaw(value);
     if (activeSessionRef) activeSessionRef.set(value).catch(() => {});
@@ -351,9 +369,8 @@ function App() {
   // Edit States für laufende Runden
   const [editingRoundIdx, setEditingRoundIdx] = useState(null);
 
-  // Session-Spiele: aufgeklappte Spiele + editierte Runde
-  const [expandedSessionGames, setExpandedSessionGames] = useState({});
-  const [editingSessionRound, setEditingSessionRound] = useState(null); // { gameId, roundIdx }
+  // Session-Spiele: welches Spiel wird gerade auf der eigenen Detail-Seite betrachtet
+  const [detailGameId, setDetailGameId] = useState(null);
 
   // ── Firebase: Live-Listener auf die Registry ──
   // onValue feuert sofort beim ersten Laden UND danach jedes Mal, wenn sich
@@ -709,6 +726,29 @@ function App() {
   function endSession() {
     if (!activeSession) return;
     const summary = computeSessionSummary(activeSession);
+
+    // Bestenlisten-Platzierungsbewegung durch DIESE Session berechnen: Rang vorher (=
+    // aktueller Kontostand minus dem, was in dieser Session dazukam) vs. Rang nachher
+    // (= aktueller Kontostand jetzt).
+    const currentBalances = {};
+    registry.forEach(p => { currentBalances[p.id] = p.session?.balance || 0; });
+    const beforeBalances = {};
+    registry.forEach(p => {
+      const sessionDelta = summary.balances[p.id] || 0;
+      beforeBalances[p.id] = (currentBalances[p.id] || 0) - sessionDelta;
+    });
+    const rankOf = (balances) => {
+      const sorted = [...registry].sort((a, b) => (balances[b.id] || 0) - (balances[a.id] || 0));
+      const ranks = {};
+      sorted.forEach((p, i) => { ranks[p.id] = i + 1; });
+      return ranks;
+    };
+    const beforeRanks = rankOf(beforeBalances);
+    const afterRanks = rankOf(currentBalances);
+    const movement = {};
+    registry.forEach(p => { movement[p.id] = beforeRanks[p.id] - afterRanks[p.id]; });
+    setLastSessionMovement(movement);
+
     setSessionSummary(summary); // zeigt das Abschluss-Popup an (nur einmalig, wird nicht gespeichert)
     setActiveSession(null); // Session ist damit beendet; ab jetzt zählt sie in "Alte Spiele"
     setScreen("home");
@@ -756,80 +796,6 @@ function App() {
 
 
 
-
-  function updatePastGameRounds(gameId, newRounds) {
-    setRegistry(prev => {
-      let pastPlayers = null;
-      for (const p of prev) {
-        const g = (p.games || []).find(g => g.id === gameId);
-        if (g) { pastPlayers = g.players; break; }
-      }
-      if (!pastPlayers) return prev;
-
-      const { scores: newScores } = calculateScoresFromRounds(pastPlayers, newRounds);
-      const clampedScores = newScores.map(s => Math.max(0, s));
-      const winnerIndices = newScores.map((s, i) => s <= 0 ? i : -1).filter(i => i !== -1);
-      const losers = pastPlayers.map((pl, i) => ({ pts: clampedScores[i], idx: i })).filter(l => !winnerIndices.includes(l.idx));
-      const totalPrize = losers.reduce((sum, l) => sum + (l.pts * CENT_PER_POINT), 0);
-      const prizePerWinner = winnerIndices.length > 0 ? Math.round((totalPrize / winnerIndices.length) * 100) / 100 : 0;
-
-      const updated = prev.map(p => {
-        const gameIdx = (p.games || []).findIndex(g => g.id === gameId);
-        if (gameIdx === -1) return p;
-        const game = p.games[gameIdx];
-        const myIdx = game.players.findIndex(pl => pl.id === p.id);
-        // Geld immer neu berechnen, unabhängig davon ob noch ein Sieger existiert
-        const won = winnerIndices.includes(myIdx);
-        const moneyDelta = won
-          ? prizePerWinner
-          : -(clampedScores[myIdx] * CENT_PER_POINT);
-        const updatedGames = [...p.games];
-        updatedGames[gameIdx] = {
-          ...game,
-          rounds: newRounds,
-          finalScores: clampedScores,
-          winnerIndices,
-          won,
-          moneyDelta,
-        };
-        return { ...p, games: updatedGames };
-      });
-      return refreshBalances(updated);
-    });
-  }
-
-  function saveEditedSessionRound(gameId, roundIdx, editedStatus, editedTricks) {
-    const total = Object.entries(editedStatus).reduce((sum, [id, st]) => {
-      return sum + (st === "mit" ? (editedTricks[id] || 0) : 0);
-    }, 0);
-    if (total !== 6) { alert(`Fehler: Eine Runde muss genau 6 Stiche haben! (Aktuell: ${total})`); return; }
-
-    let gameRoundsOfGame = null;
-    for (const p of registry) {
-      const g = (p.games || []).find(g => g.id === gameId);
-      if (g && g.rounds) { gameRoundsOfGame = g.rounds; break; }
-    }
-    if (!gameRoundsOfGame) return;
-
-    const newRounds = [...gameRoundsOfGame];
-    newRounds[roundIdx] = { ...newRounds[roundIdx], playerStatus: editedStatus, playerTricks: editedTricks };
-    updatePastGameRounds(gameId, newRounds);
-    setEditingSessionRound(null);
-  }
-
-  function deleteSessionGameRound(gameId, roundIdx) {
-    if (!window.confirm("Runde wirklich löschen? Die Endpunkte des Spiels werden neu berechnet.")) return;
-    let gameRoundsOfGame = null;
-    for (const p of registry) {
-      const g = (p.games || []).find(g => g.id === gameId);
-      if (g && g.rounds) { gameRoundsOfGame = g.rounds; break; }
-    }
-    if (!gameRoundsOfGame) return;
-    const newRounds = gameRoundsOfGame
-      .filter((_, i) => i !== roundIdx)
-      .map((r, i) => ({ ...r, roundNum: i + 1 }));
-    updatePastGameRounds(gameId, newRounds);
-  }
 
   function saveEditedRound(rIdx, editedStatus, editedTricks) {
     const total = gamePlayers.reduce((sum, p) => sum + (editedStatus[p.id] === "mit" ? (editedTricks[p.id] || 0) : 0), 0);
@@ -1053,9 +1019,6 @@ function App() {
                   <button onClick={() => startGame(activeSession.playerIds || [])} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #00f2fe, #4facfe)" }}>
                     ▶️ Weiterspielen
                   </button>
-                  <button onClick={() => { setSelectedIds(activeSession.playerIds || []); setScreen("select"); }} title="Spieler ändern" style={{ ...btnStyle, padding: "10px 14px", fontSize: "16px", background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.25)" }}>
-                    👥
-                  </button>
                   <button onClick={endSession} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #ff512f, #f9d423)" }}>
                     🏁 Session beenden
                   </button>
@@ -1064,17 +1027,10 @@ function App() {
             )}
 
             <div className="glass" style={{ padding: "20px", textAlign: "center" }}>
-              <div style={{ display: "flex", gap: "8px", marginBottom: "15px" }}>
-                <button className="pulse-btn" style={{ ...btnStyle, flex: 1, background: "linear-gradient(45deg, #00f2fe, #4facfe)", boxShadow: "0 0 15px #00f2fe" }}
-                  onClick={() => activeSession ? startGame(activeSession.playerIds || []) : setScreen("select")}>
-                  {activeSession ? "🎴 Weiteres Spiel in dieser Session" : "🎴 Neue Session starten"}
-                </button>
-                {activeSession && (
-                  <button onClick={() => { setSelectedIds(activeSession.playerIds || []); setScreen("select"); }} title="Spieler ändern" style={{ ...btnStyle, padding: "0 16px", fontSize: "16px", background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.25)" }}>
-                    👥
-                  </button>
-                )}
-              </div>
+              <button className="pulse-btn" style={{ ...btnStyle, width: "100%", marginBottom: "15px", background: "linear-gradient(45deg, #00f2fe, #4facfe)", boxShadow: "0 0 15px #00f2fe" }}
+                onClick={() => activeSession ? startGame(activeSession.playerIds || []) : setScreen("select")}>
+                {activeSession ? "🎴 Weiteres Spiel in dieser Session" : "🎴 Neue Session starten"}
+              </button>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
                 <button style={{ ...btnStyle, background: "linear-gradient(45deg, #f093fb, #f5576c)" }} onClick={() => setScreen("players")}>👤 Spieler</button>
                 <button style={{ ...btnStyle, background: "linear-gradient(45deg, #f9d423, #ff4e50)" }} onClick={() => setScreen("history")}>🕰️ alte Spiele</button>
@@ -1084,18 +1040,30 @@ function App() {
             <div className="glass" style={{ padding: "20px" }}>
               <h2 style={{ textAlign: "center", color: "#f9d423", marginBottom: "15px", fontSize: "20px" }}>🏆 BESTENLISTE</h2>
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                {sortedLeaderboard.map((p, index) => (
+                {sortedLeaderboard.map((p, index) => {
+                  const movement = lastSessionMovement[p.id];
+                  return (
                   <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 15px", background: index < 3 ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.3)", borderRadius: "10px", border: index === 0 ? "1px solid #f9d423" : "1px solid transparent" }}>
-                    <span style={{ fontSize: "16px", fontWeight: "bold" }}>
+                    <span style={{ fontSize: "16px", fontWeight: "bold", display: "flex", alignItems: "center" }}>
                       <span style={{ marginRight: "8px" }}>{index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : "⚫"}</span>
                       {p.name}
                       {!isStammSpieler(p) && <span style={{ marginLeft: "6px", fontSize: "11px", color: "#aaa", fontWeight: "normal", border: "1px solid #555", borderRadius: "4px", padding: "1px 5px" }}>Gast</span>}
+                      {movement !== undefined && (
+                        movement > 0 ? (
+                          <span style={{ marginLeft: "8px", fontSize: "12px", color: "#43e97b", fontWeight: "bold" }}>▲ {movement}</span>
+                        ) : movement < 0 ? (
+                          <span style={{ marginLeft: "8px", fontSize: "12px", color: "#ff4e50", fontWeight: "bold" }}>▼ {Math.abs(movement)}</span>
+                        ) : (
+                          <span style={{ marginLeft: "8px", fontSize: "12px", color: "#f9d423", fontWeight: "bold" }}>−</span>
+                        )
+                      )}
                     </span>
                     <span style={{ fontWeight: "900", color: (p.session?.balance || 0) >= 0 ? "#43e97b" : "#ff4e50", fontSize: "16px" }}>
                       {euro(p.session?.balance || 0)}
                     </span>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -1368,13 +1336,12 @@ function App() {
                     {orderedGames.map((g, gIdx) => {
                       const isDeleted = !!g.deleted;
                       const isEditingGame = editingGameId === g.id;
-                      const isOpen = !!expandedSessionGames[g.id];
                       const rounds = g.rounds || [];
                       return (
                         <div key={g.id} style={{ background: isDeleted ? "rgba(80,80,80,0.25)" : "rgba(0,0,0,0.35)", borderRadius: "10px", marginBottom: "10px", border: `1px solid ${isDeleted ? "#555" : "rgba(0,242,254,0.2)"}`, opacity: isDeleted ? 0.7 : 1, overflow: "hidden" }}>
 
-                          {/* Kopfzeile: aufklappbar */}
-                          <div onClick={() => !isEditingGame && setExpandedSessionGames(prev => ({ ...prev, [g.id]: !prev[g.id] }))} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px", cursor: "pointer", background: isOpen ? "rgba(0,242,254,0.05)" : "transparent" }}>
+                          {/* Kopfzeile */}
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px" }}>
                             <strong style={{ color: "#00f2fe", fontSize: "13px" }}>
                               Spiel {gIdx + 1}
                               {isDeleted && <span style={{ marginLeft: "8px", color: "#ff4e50", border: "1px solid #ff4e50", borderRadius: "5px", padding: "1px 6px", fontSize: "10px" }}>🗑️ GELÖSCHT</span>}
@@ -1382,7 +1349,7 @@ function App() {
                             </strong>
                             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                               {!isEditingGame && (
-                                <div style={{ display: "flex", gap: "8px" }} onClick={e => e.stopPropagation()}>
+                                <div style={{ display: "flex", gap: "8px" }}>
                                   {!isDeleted && (
                                     <button onClick={() => { setEditingGameId(g.id); const s = {}; g.players.forEach((p, i) => { s[p.id] = g.finalScores[i]; }); setEditScores(s); }} style={{ background: "none", border: "none", color: "#f9d423", cursor: "pointer", fontSize: "13px" }}>✏️</button>
                                   )}
@@ -1393,7 +1360,9 @@ function App() {
                                   )}
                                 </div>
                               )}
-                              <span style={{ fontSize: "16px", transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>▾</span>
+                              <button onClick={() => { setDetailGameId(g.id); setScreen("gameDetail"); }} style={{ ...btnStyle, padding: "5px 10px", fontSize: "11px", background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)" }}>
+                                🔍 Details
+                              </button>
                             </div>
                           </div>
 
@@ -1430,55 +1399,6 @@ function App() {
                               </div>
                             )}
                           </div>
-
-                          {/* Aufgeklappte Runden */}
-                          {isOpen && rounds.length > 0 && (
-                            <div style={{ padding: "0 12px 12px", borderTop: "1px solid rgba(255,255,255,0.07)" }}>
-                              <div style={{ fontSize: "12px", color: "#888", margin: "10px 0 8px" }}>🔄 Runden:</div>
-                              {rounds.map((r, rIdx) => {
-                                const isEditingThisRound = editingSessionRound?.gameId === g.id && editingSessionRound?.roundIdx === rIdx;
-                                const deltas = computeRoundDelta(g.players, rounds, rIdx);
-                                return (
-                                  <div key={rIdx} style={{ background: "rgba(0,0,0,0.3)", padding: "10px", borderRadius: "8px", marginBottom: "6px", border: "1px solid rgba(255,255,255,0.04)" }}>
-                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
-                                      <strong style={{ color: "#00f2fe", fontSize: "12px" }}>Runde {r.roundNum} {r.trump.emoji}</strong>
-                                      {!isEditingThisRound ? (
-                                        <div style={{ display: "flex", gap: "8px" }}>
-                                          <button onClick={() => setEditingSessionRound({ gameId: g.id, roundIdx: rIdx })} style={{ background: "none", border: "none", color: "#f9d423", cursor: "pointer", fontSize: "12px" }}>✏️</button>
-                                          <button onClick={() => deleteSessionGameRound(g.id, rIdx)} style={{ background: "none", border: "none", color: "#ff4e50", cursor: "pointer", fontSize: "12px" }}>🗑️</button>
-                                        </div>
-                                      ) : (
-                                        <span style={{ fontSize: "11px", color: "#43e97b" }}>Wird editiert...</span>
-                                      )}
-                                    </div>
-                                    {!isEditingThisRound ? (
-                                      <div style={{ fontSize: "12px", color: "#ccc" }}>
-                                        {g.players.map(p => {
-                                          const st = r.playerStatus?.[p.id] || "mit";
-                                          const delta = deltas[p.id] || 0;
-                                          return (
-                                            <span key={p.id} style={{ marginRight: "10px" }}>
-                                              {p.name}: {st === "raus" ? <span style={{ color: "#888" }}>❌</span> : <span style={{ color: delta < 0 ? "#43e97b" : delta > 0 ? "#ff4e50" : "#aaa", fontWeight: "bold" }}>{delta > 0 ? `+${delta}` : delta}</span>}
-                                            </span>
-                                          );
-                                        })}
-                                      </div>
-                                    ) : (
-                                      <RoundInlineEditor
-                                        gamePlayers={g.players}
-                                        roundData={r}
-                                        onSave={(edStatus, edTricks) => saveEditedSessionRound(g.id, rIdx, edStatus, edTricks)}
-                                        onCancel={() => setEditingSessionRound(null)}
-                                      />
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                          {isOpen && rounds.length === 0 && (
-                            <div style={{ padding: "0 12px 12px", fontSize: "12px", color: "#666", fontStyle: "italic" }}>Keine Runden gespeichert (älteres Spiel).</div>
-                          )}
                         </div>
                       );
                     })}
@@ -1531,6 +1451,116 @@ function App() {
             </div>
           </div>
         )}
+
+        {/* DETAIL-SEITE EINES EINZELNEN (ABGESCHLOSSENEN) SESSION-SPIELS */}
+        {screen === "gameDetail" && (() => {
+          const g = getUniqueGames().find(gm => gm.id === detailGameId);
+          if (!g) {
+            return (
+              <div className="glass" style={{ padding: "20px", textAlign: "center", color: "#aaa" }}>
+                Spiel nicht gefunden.
+                <div style={{ marginTop: "15px" }}>
+                  <button onClick={() => setScreen("game")} style={{ ...btnStyle, background: "rgba(255,255,255,0.1)" }}>← Zurück</button>
+                </div>
+              </div>
+            );
+          }
+          const isDeleted = !!g.deleted;
+          const isEditingGame = editingGameId === g.id;
+          const rounds = g.rounds || [];
+          return (
+            <div>
+              <button onClick={() => setScreen("game")} style={{ ...btnStyle, padding: "8px 15px", fontSize: "13px", background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", marginBottom: "15px" }}>
+                ← Zurück zur Session
+              </button>
+
+              {/* Endpunkte: HIER korrigierbar (Endstand), einzelne Runden NICHT */}
+              <div className="glass" style={{ padding: "20px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "15px" }}>
+                  <h3 style={{ color: "#00f2fe", fontSize: "16px" }}>
+                    🃏 Spiel-Details
+                    {isDeleted && <span style={{ marginLeft: "8px", color: "#ff4e50", border: "1px solid #ff4e50", borderRadius: "5px", padding: "1px 6px", fontSize: "10px" }}>🗑️ GELÖSCHT</span>}
+                  </h3>
+                  {!isEditingGame && (
+                    <div style={{ display: "flex", gap: "12px" }}>
+                      {!isDeleted && (
+                        <button onClick={() => { setEditingGameId(g.id); const s = {}; g.players.forEach((p, i) => { s[p.id] = g.finalScores[i]; }); setEditScores(s); }} style={{ background: "none", border: "none", color: "#f9d423", cursor: "pointer", fontSize: "14px" }}>✏️ Endpunkte korrigieren</button>
+                      )}
+                      {isDeleted ? (
+                        <button onClick={() => restorePastGame(g.id)} style={{ background: "none", border: "none", color: "#43e97b", cursor: "pointer", fontSize: "14px" }}>↩️ Wiederherstellen</button>
+                      ) : (
+                        <button onClick={() => deletePastGame(g.id)} style={{ background: "none", border: "none", color: "#ff4e50", cursor: "pointer", fontSize: "14px" }}>🗑️ Löschen</button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {!isEditingGame ? (
+                  <div style={{ fontSize: "14px" }}>
+                    {g.players.map((p, i) => {
+                      const regPlayer = registry.find(rp => rp.id === p.id);
+                      const specificGame = regPlayer?.games?.find(rg => rg.id === g.id);
+                      const isWinner = g.winnerIndices ? g.winnerIndices.includes(i) : g.winnerIdx === i;
+                      return (
+                        <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                          <span>{isWinner ? "🏆 " : ""}{p.name} <span style={{ color: "#aaa" }}>({g.finalScores[i]} Pkt)</span></span>
+                          <span style={{ fontWeight: "bold", color: isDeleted ? "#888" : ((specificGame?.moneyDelta || 0) >= 0 ? "#43e97b" : "#ff4e50"), textDecoration: isDeleted ? "line-through" : "none" }}>
+                            {regPlayer ? euro(specificGame?.moneyDelta || 0) : "—"}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div style={{ background: "rgba(0,0,0,0.4)", padding: "12px", borderRadius: "8px" }}>
+                    {g.players.map((p) => (
+                      <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+                        <span style={{ fontSize: "14px" }}>{p.name}:</span>
+                        <input type="number" value={editScores[p.id] || 0} onChange={e => setEditScores({ ...editScores, [p.id]: e.target.value })} style={{ width: "75px", padding: "6px", borderRadius: "5px", border: "1px solid #ccc", background: "#000", color: "#fff", textAlign: "center" }} />
+                      </div>
+                    ))}
+                    <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
+                      <button onClick={() => setEditingGameId(null)} style={{ ...btnStyle, padding: "6px 12px", fontSize: "12px", background: "#aaa" }}>Abbrechen</button>
+                      <button onClick={() => saveEditedPastGame(g.id)} style={{ ...btnStyle, padding: "6px 12px", fontSize: "12px", background: "#43e97b", color: "#000" }}>Speichern</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Alle Runden dieses Spiels - NUR lesend, keine Bearbeitung/Löschung einzelner Runden */}
+              <div className="glass" style={{ padding: "20px" }}>
+                <h3 style={{ color: "#f093fb", marginBottom: "15px", fontSize: "16px" }}>🔄 Runden ({rounds.length})</h3>
+                {rounds.length === 0 && (
+                  <div style={{ fontSize: "13px", color: "#666", fontStyle: "italic" }}>Keine Runden gespeichert (älteres Spiel).</div>
+                )}
+                {rounds.map((r, rIdx) => {
+                  const deltas = computeRoundDelta(g.players, rounds, rIdx);
+                  return (
+                    <div key={rIdx} style={{ background: "rgba(0,0,0,0.3)", padding: "14px", borderRadius: "10px", marginBottom: "10px", border: "1px solid rgba(255,255,255,0.05)" }}>
+                      <strong style={{ color: "#00f2fe", fontSize: "13px" }}>Runde {r.roundNum} {r.trump.emoji} {r.trump.label}</strong>
+                      {r.ansagerId && (
+                        <div style={{ fontSize: "12px", color: "#f9d423", margin: "6px 0" }}>
+                          📣 Ansager: <strong>{g.players.find(p => p.id === r.ansagerId)?.name || "?"}</strong> (angesagt: {r.bidTricks})
+                        </div>
+                      )}
+                      <div style={{ fontSize: "13px", color: "#ccc", marginTop: "6px" }}>
+                        {g.players.map(p => {
+                          const st = r.playerStatus?.[p.id] || "mit";
+                          const delta = deltas[p.id] || 0;
+                          return (
+                            <span key={p.id} style={{ marginRight: "14px", display: "inline-block", marginBottom: "4px" }}>
+                              {p.name}: {st === "raus" ? <span style={{ color: "#888" }}>❌ Raus</span> : <span style={{ color: delta < 0 ? "#43e97b" : delta > 0 ? "#ff4e50" : "#aaa", fontWeight: "bold" }}>{delta > 0 ? `+${delta}` : delta}</span>}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* HISTORIE SCREEN (ALTE SPIELE) */}
         {screen === "history" && (
