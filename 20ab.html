@@ -395,7 +395,9 @@ function App() {
   // Berechne aktuelle Spielstände basierend auf aktiver Historie
   const { scores: currentScores, consecutiveRaus } = calculateScoresFromRounds(gamePlayers, gameRounds);
 
-  function addPlayer() {
+  // autoSelect: true -> der neu angelegte Gast wird sofort zu selectedIds hinzugefügt
+  // (genutzt im "select"-Screen, wenn während der Spielerauswahl ein neuer Gast dazustößt).
+  function addPlayer(autoSelect) {
     const trimmed = newName.trim();
     if (!trimmed) return;
     if (STAMMSPIELER_NAMES.some(n => n.toLowerCase() === trimmed.toLowerCase())) {
@@ -406,8 +408,10 @@ function App() {
       alert(`Ein Spieler namens "${trimmed}" existiert bereits!`);
       return;
     }
-    setRegistry([...registry, { id: uid(), name: trimmed, stammSpieler: false, games: [], session: { balance: 0 } }]);
+    const newId = uid();
+    setRegistry([...registry, { id: newId, name: trimmed, stammSpieler: false, games: [], session: { balance: 0 } }]);
     setNewName("");
+    if (autoSelect) setSelectedIds(prev => [...prev, newId]);
   }
 
   function deletePlayer(id) {
@@ -419,11 +423,14 @@ function App() {
     }
   }
 
-  function startGame() {
-    if (selectedIds.length < 2) return;
+  // idsOverride: erlaubt den direkten Start mit einer bestimmten Spielerliste, ohne über
+  // den "select"-Screen zu gehen (z.B. "Weiteres Spiel" mit denselben Mitspielern wie zuvor).
+  function startGame(idsOverride) {
+    const ids = idsOverride || selectedIds;
+    if (ids.length < 2) return;
     // Passwort nur bei neuer Session und wenn mind. ein Stammspieler dabei ist
     if (!activeSession) {
-      const hasStamm = selectedIds.some(id => {
+      const hasStamm = ids.some(id => {
         const p = registry.find(pl => pl.id === id);
         return p && isStammSpieler(p);
       });
@@ -435,7 +442,7 @@ function App() {
         }
       }
     }
-    const gp = selectedIds.map(id => registry.find(p => p.id === id));
+    const gp = ids.map(id => registry.find(p => p.id === id));
     setGamePlayers(gp);
     setGameRounds([]);
     setDealerIdx(0);
@@ -447,9 +454,9 @@ function App() {
     // Falls schon eine läuft: ggf. neue Mitspieler-IDs ergänzen (z.B. wenn jemand erst ab
     // dem 2. Spiel der Session dazustößt).
     if (!activeSession) {
-      setActiveSession({ id: uid(), startedAt: new Date().toISOString(), playerIds: selectedIds.slice() });
+      setActiveSession({ id: uid(), startedAt: new Date().toISOString(), playerIds: ids.slice() });
     } else {
-      const merged = Array.from(new Set([...(activeSession.playerIds || []), ...selectedIds]));
+      const merged = Array.from(new Set([...(activeSession.playerIds || []), ...ids]));
       if (merged.length !== (activeSession.playerIds || []).length) {
         setActiveSession({ ...activeSession, playerIds: merged });
       }
@@ -1043,8 +1050,11 @@ function App() {
                   Spieler: {(activeSession.playerIds || []).map(id => registry.find(p => p.id === id)?.name || "?").join(", ")}
                 </div>
                 <div style={{ display: "flex", gap: "8px" }}>
-                  <button onClick={() => { setSelectedIds(activeSession.playerIds || []); setScreen("select"); }} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #00f2fe, #4facfe)" }}>
+                  <button onClick={() => startGame(activeSession.playerIds || [])} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #00f2fe, #4facfe)" }}>
                     ▶️ Weiterspielen
+                  </button>
+                  <button onClick={() => { setSelectedIds(activeSession.playerIds || []); setScreen("select"); }} title="Spieler ändern" style={{ ...btnStyle, padding: "10px 14px", fontSize: "16px", background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.25)" }}>
+                    👥
                   </button>
                   <button onClick={endSession} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #ff512f, #f9d423)" }}>
                     🏁 Session beenden
@@ -1054,9 +1064,17 @@ function App() {
             )}
 
             <div className="glass" style={{ padding: "20px", textAlign: "center" }}>
-              <button className="pulse-btn" style={{ ...btnStyle, background: "linear-gradient(45deg, #00f2fe, #4facfe)", width: "100%", marginBottom: "15px", boxShadow: "0 0 15px #00f2fe" }} onClick={() => setScreen("select")}>
-                {activeSession ? "🎴 Weiteres Spiel in dieser Session" : "🎴 Neue Session starten"}
-              </button>
+              <div style={{ display: "flex", gap: "8px", marginBottom: "15px" }}>
+                <button className="pulse-btn" style={{ ...btnStyle, flex: 1, background: "linear-gradient(45deg, #00f2fe, #4facfe)", boxShadow: "0 0 15px #00f2fe" }}
+                  onClick={() => activeSession ? startGame(activeSession.playerIds || []) : setScreen("select")}>
+                  {activeSession ? "🎴 Weiteres Spiel in dieser Session" : "🎴 Neue Session starten"}
+                </button>
+                {activeSession && (
+                  <button onClick={() => { setSelectedIds(activeSession.playerIds || []); setScreen("select"); }} title="Spieler ändern" style={{ ...btnStyle, padding: "0 16px", fontSize: "16px", background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.25)" }}>
+                    👥
+                  </button>
+                )}
+              </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
                 <button style={{ ...btnStyle, background: "linear-gradient(45deg, #f093fb, #f5576c)" }} onClick={() => setScreen("players")}>👤 Spieler</button>
                 <button style={{ ...btnStyle, background: "linear-gradient(45deg, #f9d423, #ff4e50)" }} onClick={() => setScreen("history")}>🕰️ alte Spiele</button>
@@ -1091,9 +1109,14 @@ function App() {
             <p style={{ color: "#aaa", fontSize: "13px", marginBottom: "20px" }}>
               Noch ein Spiel in dieser Session, oder jetzt abrechnen?
             </p>
-            <button onClick={() => { setSelectedIds(activeSession ? activeSession.playerIds : gamePlayers.map(p => p.id)); setScreen("select"); }} style={{ ...btnStyle, width: "100%", marginBottom: "10px", background: "linear-gradient(45deg, #00f2fe, #4facfe)" }}>
-              ▶️ Weiteres Spiel starten
-            </button>
+            <div style={{ display: "flex", gap: "8px", marginBottom: "10px" }}>
+              <button onClick={() => startGame(activeSession ? activeSession.playerIds : gamePlayers.map(p => p.id))} style={{ ...btnStyle, flex: 1, background: "linear-gradient(45deg, #00f2fe, #4facfe)" }}>
+                ▶️ Weiteres Spiel starten
+              </button>
+              <button onClick={() => { setSelectedIds(activeSession ? activeSession.playerIds : gamePlayers.map(p => p.id)); setScreen("select"); }} title="Spieler ändern" style={{ ...btnStyle, padding: "0 16px", fontSize: "16px", background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.25)" }}>
+                👥
+              </button>
+            </div>
             <button onClick={endSession} style={{ ...btnStyle, width: "100%", background: "linear-gradient(45deg, #ff512f, #f9d423)" }}>
               🏁 Session beenden & abrechnen
             </button>
@@ -1596,7 +1619,7 @@ function App() {
             <div style={{ fontSize: "12px", color: "#aaa", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px" }}>👤 Gäste</div>
             <div style={{ display: "flex", gap: "10px", marginBottom: "12px" }}>
               <input value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === "Enter" && addPlayer()} style={{ flex: 1, padding: "12px", borderRadius: "12px", border: "1px solid #f093fb", background: "rgba(0,0,0,0.3)", color: "#fff", fontSize: "16px" }} placeholder="Gastname..." />
-              <button onClick={addPlayer} style={{ ...btnStyle, background: "linear-gradient(45deg, #f093fb, #f5576c)", padding: "0 20px", fontSize: "20px" }}>+</button>
+              <button onClick={() => addPlayer(false)} style={{ ...btnStyle, background: "linear-gradient(45deg, #f093fb, #f5576c)", padding: "0 20px", fontSize: "20px" }}>+</button>
             </div>
             <div>
               {registry.filter(p => !isStammSpieler(p)).length === 0 && (
@@ -1644,7 +1667,14 @@ function App() {
               </>
             )}
 
-            <button onClick={startGame} className="pulse-btn" style={{ ...btnStyle, background: "linear-gradient(45deg, #f9d423, #ff4e50)", width: "100%", marginTop: "5px", opacity: selectedIds.length < 2 ? 0.4 : 1 }} disabled={selectedIds.length < 2}>
+            {/* Neuen Gast direkt hier anlegen (z.B. wenn während der Session jemand Neues dazustößt) */}
+            <div style={{ fontSize: "12px", color: "#aaa", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px" }}>➕ Neuer Gast</div>
+            <div style={{ display: "flex", gap: "10px", marginBottom: "18px" }}>
+              <input value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === "Enter" && addPlayer(true)} style={{ flex: 1, padding: "12px", borderRadius: "12px", border: "1px solid #f093fb", background: "rgba(0,0,0,0.3)", color: "#fff", fontSize: "16px" }} placeholder="Gastname..." />
+              <button onClick={() => addPlayer(true)} style={{ ...btnStyle, background: "linear-gradient(45deg, #f093fb, #f5576c)", padding: "0 20px", fontSize: "20px" }}>+</button>
+            </div>
+
+            <button onClick={() => startGame()} className="pulse-btn" style={{ ...btnStyle, background: "linear-gradient(45deg, #f9d423, #ff4e50)", width: "100%", marginTop: "5px", opacity: selectedIds.length < 2 ? 0.4 : 1 }} disabled={selectedIds.length < 2}>
               🚀 SPIEL STARTEN
             </button>
           </div>
