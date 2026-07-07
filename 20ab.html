@@ -439,7 +439,7 @@ const firebaseConfig = {
 };
 let db = null;
 let registryRef = null;
-let activeSessionRef = null;
+let activeSessionsRef = null;
 let lastSessionMovementRef = null;
 let firebaseInitError = null;
 try {
@@ -449,7 +449,7 @@ try {
   firebase.initializeApp(firebaseConfig);
   db = firebase.database();
   registryRef = db.ref("20ab/registry");
-  activeSessionRef = db.ref("20ab/activeSession"); // hält die aktuell laufende Session (geräteübergreifend!)
+  activeSessionsRef = db.ref("20ab/activeSessions"); // Array aller aktuell laufenden Sessions (geräteübergreifend!)
   lastSessionMovementRef = db.ref("20ab/lastSessionMovement"); // Bestenlisten-Platzierungs-Bewegung der zuletzt beendeten Session
 } catch (e) {
   firebaseInitError = e.message;
@@ -465,6 +465,10 @@ function App() {
 
   const [newName, setNewName] = useState("");
   const [selectedIds, setSelectedIds] = useState([]);
+  // Falls im "select"-Screen eine BESTEHENDE Session weitergeführt/geändert wird: deren
+  // eigene ID (damit ihre eigenen Mitglieder nicht fälschlich als "Konflikt" gelten).
+  // null = es wird eine KOMPLETT NEUE Session gestartet.
+  const [selectSessionContext, setSelectSessionContext] = useState(null);
 
   // Welcher Spieler wird gerade auf der Statistik-Seite betrachtet
   const [statsPlayerId, setStatsPlayerId] = useState(null);
@@ -489,10 +493,15 @@ function App() {
 
   // ── SESSIONS ──
   // Eine Session bündelt mehrere nacheinander gespielte Spiele, bis sie explizit beendet
-  // wird. `activeSession` ist GERÄTEÜBERGREIFEND synchron (wie registry), damit jeder am
-  // Tisch dieselbe laufende Session sieht, egal von welchem Handy aus gespielt wird.
-  // Struktur: { id, startedAt, playerIds: [...] } oder null, wenn keine Session läuft.
-  const [activeSession, setActiveSessionRaw] = useState(null);
+  // wird. `activeSessions` ist GERÄTEÜBERGREIFEND synchron (wie registry), damit jeder am
+  // Tisch dieselben laufenden Sessions sieht, egal von welchem Handy aus gespielt wird.
+  // Mehrere Sessions können gleichzeitig laufen - EINZIGE Einschränkung: ein Spieler kann
+  // nie gleichzeitig Mitglied von mehr als einer aktiven Session sein (siehe startGame()).
+  // Struktur: Array aus { id, startedAt, playerIds: [...] }.
+  const [activeSessions, setActiveSessionsRaw] = useState([]);
+  // Zu welcher (der ggf. mehreren) laufenden Sessions das GERADE auf diesem Gerät gespielte
+  // Spiel gehört. Rein lokal (nicht synchronisiert), da gamePlayers/gameRounds ebenfalls lokal sind.
+  const [currentSessionId, setCurrentSessionId] = useState(null);
   const [sessionSyncReady, setSessionSyncReady] = useState(false);
   const [sessionSummary, setSessionSummary] = useState(null); // Abschluss-Popup-Daten nach "Session beenden"
 
@@ -501,13 +510,13 @@ function App() {
   const [lastSessionMovement, setLastSessionMovementRaw] = useState({});
 
   useEffect(() => {
-    if (!activeSessionRef) { setSessionSyncReady(true); return; }
+    if (!activeSessionsRef) { setSessionSyncReady(true); return; }
     const callback = (snapshot) => {
-      setActiveSessionRaw(snapshot.val() || null);
+      setActiveSessionsRaw(snapshot.val() || []);
       setSessionSyncReady(true);
     };
-    activeSessionRef.on("value", callback, () => setSessionSyncReady(true));
-    return () => activeSessionRef.off("value", callback);
+    activeSessionsRef.on("value", callback, () => setSessionSyncReady(true));
+    return () => activeSessionsRef.off("value", callback);
   }, []);
 
   useEffect(() => {
@@ -522,9 +531,9 @@ function App() {
     if (lastSessionMovementRef) lastSessionMovementRef.set(value).catch(() => {});
   }
 
-  function setActiveSession(value) {
-    setActiveSessionRaw(value);
-    if (activeSessionRef) activeSessionRef.set(value).catch(() => {});
+  function setActiveSessions(value) {
+    setActiveSessionsRaw(value);
+    if (activeSessionsRef) activeSessionsRef.set(value).catch(() => {});
   }
 
   // Edit States für laufende Runden
@@ -612,11 +621,24 @@ function App() {
 
   // idsOverride: erlaubt den direkten Start mit einer bestimmten Spielerliste, ohne über
   // den "select"-Screen zu gehen (z.B. "Weiteres Spiel" mit denselben Mitspielern wie zuvor).
-  function startGame(idsOverride) {
+  // sessionIdOverride: welche BESTEHENDE Session weitergeführt werden soll (falls keine
+  // angegeben ist, wird eine KOMPLETT NEUE Session angelegt).
+  function startGame(idsOverride, sessionIdOverride) {
     const ids = idsOverride || selectedIds;
     if (ids.length < 2) return;
-    // Passwort nur bei neuer Session und wenn mind. ein Stammspieler dabei ist
-    if (!activeSession) {
+
+    // Ein Spieler darf nie gleichzeitig Mitglied von mehr als einer aktiven Session sein.
+    const conflictId = ids.find(id => activeSessions.some(s => s.id !== sessionIdOverride && (s.playerIds || []).includes(id)));
+    if (conflictId) {
+      const conflictPlayer = registry.find(p => p.id === conflictId);
+      alert(`${conflictPlayer ? conflictPlayer.name : "Ein Spieler"} ist bereits Teil einer anderen laufenden Session und kann nicht gleichzeitig hier mitspielen!`);
+      return;
+    }
+
+    let targetSession = sessionIdOverride ? activeSessions.find(s => s.id === sessionIdOverride) : null;
+
+    if (!targetSession) {
+      // Passwort nur bei einer KOMPLETT NEUEN Session und wenn mind. ein Stammspieler dabei ist
       const hasStamm = ids.some(id => {
         const p = registry.find(pl => pl.id === id);
         return p && isStammSpieler(p);
@@ -628,7 +650,19 @@ function App() {
           return;
         }
       }
+      targetSession = { id: uid(), startedAt: new Date().toISOString(), playerIds: ids.slice() };
+      setActiveSessions([...activeSessions, targetSession]);
+    } else {
+      const merged = Array.from(new Set([...(targetSession.playerIds || []), ...ids]));
+      if (merged.length !== (targetSession.playerIds || []).length) {
+        const updatedSession = { ...targetSession, playerIds: merged };
+        setActiveSessions(activeSessions.map(s => s.id === targetSession.id ? updatedSession : s));
+        targetSession = updatedSession;
+      }
     }
+
+    setCurrentSessionId(targetSession.id);
+
     const gp = ids.map(id => registry.find(p => p.id === id));
     setGamePlayers(gp);
     setGameRounds([]);
@@ -636,18 +670,6 @@ function App() {
     setSelectedTrump(SUITS[0]);
     setAnsagerId(null);
     setBidTricks(2);
-
-    // Falls noch keine Session läuft: automatisch eine neue starten.
-    // Falls schon eine läuft: ggf. neue Mitspieler-IDs ergänzen (z.B. wenn jemand erst ab
-    // dem 2. Spiel der Session dazustößt).
-    if (!activeSession) {
-      setActiveSession({ id: uid(), startedAt: new Date().toISOString(), playerIds: ids.slice() });
-    } else {
-      const merged = Array.from(new Set([...(activeSession.playerIds || []), ...ids]));
-      if (merged.length !== (activeSession.playerIds || []).length) {
-        setActiveSession({ ...activeSession, playerIds: merged });
-      }
-    }
 
     initRound(gp, SUITS[0]);
     setScreen("game");
@@ -856,8 +878,7 @@ function App() {
   function saveGameResult(finalScores, winnerIndices, finishedRounds, options = {}) {
     const gameId = uid();
     const timestamp = new Date().toISOString();
-    const currentSessionId = activeSession ? activeSession.id : null;
-    
+
     const losers = gamePlayers.map((p, i) => ({ id: p.id, pts: finalScores[i], idx: i })).filter(p => !winnerIndices.includes(p.idx));
     const totalPrizeMoney = losers.reduce((sum, l) => sum + (l.pts * CENT_PER_POINT), 0);
     // Bei mehreren gleichzeitigen Siegern wird das gesamte Preisgeld gleichmäßig geteilt.
@@ -962,9 +983,10 @@ function App() {
     return { balances, idToName, transactions, gameCount: sessionGames.length };
   }
 
-  function endSession() {
-    if (!activeSession) return;
-    const summary = computeSessionSummary(activeSession);
+  function endSession(sessionId) {
+    const session = activeSessions.find(s => s.id === sessionId);
+    if (!session) return;
+    const summary = computeSessionSummary(session);
 
     // Bestenlisten-Platzierungsbewegung durch DIESE Session berechnen: Rang vorher (=
     // aktueller Kontostand minus dem, was in dieser Session dazukam) vs. Rang nachher
@@ -989,7 +1011,8 @@ function App() {
     setLastSessionMovement(movement);
 
     setSessionSummary(summary); // zeigt das Abschluss-Popup an (nur einmalig, wird nicht gespeichert)
-    setActiveSession(null); // Session ist damit beendet; ab jetzt zählt sie in "Alte Spiele"
+    setActiveSessions(activeSessions.filter(s => s.id !== sessionId)); // Session ist damit beendet; ab jetzt zählt sie in "Alte Spiele"
+    if (currentSessionId === sessionId) setCurrentSessionId(null);
     setScreen("home");
   }
 
@@ -1030,7 +1053,7 @@ function App() {
   // Punktestand des laufenden Spiels wird komplett ignoriert/verworfen.
   function abortSessionDiscardGame() {
     if (!window.confirm("Session wirklich beenden? Der aktuelle Punktestand des laufenden Spiels wird NICHT mit einbezogen.")) return;
-    endSession();
+    endSession(currentSessionId);
   }
 
 
@@ -1176,7 +1199,7 @@ function App() {
     const bySession = new Map(); // sessionId -> games[]
     const legacyGames = [];
     games.forEach(g => {
-      if (g.sessionId && g.sessionId === (activeSession && activeSession.id)) return; // laufende Session ausblenden
+      if (g.sessionId && activeSessions.some(s => s.id === g.sessionId)) return; // laufende Sessions ausblenden
       if (!g.sessionId) { legacyGames.push(g); return; }
       if (!bySession.has(g.sessionId)) bySession.set(g.sessionId, []);
       bySession.get(g.sessionId).push(g);
@@ -1242,33 +1265,33 @@ function App() {
         {/* HOME SCREEN */}
         {screen === "home" && (
           <div>
-            {/* Banner für eine laufende Session */}
-            {activeSession && (
-              <div className="glass" style={{ padding: "16px 20px", marginBottom: "15px", border: "1px solid #f9d423", background: "rgba(249,212,35,0.08)" }}>
+            {/* Banner für jede laufende Session (es können mehrere gleichzeitig laufen) */}
+            {activeSessions.map(session => (
+              <div key={session.id} className="glass" style={{ padding: "16px 20px", marginBottom: "15px", border: "1px solid #f9d423", background: "rgba(249,212,35,0.08)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
                   <span style={{ fontWeight: "bold", color: "#f9d423" }}>🔥 Session läuft</span>
                   <span style={{ fontSize: "12px", color: "#aaa" }}>
-                    seit {new Date(activeSession.startedAt).toLocaleString("de-DE")}
+                    seit {new Date(session.startedAt).toLocaleString("de-DE")}
                   </span>
                 </div>
                 <div style={{ fontSize: "13px", color: "#ccc", marginBottom: "12px" }}>
-                  Spieler: {(activeSession.playerIds || []).map(id => registry.find(p => p.id === id)?.name || "?").join(", ")}
+                  Spieler: {(session.playerIds || []).map(id => registry.find(p => p.id === id)?.name || "?").join(", ")}
                 </div>
                 <div style={{ display: "flex", gap: "8px" }}>
-                  <button onClick={() => startGame(activeSession.playerIds || [])} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #00f2fe, #4facfe)" }}>
+                  <button onClick={() => startGame(session.playerIds || [], session.id)} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #00f2fe, #4facfe)" }}>
                     ▶️ Weiterspielen
                   </button>
-                  <button onClick={() => { if (window.confirm("Session wirklich beenden und abrechnen?")) endSession(); }} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #ff4e50, #c31432)" }}>
+                  <button onClick={() => { if (window.confirm("Session wirklich beenden und abrechnen?")) endSession(session.id); }} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #ff4e50, #c31432)" }}>
                     🏁 Session beenden
                   </button>
                 </div>
               </div>
-            )}
+            ))}
 
             <div className="glass" style={{ padding: "20px", textAlign: "center" }}>
               <button className="pulse-btn" style={{ ...btnStyle, width: "100%", marginBottom: "15px", background: "linear-gradient(45deg, #00f2fe, #4facfe)", boxShadow: "0 0 15px #00f2fe" }}
-                onClick={() => activeSession ? startGame(activeSession.playerIds || []) : setScreen("select")}>
-                {activeSession ? "🎴 Weiteres Spiel in dieser Session" : "🎴 Neue Session starten"}
+                onClick={() => { setSelectSessionContext(null); setSelectedIds([]); setScreen("select"); }}>
+                🎴 Neue Session starten
               </button>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
                 <button style={{ ...btnStyle, background: "linear-gradient(45deg, #f093fb, #f5576c)" }} onClick={() => setScreen("players")}>👤 Spieler</button>
@@ -1320,14 +1343,22 @@ function App() {
               Noch ein Spiel in dieser Session, oder jetzt abrechnen?
             </p>
             <div style={{ display: "flex", gap: "8px", marginBottom: "10px" }}>
-              <button onClick={() => startGame(activeSession ? activeSession.playerIds : gamePlayers.map(p => p.id))} style={{ ...btnStyle, flex: 1, background: "linear-gradient(45deg, #00f2fe, #4facfe)" }}>
+              <button onClick={() => {
+                const session = activeSessions.find(s => s.id === currentSessionId);
+                startGame(session ? session.playerIds : gamePlayers.map(p => p.id), currentSessionId);
+              }} style={{ ...btnStyle, flex: 1, background: "linear-gradient(45deg, #00f2fe, #4facfe)" }}>
                 ▶️ Weiteres Spiel starten
               </button>
-              <button onClick={() => { setSelectedIds(activeSession ? activeSession.playerIds : gamePlayers.map(p => p.id)); setScreen("select"); }} title="Spieler ändern" style={{ ...btnStyle, padding: "0 16px", fontSize: "16px", background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.25)" }}>
+              <button onClick={() => {
+                const session = activeSessions.find(s => s.id === currentSessionId);
+                setSelectSessionContext(currentSessionId);
+                setSelectedIds(session ? session.playerIds : gamePlayers.map(p => p.id));
+                setScreen("select");
+              }} title="Spieler ändern" style={{ ...btnStyle, padding: "0 16px", fontSize: "16px", background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.25)" }}>
                 👥
               </button>
             </div>
-            <button onClick={() => { if (window.confirm("Session wirklich beenden und abrechnen?")) endSession(); }} style={{ ...btnStyle, width: "100%", background: "linear-gradient(45deg, #ff512f, #f9d423)" }}>
+            <button onClick={() => { if (window.confirm("Session wirklich beenden und abrechnen?")) endSession(currentSessionId); }} style={{ ...btnStyle, width: "100%", background: "linear-gradient(45deg, #ff512f, #f9d423)" }}>
               🏁 Session beenden & abrechnen
             </button>
           </div>
@@ -1541,11 +1572,11 @@ function App() {
             </div>
 
             {/* ZWEI SPALTEN: LINKS SESSION-SPIELE, RECHTS RUNDEN DES LAUFENDEN SPIELS */}
-            <div style={{ display: "grid", gridTemplateColumns: activeSession ? "1fr 1fr" : "1fr", gap: "15px", alignItems: "start" }}>
+            <div style={{ display: "grid", gridTemplateColumns: currentSessionId ? "1fr 1fr" : "1fr", gap: "15px", alignItems: "start" }}>
 
               {/* LINKS: Session-Score + Spiele dieser Session */}
-              {activeSession && (() => {
-                const sessionGames = getUniqueGames().filter(g => g.sessionId === activeSession.id);
+              {currentSessionId && (() => {
+                const sessionGames = getUniqueGames().filter(g => g.sessionId === currentSessionId);
                 const sessionScores = {}; // playerId -> { name, sum }
                 sessionGames.forEach(g => {
                   if (g.deleted) return;
@@ -1714,7 +1745,7 @@ function App() {
           const isDeleted = !!g.deleted;
           // Korrektur/Löschung nur erlaubt, solange das Spiel Teil der AKTUELL laufenden
           // Session ist - abgeschlossene Sessions sind reine Anzeige (siehe SessionCard).
-          const isCorrectable = !!activeSession && g.sessionId === activeSession.id;
+          const isCorrectable = !!g.sessionId && activeSessions.some(s => s.id === g.sessionId);
           const isEditingGame = isCorrectable && editingGameId === g.id;
           const rounds = g.rounds || [];
           return (
@@ -2106,30 +2137,36 @@ function App() {
         )}
 
         {/* SPIELER AUSWAHL SCREEN */}
-        {screen === "select" && (
+        {screen === "select" && (() => {
+          // Ein Spieler gilt als "gesperrt", wenn er bereits Mitglied einer ANDEREN aktiven
+          // Session ist (die eigene Session, die man ggf. gerade weiterführt/ändert, zählt nicht).
+          const conflictSessionOf = (id) => activeSessions.find(s => s.id !== selectSessionContext && (s.playerIds || []).includes(id));
+          const renderPlayerTile = (p, activeGradient, activeBorderColor) => {
+            const conflict = conflictSessionOf(p.id);
+            const selected = selectedIds.includes(p.id);
+            return (
+              <div key={p.id}
+                   onClick={() => { if (conflict) { alert(`${p.name} spielt gerade in einer anderen laufenden Session mit und kann nicht gleichzeitig hier mitspielen.`); return; } setSelectedIds(prev => prev.includes(p.id) ? prev.filter(id => id !== p.id) : [...prev, p.id]); }}
+                   style={{ padding: "13px", textAlign: "center", fontWeight: "bold", background: conflict ? "rgba(255,255,255,0.03)" : (selected ? activeGradient : "rgba(0,0,0,0.4)"), border: conflict ? "1px dashed #666" : (selected ? "none" : `1px solid ${activeBorderColor}`), borderRadius: "12px", cursor: conflict ? "not-allowed" : "pointer", opacity: conflict ? 0.5 : 1 }}>
+                {p.name}
+                {conflict && <div style={{ fontSize: "10px", color: "#ff8c5a", marginTop: "3px" }}>in anderer Session</div>}
+              </div>
+            );
+          };
+          return (
           <div className="glass" style={{ padding: "25px" }}>
             <h3 style={{ marginBottom: "20px", color: "#00f2fe" }}>🎴 Wer spielt mit?</h3>
 
             <div style={{ fontSize: "12px", color: "#aaa", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px" }}>⭐ Stammspieler</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "18px" }}>
-              {registry.filter(p => isStammSpieler(p)).map(p => (
-                <div key={p.id} onClick={() => setSelectedIds(prev => prev.includes(p.id) ? prev.filter(id => id !== p.id) : [...prev, p.id])}
-                     style={{ padding: "13px", textAlign: "center", fontWeight: "bold", background: selectedIds.includes(p.id) ? "linear-gradient(45deg, #f9d423, #ff8c00)" : "rgba(0,0,0,0.4)", border: selectedIds.includes(p.id) ? "none" : "1px solid rgba(249,212,35,0.2)", borderRadius: "12px", cursor: "pointer" }}>
-                  {p.name}
-                </div>
-              ))}
+              {registry.filter(p => isStammSpieler(p)).map(p => renderPlayerTile(p, "linear-gradient(45deg, #f9d423, #ff8c00)", "rgba(249,212,35,0.2)"))}
             </div>
 
             {registry.filter(p => !isStammSpieler(p)).length > 0 && (
               <>
                 <div style={{ fontSize: "12px", color: "#aaa", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px" }}>👤 Gäste</div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "18px" }}>
-                  {registry.filter(p => !isStammSpieler(p)).map(p => (
-                    <div key={p.id} onClick={() => setSelectedIds(prev => prev.includes(p.id) ? prev.filter(id => id !== p.id) : [...prev, p.id])}
-                         style={{ padding: "13px", textAlign: "center", fontWeight: "bold", background: selectedIds.includes(p.id) ? "linear-gradient(45deg, #00f2fe, #4facfe)" : "rgba(0,0,0,0.4)", border: selectedIds.includes(p.id) ? "none" : "1px solid rgba(255,255,255,0.15)", borderRadius: "12px", cursor: "pointer" }}>
-                      {p.name}
-                    </div>
-                  ))}
+                  {registry.filter(p => !isStammSpieler(p)).map(p => renderPlayerTile(p, "linear-gradient(45deg, #00f2fe, #4facfe)", "rgba(255,255,255,0.15)"))}
                 </div>
               </>
             )}
@@ -2141,11 +2178,12 @@ function App() {
               <button onClick={() => addPlayer(true)} style={{ ...btnStyle, background: "linear-gradient(45deg, #f093fb, #f5576c)", padding: "0 20px", fontSize: "20px" }}>+</button>
             </div>
 
-            <button onClick={() => startGame()} className="pulse-btn" style={{ ...btnStyle, background: "linear-gradient(45deg, #f9d423, #ff4e50)", width: "100%", marginTop: "5px", opacity: selectedIds.length < 2 ? 0.4 : 1 }} disabled={selectedIds.length < 2}>
+            <button onClick={() => startGame(undefined, selectSessionContext)} className="pulse-btn" style={{ ...btnStyle, background: "linear-gradient(45deg, #f9d423, #ff4e50)", width: "100%", marginTop: "5px", opacity: selectedIds.length < 2 ? 0.4 : 1 }} disabled={selectedIds.length < 2}>
               🚀 SPIEL STARTEN
             </button>
           </div>
-        )}
+          );
+        })()}
 
       </div>
     </div>
