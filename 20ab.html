@@ -247,6 +247,90 @@ function computeRoundDelta(players, rounds, roundIdx) {
   return deltas;
 }
 
+// Berechnet Spieler-Statistiken aus der kompletten (nicht gelöschten) Spielhistorie eines
+// Spielers. Wird als eigene Funktion gehalten, damit hier nach und nach weitere Kennzahlen
+// ergänzt werden können, ohne die Aufrufstelle (PlayerStats-Screen) anfassen zu müssen.
+function computePlayerStats(player) {
+  const games = (player.games || []).filter(g => !g.deleted);
+  const gamesPlayed = games.length;
+  const gamesWon = games.filter(g => g.won).length;
+  const winRate = gamesPlayed > 0 ? (gamesWon / gamesPlayed) * 100 : 0;
+
+  let ansagerRoundsCount = 0;
+  let bidTricksSum = 0;
+  const trumpCounts = {}; // trump.id -> Anzahl (als Ansager gewählt)
+
+  let totalRounds = 0;   // alle Runden über alle Spiele hinweg
+  let mitRounds = 0;     // Runden, in denen der Spieler mitgegangen ist
+  let rausRounds = 0;    // Runden, in denen der Spieler raus gegangen ist
+  let laufRounds = 0;    // Runden, in denen der Spieler (mitgegangen) nach oben gelaufen ist
+  let tricksMadeSum = 0; // Summe der gemachten Stiche über alle "mit"-Runden
+
+  games.forEach(g => {
+    const rounds = g.rounds || [];
+    rounds.forEach((r, rIdx) => {
+      totalRounds++;
+      const status = r.playerStatus?.[player.id] || "mit";
+      if (status === "raus") {
+        rausRounds++;
+        return;
+      }
+      mitRounds++;
+      tricksMadeSum += (r.playerTricks?.[player.id] || 0);
+      const delta = computeRoundDelta(g.players, rounds, rIdx)[player.id] || 0;
+      if (delta > 0) laufRounds++;
+
+      if (r.ansagerId === player.id) {
+        ansagerRoundsCount++;
+        bidTricksSum += (r.bidTricks || 0);
+        trumpCounts[r.trump.id] = (trumpCounts[r.trump.id] || 0) + 1;
+      }
+    });
+  });
+
+  const avgBidTricks = ansagerRoundsCount > 0 ? bidTricksSum / ansagerRoundsCount : null;
+  const laufquote = mitRounds > 0 ? (laufRounds / mitRounds) * 100 : 0;
+  const rausquote = totalRounds > 0 ? (rausRounds / totalRounds) * 100 : 0;
+  const avgTricksMade = mitRounds > 0 ? tricksMadeSum / mitRounds : null;
+
+  let favoriteTrump = null;
+  let favoriteTrumpCount = 0;
+  Object.entries(trumpCounts).forEach(([trumpId, count]) => {
+    if (count > favoriteTrumpCount) {
+      favoriteTrumpCount = count;
+      favoriteTrump = SUITS.find(s => s.id === trumpId) || null;
+    }
+  });
+
+  return {
+    gamesPlayed, gamesWon, winRate,
+    avgBidTricks, favoriteTrump, favoriteTrumpCount,
+    totalRounds, mitRounds, rausRounds, laufRounds,
+    laufquote, rausquote, avgTricksMade,
+  };
+}
+
+// Baut den zeitlichen Verlauf des Kontostands eines Spielers: ein Punkt pro Session, die
+// er gespielt hat (Spiele ohne sessionId = alte Legacy-Spiele werden als eigener Punkt
+// behandelt), mit dem kumulierten Kontostand nach dieser Session.
+function computePlayerBalanceTimeline(player) {
+  const games = (player.games || []).filter(g => !g.deleted).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+  const bySession = new Map(); // key -> { timestamp, sum }
+  games.forEach(g => {
+    const key = g.sessionId || `legacy-${g.id}`;
+    if (!bySession.has(key)) bySession.set(key, { timestamp: g.timestamp, sum: 0 });
+    const entry = bySession.get(key);
+    entry.sum += g.moneyDelta;
+    if (new Date(g.timestamp) > new Date(entry.timestamp)) entry.timestamp = g.timestamp;
+  });
+  const ordered = Array.from(bySession.values()).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+  let cumulative = 0;
+  return ordered.map(entry => {
+    cumulative += entry.sum;
+    return { timestamp: entry.timestamp, sessionDelta: entry.sum, cumulative };
+  });
+}
+
 // Hilfsfunktion zur Neuberechnung aller Kontostände aus den Spieler-Historien
 // Gelöschte Spiele (g.deleted === true) zählen NICHT mehr in den Kontostand,
 // bleiben aber als Datensatz erhalten (für die sichtbare "gelöscht"-Markierung in der Historie).
@@ -307,7 +391,10 @@ function App() {
 
   const [newName, setNewName] = useState("");
   const [selectedIds, setSelectedIds] = useState([]);
-  
+
+  // Welcher Spieler wird gerade auf der Statistik-Seite betrachtet
+  const [statsPlayerId, setStatsPlayerId] = useState(null);
+
   // Game States
   const [gamePlayers, setGamePlayers] = useState([]);
   const [gameRounds, setGameRounds] = useState([]); 
@@ -1058,9 +1145,12 @@ function App() {
                         )
                       )}
                     </span>
-                    <span style={{ fontWeight: "900", color: (p.session?.balance || 0) >= 0 ? "#43e97b" : "#ff4e50", fontSize: "16px" }}>
-                      {euro(p.session?.balance || 0)}
-                    </span>
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                      <span style={{ fontWeight: "900", color: (p.session?.balance || 0) >= 0 ? "#43e97b" : "#ff4e50", fontSize: "16px" }}>
+                        {euro(p.session?.balance || 0)}
+                      </span>
+                      <button onClick={() => { setStatsPlayerId(p.id); setScreen("playerStats"); }} title="Statistiken" style={{ background: "none", border: "none", cursor: "pointer", fontSize: "16px" }}>📊</button>
+                    </div>
                   </div>
                   );
                 })}
@@ -1629,6 +1719,74 @@ function App() {
           </div>
         )}
 
+        {/* SPIELER-STATISTIKEN */}
+        {screen === "playerStats" && (() => {
+          const p = registry.find(pl => pl.id === statsPlayerId);
+          if (!p) {
+            return (
+              <div className="glass" style={{ padding: "20px", textAlign: "center", color: "#aaa" }}>
+                Spieler nicht gefunden.
+                <div style={{ marginTop: "15px" }}>
+                  <button onClick={() => setScreen("home")} style={{ ...btnStyle, background: "rgba(255,255,255,0.1)" }}>← Zurück</button>
+                </div>
+              </div>
+            );
+          }
+          const stats = computePlayerStats(p);
+          const timeline = computePlayerBalanceTimeline(p);
+          const de1 = n => n.toFixed(1).replace(".", ",");
+          const de2 = n => n.toFixed(2).replace(".", ",");
+          return (
+            <div>
+              <button onClick={() => setScreen("home")} style={{ ...btnStyle, padding: "8px 15px", fontSize: "13px", background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", marginBottom: "15px" }}>
+                ← Zurück
+              </button>
+              <div className="glass" style={{ padding: "20px" }}>
+                <h3 style={{ color: "#f9d423", marginBottom: "4px", fontSize: "20px" }}>📊 {p.name}</h3>
+                {!isStammSpieler(p) && <div style={{ fontSize: "12px", color: "#aaa", marginBottom: "15px" }}>Gast</div>}
+                {isStammSpieler(p) && <div style={{ marginBottom: "15px" }} />}
+
+                <StatCard label="Spiele gesamt" value={stats.gamesPlayed}
+                  description="Anzahl aller (nicht gelöschten) beendeten Spiele, an denen dieser Spieler teilgenommen hat."
+                  formula="Anzahl der Spiele in der Spielhistorie mit deleted = false." />
+
+                <StatCard label="Siege" value={stats.gamesWon}
+                  description="Anzahl der Spiele, die dieser Spieler gewonnen hat (bei geteiltem Sieg zählt jeder Sieger einzeln)."
+                  formula="Anzahl der Spiele mit won = true." />
+
+                <StatCard label="Siegquote" value={`${de1(stats.winRate)}%`}
+                  description="Anteil der gespielten Spiele, die gewonnen wurden."
+                  formula="Siegquote = (n_Sieg / n_Spiele) × 100, mit n_Sieg = Anzahl gewonnener Spiele, n_Spiele = Anzahl aller Spiele." />
+
+                <StatCard label="Ø angesagte Stiche" value={stats.avgBidTricks !== null ? de2(stats.avgBidTricks) : "—"}
+                  description="Durchschnittliche Anzahl Stiche, die dieser Spieler angesagt hat, wenn er Ansager war."
+                  formula="⌀Ansage = (Σ Ansage_i) / n_Ansager, für alle i ∈ Runden als Ansager, mit n_Ansager = Anzahl dieser Runden." />
+
+                <StatCard label="Lieblingstrumpf" value={stats.favoriteTrump ? `${stats.favoriteTrump.emoji} ${stats.favoriteTrump.label} (${stats.favoriteTrumpCount}×)` : "—"}
+                  description="Der Trumpf, den dieser Spieler als Ansager am häufigsten gewählt hat."
+                  formula="argmax_Trumpf n_Trumpf, wobei n_Trumpf = Häufigkeit dieses Trumpfs über alle Runden als Ansager." />
+
+                <StatCard label="Laufquote" value={`${de1(stats.laufquote)}%`}
+                  description="Anteil der mitgespielten Runden, bei denen der Spieler nach oben gelaufen ist (mehr Punkte bekommen hat). 'Raus'-Runden zählen nicht mit."
+                  formula="Laufquote = (n_↑ / n_mit) × 100, mit n_mit = Anzahl 'Mit'-Runden, n_↑ = Anzahl 'Mit'-Runden mit Punktezuwachs (Δ > 0)." />
+
+                <StatCard label="Ø gemachte Stiche" value={stats.avgTricksMade !== null ? de2(stats.avgTricksMade) : "—"}
+                  description="Durchschnittliche Anzahl Stiche, die der Spieler gemacht hat, wenn er mitgegangen ist."
+                  formula="⌀Stiche = (Σ Stiche_i) / n_mit, für alle i ∈ 'Mit'-Runden, mit n_mit = Anzahl dieser Runden." />
+
+                <StatCard label="Rausquote" value={`${de1(stats.rausquote)}%`}
+                  description="Anteil aller gespielten Runden, in denen der Spieler raus gegangen ist (freiwillig oder unfreiwillig nicht mitgespielt hat)."
+                  formula="Rausquote = (n_raus / n_Runden) × 100, mit n_Runden = n_mit + n_raus." />
+              </div>
+
+              <div className="glass" style={{ padding: "20px" }}>
+                <h3 style={{ color: "#f093fb", marginBottom: "12px", fontSize: "15px" }}>📈 Kontostand-Verlauf</h3>
+                <BalanceChart timeline={timeline} />
+              </div>
+            </div>
+          );
+        })()}
+
         {/* SPIELER SCREEN */}
         {screen === "players" && (
           <div className="glass" style={{ padding: "25px" }}>
@@ -1640,7 +1798,10 @@ function App() {
               {registry.filter(p => isStammSpieler(p)).map(p => (
                 <div key={p.id} style={{ padding: "12px 15px", background: "rgba(0,0,0,0.4)", marginBottom: "8px", borderRadius: "12px", display: "flex", justifyContent: "space-between", alignItems: "center", border: "1px solid rgba(249,212,35,0.15)" }}>
                   <span style={{ fontSize: "16px", fontWeight: "bold" }}>{p.name}</span>
-                  <span style={{ color: (p.session?.balance || 0) >= 0 ? "#43e97b" : "#ff4e50", fontWeight: "bold" }}>{euro(p.session?.balance || 0)}</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                    <span style={{ color: (p.session?.balance || 0) >= 0 ? "#43e97b" : "#ff4e50", fontWeight: "bold" }}>{euro(p.session?.balance || 0)}</span>
+                    <button onClick={() => { setStatsPlayerId(p.id); setScreen("playerStats"); }} title="Statistiken" style={{ background: "none", border: "none", cursor: "pointer", fontSize: "18px" }}>📊</button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -1660,6 +1821,7 @@ function App() {
                   <span style={{ fontSize: "16px", fontWeight: "bold" }}>{p.name}</span>
                   <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
                     <span style={{ color: (p.session?.balance || 0) >= 0 ? "#43e97b" : "#ff4e50", fontWeight: "bold" }}>{euro(p.session?.balance || 0)}</span>
+                    <button onClick={() => { setStatsPlayerId(p.id); setScreen("playerStats"); }} title="Statistiken" style={{ background: "none", border: "none", cursor: "pointer", fontSize: "18px" }}>📊</button>
                     <button onClick={() => deletePlayer(p.id)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "18px" }}>🗑️</button>
                   </div>
                 </div>
@@ -1909,6 +2071,123 @@ function RoundInlineEditor({ gamePlayers, roundData, onSave, onCancel }) {
         <button onClick={onCancel} style={{ padding: "4px 8px", background: "#888", border: "none", color: "#fff", borderRadius: "4px", cursor: "pointer" }}>Abbrechen</button>
         <button onClick={() => onSave(status, tricks)} style={{ padding: "4px 8px", background: "#43e97b", border: "none", color: "#000", fontWeight: "bold", borderRadius: "4px", cursor: "pointer" }}>Übernehmen</button>
       </div>
+    </div>
+  );
+}
+
+// Aufklappbare Statistik-Kachel: zeigt Label + Wert, beim Aufklappen zusätzlich
+// Beschreibung und die genaue Berechnungsformel dieser Kennzahl.
+function StatCard({ label, value, description, formula }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ background: "rgba(0,0,0,0.35)", borderRadius: "10px", marginBottom: "10px", overflow: "hidden" }}>
+      <div onClick={() => setOpen(o => !o)} style={{ padding: "14px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <div style={{ fontSize: "11px", color: "#888", letterSpacing: "0.5px", textTransform: "uppercase", marginBottom: "4px" }}>{label}</div>
+          <div style={{ fontSize: "18px", fontWeight: "bold", color: "#00f2fe" }}>{value}</div>
+        </div>
+        <span style={{ fontSize: "14px", color: "#888", transform: open ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>▾</span>
+      </div>
+      {open && (
+        <div style={{ padding: "0 14px 14px", fontSize: "12px", color: "#ccc", lineHeight: "1.5" }}>
+          <div style={{ marginBottom: "6px" }}><strong style={{ color: "#f9d423" }}>Beschreibung:</strong> {description}</div>
+          <div><strong style={{ color: "#f9d423" }}>Formel:</strong> {formula}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Zeigt den zeitlichen Verlauf des Kontostands eines Spielers als SVG-Liniendiagramm mit
+// €-Achse (y) und Datums-Achse (x). Klick auf einen Punkt zeigt Datum + genauen Kontostand.
+function BalanceChart({ timeline }) {
+  const [selectedIdx, setSelectedIdx] = useState(null);
+
+  if (timeline.length === 0) {
+    return <div style={{ color: "#666", fontSize: "13px", fontStyle: "italic" }}>Noch keine abgeschlossene Session gespielt.</div>;
+  }
+
+  const width = 320, height = 190;
+  const padLeft = 42, padRight = 12, padTop = 12, padBottom = 34;
+  const plotW = width - padLeft - padRight;
+  const plotH = height - padTop - padBottom;
+
+  const values = timeline.map(t => t.cumulative);
+  const rawMinV = Math.min(0, ...values);
+  const rawMaxV = Math.max(0, ...values);
+
+  // Rundet einen positiven Betrag auf die nächste "runde" Zahl bezogen auf seine
+  // Zehnerpotenz auf (z.B. 47 -> 50, 230 -> 300, 4 -> 4, 0.6 -> 0.6). Dient dazu, dass die
+  // y-Achse nicht auf krummen Cent-Beträgen wie 47,30€ endet, sondern auf runden Werten.
+  function roundUpToMagnitude(absValue) {
+    if (absValue === 0) return 0;
+    const magnitude = Math.pow(10, Math.floor(Math.log10(absValue)));
+    return Math.ceil(absValue / magnitude) * magnitude;
+  }
+
+  const minV = rawMinV < 0 ? -roundUpToMagnitude(Math.abs(rawMinV)) : 0;
+  const maxV = rawMaxV > 0 ? roundUpToMagnitude(rawMaxV) : 0;
+  const range = (maxV - minV) || 1;
+  const n = timeline.length;
+
+  const xFor = i => n === 1 ? padLeft + plotW / 2 : padLeft + (i * plotW / (n - 1));
+  const yFor = v => padTop + plotH - ((v - minV) / range) * plotH;
+  const points = timeline.map((t, i) => ({ x: xFor(i), y: yFor(t.cumulative), ...t }));
+  const pathD = points.map((p, i) => (i === 0 ? "M" : "L") + p.x + "," + p.y).join(" ");
+  const zeroY = yFor(0);
+
+  // y-Achse: runde Beschriftungen (Minimum, 0, Maximum) - Duplikate entfernt, falls
+  // Minimum oder Maximum bereits 0 ist.
+  const yTicks = [...new Set([maxV, 0, minV])];
+
+  // x-Achse: Datumsbeschriftungen, damit sie sich nicht überlappen max. ~5 Stück anzeigen
+  const xStep = Math.max(1, Math.ceil(n / 5));
+  const xTickIndices = [];
+  for (let i = 0; i < n; i += xStep) xTickIndices.push(i);
+  if (xTickIndices[xTickIndices.length - 1] !== n - 1) xTickIndices.push(n - 1);
+
+  const selected = selectedIdx !== null ? points[selectedIdx] : null;
+
+  return (
+    <div>
+      <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "auto", display: "block" }}>
+        {/* y-Achse (€) */}
+        <line x1={padLeft} y1={padTop} x2={padLeft} y2={padTop + plotH} stroke="rgba(255,255,255,0.25)" />
+        {yTicks.map((v, i) => (
+          <g key={i}>
+            <line x1={padLeft - 3} y1={yFor(v)} x2={width - padRight} y2={yFor(v)} stroke="rgba(255,255,255,0.08)" />
+            <text x={padLeft - 6} y={yFor(v) + 3} fontSize="8" fill="#888" textAnchor="end">{euro(v)}</text>
+          </g>
+        ))}
+
+        {/* x-Achse (Datum) */}
+        <line x1={padLeft} y1={padTop + plotH} x2={width - padRight} y2={padTop + plotH} stroke="rgba(255,255,255,0.25)" />
+        {xTickIndices.map(i => (
+          <text key={i} x={xFor(i)} y={padTop + plotH + 14} fontSize="8" fill="#888" textAnchor="middle">
+            {new Date(timeline[i].timestamp).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}
+          </text>
+        ))}
+
+        <path d={pathD} fill="none" stroke="#00f2fe" strokeWidth="2" />
+        {points.map((p, i) => (
+          <g key={i} onClick={() => setSelectedIdx(i)} style={{ cursor: "pointer" }}>
+            <circle cx={p.x} cy={p.y} r="10" fill="transparent" />
+            <circle cx={p.x} cy={p.y} r={selectedIdx === i ? 6 : 4} fill={p.cumulative >= 0 ? "#43e97b" : "#ff4e50"} stroke="#fff" strokeWidth={selectedIdx === i ? 2 : 1} />
+          </g>
+        ))}
+      </svg>
+
+      {selected && (
+        <div style={{ marginTop: "10px", background: "rgba(0,0,0,0.35)", borderRadius: "8px", padding: "10px 12px", fontSize: "13px" }}>
+          <div style={{ color: "#aaa", fontSize: "11px", marginBottom: "3px" }}>
+            {new Date(selected.timestamp).toLocaleDateString("de-DE")}
+          </div>
+          <div>
+            Kontostand: <strong style={{ color: selected.cumulative >= 0 ? "#43e97b" : "#ff4e50" }}>{euro(selected.cumulative)}</strong>
+            <span style={{ marginLeft: "10px", color: "#888" }}>(diese Session: {euro(selected.sessionDelta)})</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
