@@ -155,6 +155,23 @@ function ensureStammSpieler(registryData) {
   return { data: updated, changed };
 }
 
+// Vier fest angelegte Test-Gäste zum schnellen Ausprobieren von Sessions/Statistiken.
+// Ganz normale (löschbare) Gäste - werden nur genau einmal automatisch angelegt, falls
+// noch nicht vorhanden.
+const TEST_PLAYER_NAMES = ["Testspieler 1", "Testspieler 2", "Testspieler 3", "Testspieler 4"];
+
+function ensureTestPlayers(registryData) {
+  let updated = registryData ? [...registryData] : [];
+  let changed = false;
+  TEST_PLAYER_NAMES.forEach(name => {
+    if (!updated.some(p => p.name === name)) {
+      updated.push({ id: uid(), name, stammSpieler: false, games: [], session: { balance: 0 } });
+      changed = true;
+    }
+  });
+  return { data: updated, changed };
+}
+
 // Ordnet ein Spiel (anhand seines timestamp) einem von 5 Zeit-Reitern zu.
 const HISTORY_BUCKETS = [
   { id: "heute", label: "📅 Heute" },
@@ -345,6 +362,49 @@ function computePlayerBalanceTimeline(player) {
   });
 }
 
+// Ermittelt die längste Siegesserie und die längste Verlustserie eines Spielers
+// (aufeinanderfolgende Spiele, chronologisch sortiert). Jede Serie liefert zusätzlich eine
+// Liste an "Links" - eine pro Session, die diese Serie berührt (mehrere, falls sich die
+// Serie über mehrere Sessions erstreckt). Spiele ohne sessionId (Legacy, vor dem
+// Session-Feature) werden einzeln als eigener Link auf das jeweilige Spiel behandelt.
+function computePlayerStreaks(player) {
+  const games = (player.games || []).filter(g => !g.deleted).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+  let bestWin = { length: 0, games: [] };
+  let bestLoss = { length: 0, games: [] };
+  let curType = null;
+  let curGames = [];
+
+  games.forEach(g => {
+    const type = g.won ? "win" : "loss";
+    if (type === curType) {
+      curGames.push(g);
+    } else {
+      curType = type;
+      curGames = [g];
+    }
+    if (curType === "win" && curGames.length > bestWin.length) bestWin = { length: curGames.length, games: [...curGames] };
+    if (curType === "loss" && curGames.length > bestLoss.length) bestLoss = { length: curGames.length, games: [...curGames] };
+  });
+
+  function toSessionLinks(gamesArr) {
+    const seen = new Set();
+    const links = [];
+    gamesArr.forEach(g => {
+      const key = g.sessionId ? `session:${g.sessionId}` : `legacy:${g.id}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      links.push({ key, label: g.date, sessionId: g.sessionId || null, gameId: g.id });
+    });
+    return links;
+  }
+
+  return {
+    bestWinStreak: { length: bestWin.length, links: toSessionLinks(bestWin.games) },
+    bestLossStreak: { length: bestLoss.length, links: toSessionLinks(bestLoss.games) },
+  };
+}
+
 // Hilfsfunktion zur Neuberechnung aller Kontostände aus den Spieler-Historien
 // Gelöschte Spiele (g.deleted === true) zählen NICHT mehr in den Kontostand,
 // bleiben aber als Datensatz erhalten (für die sichtbare "gelöscht"-Markierung in der Historie).
@@ -476,6 +536,11 @@ function App() {
   // (z.B. "game" wenn man aus der laufenden Session kam, "playerStats" wenn aus den Statistiken)
   const [gameDetailReturn, setGameDetailReturn] = useState("game");
 
+  // Welche (abgeschlossene) Session wird gerade auf ihrer eigenen Detail-Seite betrachtet
+  // (genutzt für Verlinkungen aus den Spieler-Statistiken, z.B. Siegesserien)
+  const [detailSessionId, setDetailSessionId] = useState(null);
+  const [sessionDetailReturn, setSessionDetailReturn] = useState("playerStats");
+
   // ── Firebase: Live-Listener auf die Registry ──
   // onValue feuert sofort beim ersten Laden UND danach jedes Mal, wenn sich
   // irgendein anderes Gerät ändert -> echte Echtzeit-Synchronisation, kein Polling nötig.
@@ -487,10 +552,11 @@ function App() {
     const callback = (snapshot) => {
       const data = snapshot.val();
       const raw = data || [];
-      const { data: withStamm, changed } = ensureStammSpieler(raw);
-      const withBalances = refreshBalances(withStamm);
+      const { data: withStamm, changed: stammChanged } = ensureStammSpieler(raw);
+      const { data: withTestPlayers, changed: testChanged } = ensureTestPlayers(withStamm);
+      const withBalances = refreshBalances(withTestPlayers);
       setRegistryRaw(withBalances);
-      if (changed && registryRef) {
+      if ((stammChanged || testChanged) && registryRef) {
         registryRef.set(withBalances).catch(() => {});
       }
       setSyncState("ready");
@@ -710,6 +776,75 @@ function App() {
       setPlayerStatus(freshStatus);
       setPlayerTricks(freshTricks);
     }
+  }
+
+  // ── TEST-HILFSMITTEL: Zufälliges Spiel simulieren ──
+  // Spielt das aktuell laufende Spiel komplett automatisch mit zufälligem Trumpf
+  // (nie Herz Blind), zufälligem Ansager/Ansage und zufällig verteilten Stichen durch, bis
+  // jemand gewinnt. Falls nach 15 Runden noch niemand in Reichweite ist, wird ein Spieler
+  // (der mit dem aktuell niedrigsten Punktestand) als Gewinner festgelegt und bekommt ab da
+  // in jeder weiteren Runde alle 6 Stiche, bis er gewinnt. Dient nur zum schnellen
+  // Durchspielen für Test-/Statistikzwecke.
+  function simulateRandomGame() {
+    if (!window.confirm("Dieses Spiel komplett zufällig durchspielen lassen, bis jemand gewinnt?")) return;
+
+    let rounds = [...gameRounds];
+    const nonHerzBlindSuits = SUITS.filter(s => s.id !== "herzblind");
+    const FORCE_WINNER_AFTER = 15;
+    let forcedWinnerId = null;
+
+    while (true) {
+      const { scores: curScores, consecutiveRaus: curRaus } = calculateScoresFromRounds(gamePlayers, rounds);
+      if (curScores.some(s => s <= 0)) break;
+      if (rounds.length > 500) break; // Sicherheitsnetz gegen Endlosschleifen
+
+      const trump = nonHerzBlindSuits[Math.floor(Math.random() * nonHerzBlindSuits.length)];
+      const ansagerId = gamePlayers[Math.floor(Math.random() * gamePlayers.length)].id;
+      const bidTricks = 1 + Math.floor(Math.random() * 6);
+
+      const playerStatus = {};
+      gamePlayers.forEach((p, idx) => {
+        const forced = getForcedReason(p, idx, trump, ansagerId, curScores, curRaus);
+        playerStatus[p.id] = forced ? "mit" : (Math.random() < 0.7 ? "mit" : "raus");
+      });
+      playerStatus[ansagerId] = "mit"; // Ansager kann nicht raus gehen
+
+      const playerTricks = {};
+      gamePlayers.forEach(p => { playerTricks[p.id] = 0; });
+
+      if (rounds.length >= FORCE_WINNER_AFTER) {
+        if (!forcedWinnerId) {
+          let minIdx = 0;
+          curScores.forEach((s, i) => { if (s < curScores[minIdx]) minIdx = i; });
+          forcedWinnerId = gamePlayers[minIdx].id;
+        }
+        playerStatus[forcedWinnerId] = "mit";
+        playerTricks[forcedWinnerId] = 6;
+      } else {
+        const mitIds = gamePlayers.filter(p => playerStatus[p.id] === "mit").map(p => p.id);
+        for (let i = 0; i < 6; i++) {
+          const pickId = mitIds[Math.floor(Math.random() * mitIds.length)];
+          playerTricks[pickId] += 1;
+        }
+      }
+
+      rounds.push({
+        roundNum: rounds.length + 1,
+        trump,
+        playerStatus,
+        playerTricks,
+        dealerIdx: rounds.length % gamePlayers.length,
+        ansagerId,
+        bidTricks,
+      });
+    }
+
+    const { scores: finalScoresRaw } = calculateScoresFromRounds(gamePlayers, rounds);
+    const winnerIndices = finalScoresRaw.map((s, idx) => s <= 0 ? idx : -1).filter(idx => idx !== -1);
+    const clampedScores = finalScoresRaw.map(s => s < 0 ? 0 : s);
+
+    setGameRounds(rounds);
+    saveGameResult(clampedScores, winnerIndices, rounds);
   }
 
   // finalScores: Array der geclampten Endpunkte. winnerIndices: Array (meist 1 Element,
@@ -1274,6 +1409,11 @@ function App() {
                 </button>
               </div>
 
+              {/* Test-Hilfsmittel: komplettes Spiel zufällig durchspielen lassen */}
+              <button onClick={simulateRandomGame} style={{ ...btnStyle, width: "100%", padding: "9px", fontSize: "12px", background: "linear-gradient(45deg, #7b1fa2, #4a148c)", marginBottom: "25px" }}>
+                🎲 Zufällig spielen (Test)
+              </button>
+
               {/* PHASE 1: TRUMPF & STATUS */}
               {roundPhase === "setup" && (
                 <div>
@@ -1671,6 +1811,84 @@ function App() {
           );
         })()}
 
+        {/* DETAIL-SEITE EINER GANZEN (ABGESCHLOSSENEN) SESSION - nur Anzeige, keine Korrektur */}
+        {screen === "sessionDetail" && (() => {
+          const games = getUniqueGames().filter(g => g.sessionId === detailSessionId).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+          if (games.length === 0) {
+            return (
+              <div className="glass" style={{ padding: "20px", textAlign: "center", color: "#aaa" }}>
+                Session nicht gefunden.
+                <div style={{ marginTop: "15px" }}>
+                  <button onClick={() => setScreen(sessionDetailReturn)} style={{ ...btnStyle, background: "rgba(255,255,255,0.1)" }}>← Zurück</button>
+                </div>
+              </div>
+            );
+          }
+          const totals = {}; // playerId -> { name, sum }
+          games.forEach(g => {
+            if (g.deleted) return;
+            g.players.forEach((p) => {
+              const regPlayer = registry.find(rp => rp.id === p.id);
+              const specificGame = regPlayer?.games?.find(rg => rg.id === g.id);
+              const delta = specificGame?.moneyDelta || 0;
+              if (!totals[p.id]) totals[p.id] = { name: p.name, sum: 0 };
+              totals[p.id].sum += delta;
+            });
+          });
+          const totalsList = Object.values(totals).sort((a, b) => b.sum - a.sum);
+
+          return (
+            <div>
+              <button onClick={() => setScreen(sessionDetailReturn)} style={{ ...btnStyle, padding: "8px 15px", fontSize: "13px", background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", marginBottom: "15px" }}>
+                ← Zurück
+              </button>
+
+              <div className="glass" style={{ padding: "20px" }}>
+                <h3 style={{ color: "#00f2fe", marginBottom: "12px", fontSize: "16px" }}>
+                  📦 Session vom {games[0].date}{games[0].date !== games[games.length - 1].date ? " – " + games[games.length - 1].date : ""}
+                </h3>
+                {totalsList.length > 0 && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                    {totalsList.map(t => (
+                      <span key={t.name} style={{ fontSize: "12px", padding: "3px 9px", borderRadius: "20px", background: "rgba(255,255,255,0.06)", color: t.sum >= 0 ? "#43e97b" : "#ff4e50", fontWeight: "bold" }}>
+                        {t.name}: {euro(t.sum)}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="glass" style={{ padding: "20px" }}>
+                <h3 style={{ color: "#f093fb", marginBottom: "12px", fontSize: "15px" }}>🃏 Spiele dieser Session ({games.length})</h3>
+                {games.map((g, gIdx) => {
+                  const isDeleted = !!g.deleted;
+                  return (
+                    <div key={g.id} style={{ padding: "12px", marginBottom: "10px", borderRadius: "10px", borderLeft: `5px solid ${isDeleted ? "#888" : "#00f2fe"}`, background: isDeleted ? "rgba(80,80,80,0.25)" : "rgba(0,0,0,0.35)", opacity: isDeleted ? 0.75 : 1 }}>
+                      <div style={{ fontSize: "12px", color: "#888", marginBottom: "6px" }}>
+                        Spiel {gIdx + 1} · {g.date}
+                        {isDeleted && <span style={{ marginLeft: "8px", color: "#ff4e50", border: "1px solid #ff4e50", borderRadius: "5px", padding: "1px 6px", fontSize: "10px" }}>🗑️ GELÖSCHT</span>}
+                      </div>
+                      {g.players.map((p, i) => {
+                        const regPlayer = registry.find(rp => rp.id === p.id);
+                        const specificGame = regPlayer?.games?.find(rg => rg.id === g.id);
+                        const isWinner = g.winnerIndices ? g.winnerIndices.includes(i) : g.winnerIdx === i;
+                        return (
+                          <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: "1px solid rgba(255,255,255,0.06)", fontSize: "13px" }}>
+                            <span>{isWinner ? "🏆 " : ""}{p.name} <span style={{ color: "#aaa" }}>({g.finalScores[i]} Pkt)</span></span>
+                            <span style={{ fontWeight: "bold", color: isDeleted ? "#888" : ((specificGame?.moneyDelta || 0) >= 0 ? "#43e97b" : "#ff4e50"), textDecoration: isDeleted ? "line-through" : "none" }}>
+                              {regPlayer ? euro(specificGame?.moneyDelta || 0) : "—"}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* HISTORIE SCREEN (ALTE SPIELE) */}
         {screen === "history" && (
           <div>
@@ -1745,8 +1963,26 @@ function App() {
           }
           const stats = computePlayerStats(p);
           const timeline = computePlayerBalanceTimeline(p);
+          const streaks = computePlayerStreaks(p);
           const de1 = n => n.toFixed(1).replace(".", ",");
           const de2 = n => n.toFixed(2).replace(".", ",");
+          const openSessionOrGameLink = (link) => {
+            if (link.sessionId) {
+              setSessionDetailReturn("playerStats"); setDetailSessionId(link.sessionId); setScreen("sessionDetail");
+            } else {
+              setGameDetailReturn("playerStats"); setDetailGameId(link.gameId); setScreen("gameDetail");
+            }
+          };
+          const streakLinksValue = (streak) => streak.length > 0 ? (
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "6px" }}>
+              <span>{streak.length}</span>
+              {streak.links.map(link => (
+                <span key={link.key} onClick={(e) => { e.stopPropagation(); openSessionOrGameLink(link); }} style={{ fontSize: "11px", color: "#00f2fe", textDecoration: "underline", cursor: "pointer" }}>
+                  {link.label}
+                </span>
+              ))}
+            </div>
+          ) : "—";
           return (
             <div>
               <button onClick={() => setScreen("home")} style={{ ...btnStyle, padding: "8px 15px", fontSize: "13px", background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", marginBottom: "15px" }}>
@@ -1808,6 +2044,14 @@ function App() {
                   ) : "—"}
                   description="Das Spiel mit dem höchsten Geldverlust dieses Spielers. Klick öffnet die Detailansicht dieses Spiels."
                   formula="argmin_Spiel moneyDelta_Spiel" />
+
+                <StatCard label="Größte Siegesserie" value={streakLinksValue(streaks.bestWinStreak)}
+                  description="Die meisten am Stück gewonnenen Spiele (chronologisch). Erstreckt sich die Serie über mehrere Sessions, sind alle verlinkt."
+                  formula="max Länge einer zusammenhängenden Folge von Spielen mit won = true." />
+
+                <StatCard label="Größte Verlustserie" value={streakLinksValue(streaks.bestLossStreak)}
+                  description="Die meisten am Stück verlorenen Spiele (chronologisch). Erstreckt sich die Serie über mehrere Sessions, sind alle verlinkt."
+                  formula="max Länge einer zusammenhängenden Folge von Spielen mit won = false." />
               </div>
 
               <div className="glass" style={{ padding: "20px" }}>
@@ -1960,12 +2204,13 @@ function SessionCard({ sessionEntry, registry }) {
 
       {open && (
         <div style={{ padding: "0 12px 12px" }}>
-          {games.map(g => {
+          {games.map((g, gIdx) => {
             const isDeleted = !!g.deleted;
             return (
               <div key={g.id} style={{ padding: "15px", marginTop: "10px", borderRadius: "12px", borderLeft: `5px solid ${isDeleted ? "#888" : "#00f2fe"}`, background: isDeleted ? "rgba(80,80,80,0.25)" : "rgba(0,0,0,0.4)", opacity: isDeleted ? 0.75 : 1 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px", fontSize: "13px", color: "#aaa" }}>
                   <span>
+                    {type === "session" && <strong style={{ color: "#00f2fe", marginRight: "8px" }}>Spiel {gIdx + 1}</strong>}
                     {g.date}
                     {isDeleted && <span style={{ marginLeft: "10px", color: "#ff4e50", fontWeight: "bold", border: "1px solid #ff4e50", borderRadius: "5px", padding: "2px 8px", fontSize: "11px" }}>🗑️ GELÖSCHT</span>}
                   </span>
