@@ -441,6 +441,7 @@ let db = null;
 let registryRef = null;
 let activeSessionsRef = null;
 let lastSessionMovementRef = null;
+let liveGamesRef = null;
 let firebaseInitError = null;
 try {
   if (typeof firebase === "undefined") {
@@ -451,6 +452,7 @@ try {
   registryRef = db.ref("20ab/registry");
   activeSessionsRef = db.ref("20ab/activeSessions"); // Array aller aktuell laufenden Sessions (geräteübergreifend!)
   lastSessionMovementRef = db.ref("20ab/lastSessionMovement"); // Bestenlisten-Platzierungs-Bewegung der zuletzt beendeten Session
+  liveGamesRef = db.ref("20ab/liveGames"); // Live-Rundenstand des GERADE laufenden Spiels je Session (geräteübergreifend!)
 } catch (e) {
   firebaseInitError = e.message;
   console.error("Firebase-Initialisierung fehlgeschlagen:", e);
@@ -509,6 +511,12 @@ function App() {
   // Wird geräteübergreifend synchronisiert und bleibt bis zur nächsten beendeten Session stehen.
   const [lastSessionMovement, setLastSessionMovementRaw] = useState({});
 
+  // Live-Rundenstand JEDER Session mit gerade laufendem (unbeendetem) Spiel, geräteübergreifend
+  // synchronisiert: { [sessionId]: { gameRounds, dealerIdx, roundPhase, selectedTrump,
+  // playerStatus, playerTricks, ansagerId, bidTricks } }. Ermöglicht es, ein laufendes Spiel
+  // von einem ANDEREN Gerät aus fortzusetzen (z.B. wenn der Akku des ersten Handys leer wird).
+  const [liveGames, setLiveGamesRaw] = useState({});
+
   useEffect(() => {
     if (!activeSessionsRef) { setSessionSyncReady(true); return; }
     const callback = (snapshot) => {
@@ -518,6 +526,22 @@ function App() {
     activeSessionsRef.on("value", callback, () => setSessionSyncReady(true));
     return () => activeSessionsRef.off("value", callback);
   }, []);
+
+  useEffect(() => {
+    if (!liveGamesRef) return;
+    const callback = (snapshot) => setLiveGamesRaw(snapshot.val() || {});
+    liveGamesRef.on("value", callback, () => {});
+    return () => liveGamesRef.off("value", callback);
+  }, []);
+
+  // Schreibt den aktuellen Rundenstand des laufenden Spiels laufend nach Firebase, solange
+  // eine Session aktiv ist und der "game"-Screen offen ist - so kann jedes andere Gerät den
+  // exakt gleichen Stand sehen und bei Bedarf übernehmen.
+  useEffect(() => {
+    if (!liveGamesRef || !currentSessionId || screen !== "game") return;
+    const payload = { gameRounds, dealerIdx, roundPhase, selectedTrump, playerStatus, playerTricks, ansagerId, bidTricks };
+    liveGamesRef.child(currentSessionId).set(payload).catch(() => {});
+  }, [currentSessionId, screen, gameRounds, dealerIdx, roundPhase, selectedTrump, playerStatus, playerTricks, ansagerId, bidTricks]);
 
   useEffect(() => {
     if (!lastSessionMovementRef) return;
@@ -665,13 +689,27 @@ function App() {
 
     const gp = ids.map(id => registry.find(p => p.id === id));
     setGamePlayers(gp);
-    setGameRounds([]);
-    setDealerIdx(0);
-    setSelectedTrump(SUITS[0]);
-    setAnsagerId(null);
-    setBidTricks(2);
 
-    initRound(gp, SUITS[0]);
+    // Falls für diese Session bereits ein LIVE-Rundenstand existiert (z.B. von einem
+    // anderen Gerät begonnen), diesen übernehmen statt das Spiel zurückzusetzen - so kann
+    // man nahtlos auf einem anderen Handy weiterspielen (z.B. bei leerem Akku).
+    const existingLive = liveGames[targetSession.id];
+    if (existingLive && Array.isArray(existingLive.gameRounds)) {
+      setGameRounds(existingLive.gameRounds);
+      setDealerIdx(existingLive.dealerIdx ?? 0);
+      setRoundPhase(existingLive.roundPhase || "setup");
+      setSelectedTrump(existingLive.selectedTrump || SUITS[0]);
+      setPlayerStatus(existingLive.playerStatus || {});
+      setPlayerTricks(existingLive.playerTricks || {});
+      setAnsagerId(existingLive.ansagerId ?? null);
+      setBidTricks(existingLive.bidTricks ?? 2);
+    } else {
+      setGameRounds([]);
+      setDealerIdx(0);
+      setSelectedTrump(SUITS[0]);
+      initRound(gp, SUITS[0]);
+    }
+
     setScreen("game");
   }
 
@@ -908,7 +946,12 @@ function App() {
       });
       return refreshBalances(updated);
     });
-    
+
+    // Das Spiel ist beendet -> es gibt keinen "live" Rundenstand mehr für diese Session,
+    // bis ggf. ein neues Spiel gestartet wird (verhindert, dass andere Geräte den bereits
+    // abgeschlossenen Stand fälschlich noch als "läuft gerade" anzeigen).
+    if (liveGamesRef && currentSessionId) liveGamesRef.child(currentSessionId).remove().catch(() => {});
+
     const winnerNames = winnerIndices.map(i => gamePlayers[i].name);
     const winnerText = winnerNames.length > 1
       ? `${winnerNames.slice(0, -1).join(", ")} und ${winnerNames[winnerNames.length - 1]} haben gemeinsam gewonnen! Das Preisgeld wurde geteilt.`
@@ -1012,6 +1055,7 @@ function App() {
 
     setSessionSummary(summary); // zeigt das Abschluss-Popup an (nur einmalig, wird nicht gespeichert)
     setActiveSessions(activeSessions.filter(s => s.id !== sessionId)); // Session ist damit beendet; ab jetzt zählt sie in "Alte Spiele"
+    if (liveGamesRef) liveGamesRef.child(sessionId).remove().catch(() => {});
     if (currentSessionId === sessionId) setCurrentSessionId(null);
     setScreen("home");
   }
