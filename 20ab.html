@@ -137,6 +137,22 @@ function isStammSpieler(player) {
 function uid() { return Math.random().toString(36).slice(2, 9); }
 function euro(val) { const sign = val >= 0 ? "+" : ""; return sign + val.toFixed(2).replace(".", ",") + " €"; }
 
+// Persistente, geräte-/browserlokale Identität (localStorage) - wird genutzt, um pro Session
+// einen "Host" zuzuordnen (wer die Session erstellt hat bzw. sie aktuell übernommen hat).
+const DEVICE_ID_KEY = "20ab-device-id";
+function getOrCreateDeviceId() {
+  try {
+    let id = localStorage.getItem(DEVICE_ID_KEY);
+    if (!id) {
+      id = uid() + uid();
+      localStorage.setItem(DEVICE_ID_KEY, id);
+    }
+    return id;
+  } catch (e) {
+    return uid() + uid(); // Fallback, falls localStorage blockiert ist (z.B. privater Modus)
+  }
+}
+
 // Stellt sicher, dass alle Stammspieler in der Registry vorhanden sind.
 // Gibt { data, changed } zurück — changed=true wenn etwas hinzugefügt/angepasst wurde.
 function ensureStammSpieler(registryData) {
@@ -465,6 +481,9 @@ function App() {
   const [registry, setRegistryRaw] = useState([]);
   const [syncState, setSyncState] = useState("loading"); // loading | ready | error
 
+  // Persistente Geräte-Identität dieses Browsers/Handys - bestimmt, wer "Host" einer Session ist.
+  const [deviceId] = useState(getOrCreateDeviceId);
+
   const [newName, setNewName] = useState("");
   const [selectedIds, setSelectedIds] = useState([]);
   // Falls im "select"-Screen eine BESTEHENDE Session weitergeführt/geändert wird: deren
@@ -534,14 +553,37 @@ function App() {
     return () => liveGamesRef.off("value", callback);
   }, []);
 
+  // Session, zu der das gerade auf DIESEM Gerät angezeigte Spiel gehört + ob dieses Gerät
+  // dabei nur BEOBACHTET (nicht Host ist). Sessions ohne hostDeviceId (Altbestand von vor
+  // diesem Feature) gelten für niemanden als Beobachtungsmodus (Abwärtskompatibilität).
+  const currentSessionObj = activeSessions.find(s => s.id === currentSessionId) || null;
+  const isObserver = !!currentSessionObj && !!currentSessionObj.hostDeviceId && currentSessionObj.hostDeviceId !== deviceId;
+
   // Schreibt den aktuellen Rundenstand des laufenden Spiels laufend nach Firebase, solange
   // eine Session aktiv ist und der "game"-Screen offen ist - so kann jedes andere Gerät den
-  // exakt gleichen Stand sehen und bei Bedarf übernehmen.
+  // exakt gleichen Stand sehen. NUR der Host schreibt (Beobachter dürfen nichts verändern).
   useEffect(() => {
-    if (!liveGamesRef || !currentSessionId || screen !== "game") return;
+    if (!liveGamesRef || !currentSessionId || screen !== "game" || isObserver) return;
     const payload = { gameRounds, dealerIdx, roundPhase, selectedTrump, playerStatus, playerTricks, ansagerId, bidTricks };
     liveGamesRef.child(currentSessionId).set(payload).catch(() => {});
-  }, [currentSessionId, screen, gameRounds, dealerIdx, roundPhase, selectedTrump, playerStatus, playerTricks, ansagerId, bidTricks]);
+  }, [currentSessionId, screen, isObserver, gameRounds, dealerIdx, roundPhase, selectedTrump, playerStatus, playerTricks, ansagerId, bidTricks]);
+
+  // Pflegt "hostActive" für jede Session, die DIESES Gerät hostet: aktiv (=nicht
+  // übernehmbar), solange der Host im laufenden Spiel dieser Session ist (Screen "game"
+  // oder "sessionEnd"); inaktiv (=für andere übernehmbar), sobald der Host zurück ins
+  // Hauptmenü geht.
+  useEffect(() => {
+    if (!activeSessions || activeSessions.length === 0) return;
+    let changed = false;
+    const updated = activeSessions.map(s => {
+      if (s.hostDeviceId !== deviceId) return s;
+      const shouldBeActive = currentSessionId === s.id && screen !== "home";
+      if (!!s.hostActive === shouldBeActive) return s;
+      changed = true;
+      return { ...s, hostActive: shouldBeActive };
+    });
+    if (changed) setActiveSessions(updated);
+  }, [screen, currentSessionId, activeSessions, deviceId]);
 
   useEffect(() => {
     if (!lastSessionMovementRef) return;
@@ -661,6 +703,13 @@ function App() {
 
     let targetSession = sessionIdOverride ? activeSessions.find(s => s.id === sessionIdOverride) : null;
 
+    // Sicherheitsnetz: nur der Host darf eine BESTEHENDE Session weiterführen/ändern
+    // (Beobachter nutzen stattdessen watchSession(), das hier gar nicht erst durchläuft).
+    if (targetSession && targetSession.hostDeviceId && targetSession.hostDeviceId !== deviceId) {
+      alert("Nur der Host dieser Session kann sie weiterführen.");
+      return;
+    }
+
     if (!targetSession) {
       // Passwort nur bei einer KOMPLETT NEUEN Session und wenn mind. ein Stammspieler dabei ist
       const hasStamm = ids.some(id => {
@@ -674,7 +723,7 @@ function App() {
           return;
         }
       }
-      targetSession = { id: uid(), startedAt: new Date().toISOString(), playerIds: ids.slice() };
+      targetSession = { id: uid(), startedAt: new Date().toISOString(), playerIds: ids.slice(), hostDeviceId: deviceId, hostActive: true };
       setActiveSessions([...activeSessions, targetSession]);
     } else {
       const merged = Array.from(new Set([...(targetSession.playerIds || []), ...ids]));
@@ -711,6 +760,47 @@ function App() {
     }
 
     setScreen("game");
+  }
+
+  // Öffnet eine fremde (nicht selbst gehostete) Session im reinen BEOBACHTUNGSMODUS: zeigt
+  // exakt denselben Live-Rundenstand wie beim Host, erlaubt aber keinerlei Eingaben (siehe
+  // isObserver-Abfragen im "game"-Screen). Verändert bewusst NICHT activeSessions/Passwort/
+  // Mitspieler - das bleibt allein dem Host vorbehalten.
+  function watchSession(session) {
+    setCurrentSessionId(session.id);
+    const gp = (session.playerIds || []).map(id => registry.find(p => p.id === id));
+    setGamePlayers(gp);
+
+    const live = liveGames[session.id];
+    if (live && Array.isArray(live.gameRounds)) {
+      setGameRounds(live.gameRounds);
+      setDealerIdx(live.dealerIdx ?? 0);
+      setRoundPhase(live.roundPhase || "setup");
+      setSelectedTrump(live.selectedTrump || SUITS[0]);
+      setPlayerStatus(live.playerStatus || {});
+      setPlayerTricks(live.playerTricks || {});
+      setAnsagerId(live.ansagerId ?? null);
+      setBidTricks(live.bidTricks ?? 2);
+    } else {
+      setGameRounds([]);
+      setDealerIdx(0);
+      setRoundPhase("setup");
+      setSelectedTrump(SUITS[0]);
+      setPlayerStatus({});
+      setPlayerTricks({});
+      setAnsagerId(null);
+      setBidTricks(2);
+    }
+
+    setScreen("game");
+  }
+
+  // Übernimmt die Host-Rolle einer Session, deren aktueller Host gerade NICHT aktiv dabei
+  // ist (im Hauptmenü). Score, Spieler und Rundenverlauf bleiben komplett unverändert -
+  // es ändert sich nur, wer sie steuern darf.
+  function takeoverHost(session) {
+    if (!window.confirm("Host-Rolle für diese Session übernehmen? Punktestand und Verlauf bleiben erhalten.")) return;
+    setActiveSessions(activeSessions.map(s => s.id === session.id ? { ...s, hostDeviceId: deviceId, hostActive: false } : s));
   }
 
   function initRound(playersList, trump) {
@@ -1310,10 +1400,16 @@ function App() {
         {screen === "home" && (
           <div>
             {/* Banner für jede laufende Session (es können mehrere gleichzeitig laufen) */}
-            {activeSessions.map(session => (
-              <div key={session.id} className="glass" style={{ padding: "16px 20px", marginBottom: "15px", border: "1px solid #f9d423", background: "rgba(249,212,35,0.08)" }}>
+            {activeSessions.map(session => {
+              // Sessions ohne hostDeviceId (Altbestand von vor diesem Feature) gelten als
+              // "eigene" Session für jeden - Abwärtskompatibilität, keine Sperre.
+              const isMine = !session.hostDeviceId || session.hostDeviceId === deviceId;
+              return (
+              <div key={session.id} className="glass" style={{ padding: "16px 20px", marginBottom: "15px", border: `1px solid ${isMine ? "#f9d423" : "#7b8794"}`, background: isMine ? "rgba(249,212,35,0.08)" : "rgba(120,140,160,0.08)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
-                  <span style={{ fontWeight: "bold", color: "#f9d423" }}>🔥 Session läuft</span>
+                  <span style={{ fontWeight: "bold", color: isMine ? "#f9d423" : "#9fb3c8" }}>
+                    {isMine ? "🔥 Session läuft" : "👁️ Session läuft (Beobachtungsmodus)"}
+                  </span>
                   <span style={{ fontSize: "12px", color: "#aaa" }}>
                     seit {new Date(session.startedAt).toLocaleString("de-DE")}
                   </span>
@@ -1321,16 +1417,30 @@ function App() {
                 <div style={{ fontSize: "13px", color: "#ccc", marginBottom: "12px" }}>
                   Spieler: {(session.playerIds || []).map(id => registry.find(p => p.id === id)?.name || "?").join(", ")}
                 </div>
-                <div style={{ display: "flex", gap: "8px" }}>
-                  <button onClick={() => startGame(session.playerIds || [], session.id)} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #00f2fe, #4facfe)" }}>
-                    ▶️ Weiterspielen
-                  </button>
-                  <button onClick={() => { if (window.confirm("Session wirklich beenden und abrechnen?")) endSession(session.id); }} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #ff4e50, #c31432)" }}>
-                    🏁 Session beenden
-                  </button>
-                </div>
+                {isMine ? (
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    <button onClick={() => startGame(session.playerIds || [], session.id)} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #00f2fe, #4facfe)" }}>
+                      ▶️ Weiterspielen
+                    </button>
+                    <button onClick={() => { if (window.confirm("Session wirklich beenden und abrechnen?")) endSession(session.id); }} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #ff4e50, #c31432)" }}>
+                      🏁 Session beenden
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    <button onClick={() => watchSession(session)} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.25)" }}>
+                      👁️ Ansehen
+                    </button>
+                    {!session.hostActive && (
+                      <button onClick={() => takeoverHost(session)} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #7b1fa2, #4a148c)" }}>
+                        🎮 Host werden
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
-            ))}
+              );
+            })}
 
             <div className="glass" style={{ padding: "20px", textAlign: "center" }}>
               <button className="pulse-btn" style={{ ...btnStyle, width: "100%", marginBottom: "15px", background: "linear-gradient(45deg, #00f2fe, #4facfe)", boxShadow: "0 0 15px #00f2fe" }}
@@ -1474,21 +1584,33 @@ function App() {
                 ))}
               </div>
 
-              {/* Abbruch-Buttons: jederzeit während einer laufenden Partie verfügbar */}
-              <div style={{ display: "flex", gap: "8px", marginBottom: "25px" }}>
-                <button onClick={restartCurrentGame} style={{ ...btnStyle, flex: 1, padding: "9px", fontSize: "12px", background: "linear-gradient(45deg, #f7971e, #ffd200)", color: "#000" }}>
-                  ⏹️ Spiel neu starten
-                </button>
-                <button onClick={abortSessionDiscardGame} style={{ ...btnStyle, flex: 1, padding: "9px", fontSize: "12px", background: "linear-gradient(45deg, #ff4e50, #c31432)" }}>
-                  🚫 Session beenden
-                </button>
-              </div>
+              {isObserver && (
+                <div style={{ padding: "10px 14px", marginBottom: "20px", borderRadius: "8px", background: "rgba(120,140,160,0.15)", border: "1px solid rgba(159,179,200,0.4)", color: "#9fb3c8", fontSize: "13px", textAlign: "center" }}>
+                  👁️ Beobachtungsmodus – nur Ansicht, keine Eingaben möglich
+                </div>
+              )}
 
-              {/* Test-Hilfsmittel: komplettes Spiel zufällig durchspielen lassen */}
-              <button onClick={simulateRandomGame} style={{ ...btnStyle, width: "100%", padding: "9px", fontSize: "12px", background: "linear-gradient(45deg, #7b1fa2, #4a148c)", marginBottom: "25px" }}>
-                🎲 Zufällig spielen (Test)
-              </button>
+              {/* Abbruch-Buttons: nur für den Host, jederzeit während einer laufenden Partie verfügbar */}
+              {!isObserver && (
+                <div style={{ display: "flex", gap: "8px", marginBottom: "25px" }}>
+                  <button onClick={restartCurrentGame} style={{ ...btnStyle, flex: 1, padding: "9px", fontSize: "12px", background: "linear-gradient(45deg, #f7971e, #ffd200)", color: "#000" }}>
+                    ⏹️ Spiel neu starten
+                  </button>
+                  <button onClick={abortSessionDiscardGame} style={{ ...btnStyle, flex: 1, padding: "9px", fontSize: "12px", background: "linear-gradient(45deg, #ff4e50, #c31432)" }}>
+                    🚫 Session beenden
+                  </button>
+                </div>
+              )}
 
+              {/* Test-Hilfsmittel: komplettes Spiel zufällig durchspielen lassen (nur Host) */}
+              {!isObserver && (
+                <button onClick={simulateRandomGame} style={{ ...btnStyle, width: "100%", padding: "9px", fontSize: "12px", background: "linear-gradient(45deg, #7b1fa2, #4a148c)", marginBottom: "25px" }}>
+                  🎲 Zufällig spielen (Test)
+                </button>
+              )}
+
+              {/* PHASE 1 & 2: für Beobachter rein lesbar (pointer-events deaktiviert) */}
+              <div style={isObserver ? { pointerEvents: "none", opacity: 0.6 } : undefined}>
               {/* PHASE 1: TRUMPF & STATUS */}
               {roundPhase === "setup" && (
                 <div>
@@ -1613,6 +1735,7 @@ function App() {
                   </div>
                 </div>
               )}
+              </div>
             </div>
 
             {/* ZWEI SPALTEN: LINKS SESSION-SPIELE, RECHTS RUNDEN DES LAUFENDEN SPIELS */}
@@ -1669,7 +1792,7 @@ function App() {
                               <span style={{ marginLeft: "8px", fontSize: "11px", color: "#888" }}>{rounds.length} Runden</span>
                             </strong>
                             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                              {!isEditingGame && (
+                              {!isEditingGame && !isObserver && (
                                 <div style={{ display: "flex", gap: "8px" }}>
                                   {!isDeleted && (
                                     <button onClick={() => { setEditingGameId(g.id); const s = {}; g.players.forEach((p, i) => { s[p.id] = g.finalScores[i]; }); setEditScores(s); }} style={{ background: "none", border: "none", color: "#f9d423", cursor: "pointer", fontSize: "13px" }}>✏️</button>
@@ -1738,7 +1861,7 @@ function App() {
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
                         <strong style={{ color: "#00f2fe" }}>Runde {r.roundNum} ({r.trump.emoji})</strong>
                         {editingRoundIdx !== rIdx ? (
-                          <button onClick={() => setEditingRoundIdx(rIdx)} style={{ background: "none", border: "none", color: "#f9d423", cursor: "pointer", fontSize: "14px" }}>✏️ Bearbeiten</button>
+                          !isObserver && <button onClick={() => setEditingRoundIdx(rIdx)} style={{ background: "none", border: "none", color: "#f9d423", cursor: "pointer", fontSize: "14px" }}>✏️ Bearbeiten</button>
                         ) : (
                           <span style={{ fontSize: "12px", color: "#43e97b" }}>Wird editiert...</span>
                         )}
@@ -1789,7 +1912,7 @@ function App() {
           const isDeleted = !!g.deleted;
           // Korrektur/Löschung nur erlaubt, solange das Spiel Teil der AKTUELL laufenden
           // Session ist - abgeschlossene Sessions sind reine Anzeige (siehe SessionCard).
-          const isCorrectable = !!g.sessionId && activeSessions.some(s => s.id === g.sessionId);
+          const isCorrectable = !!g.sessionId && activeSessions.some(s => s.id === g.sessionId && (!s.hostDeviceId || s.hostDeviceId === deviceId));
           const isEditingGame = isCorrectable && editingGameId === g.id;
           const rounds = g.rounds || [];
           return (
