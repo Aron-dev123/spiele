@@ -2156,7 +2156,7 @@ function BalanceChart({ timeline }) {
         {yTicks.map((v, i) => (
           <g key={i}>
             <line x1={padLeft - 3} y1={yFor(v)} x2={width - padRight} y2={yFor(v)} stroke="rgba(255,255,255,0.08)" />
-            <text x={padLeft - 6} y={yFor(v) + 3} fontSize="8" fill="#888" textAnchor="end">{euro(v)}</text>
+            <text x={padLeft - 6} y={yFor(v) + 3} fontSize="8" fill={v > 0 ? "#43e97b" : v < 0 ? "#ff4e50" : "#888"} textAnchor="end">{euro(v)}</text>
           </g>
         ))}
 
