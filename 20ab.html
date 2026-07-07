@@ -302,11 +302,25 @@ function computePlayerStats(player) {
     }
   });
 
+  // Endpunkte + bestes/schlechtestes Einzelspiel (nach moneyDelta) über alle Spiele hinweg
+  let finalScoreSum = 0;
+  let bestGame = null;  // { id, date, moneyDelta } mit dem höchsten Gewinn
+  let worstGame = null; // { id, date, moneyDelta } mit dem höchsten Verlust
+  games.forEach(g => {
+    const myIdx = g.players.findIndex(pl => pl.id === player.id);
+    finalScoreSum += g.finalScores[myIdx];
+    const info = { id: g.id, date: g.date, moneyDelta: g.moneyDelta };
+    if (!bestGame || info.moneyDelta > bestGame.moneyDelta) bestGame = info;
+    if (!worstGame || info.moneyDelta < worstGame.moneyDelta) worstGame = info;
+  });
+  const avgFinalScore = gamesPlayed > 0 ? finalScoreSum / gamesPlayed : null;
+
   return {
     gamesPlayed, gamesWon, winRate,
     avgBidTricks, favoriteTrump, favoriteTrumpCount,
     totalRounds, mitRounds, rausRounds, laufRounds,
     laufquote, rausquote, avgTricksMade,
+    avgFinalScore, bestGame, worstGame,
   };
 }
 
@@ -458,6 +472,9 @@ function App() {
 
   // Session-Spiele: welches Spiel wird gerade auf der eigenen Detail-Seite betrachtet
   const [detailGameId, setDetailGameId] = useState(null);
+  // Zu welchem Screen der "← Zurück"-Button auf der Detail-Seite zurückspringen soll
+  // (z.B. "game" wenn man aus der laufenden Session kam, "playerStats" wenn aus den Statistiken)
+  const [gameDetailReturn, setGameDetailReturn] = useState("game");
 
   // ── Firebase: Live-Listener auf die Registry ──
   // onValue feuert sofort beim ersten Laden UND danach jedes Mal, wenn sich
@@ -1106,7 +1123,7 @@ function App() {
                   <button onClick={() => startGame(activeSession.playerIds || [])} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #00f2fe, #4facfe)" }}>
                     ▶️ Weiterspielen
                   </button>
-                  <button onClick={endSession} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #ff4e50, #c31432)" }}>
+                  <button onClick={() => { if (window.confirm("Session wirklich beenden und abrechnen?")) endSession(); }} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #ff4e50, #c31432)" }}>
                     🏁 Session beenden
                   </button>
                 </div>
@@ -1175,7 +1192,7 @@ function App() {
                 👥
               </button>
             </div>
-            <button onClick={endSession} style={{ ...btnStyle, width: "100%", background: "linear-gradient(45deg, #ff512f, #f9d423)" }}>
+            <button onClick={() => { if (window.confirm("Session wirklich beenden und abrechnen?")) endSession(); }} style={{ ...btnStyle, width: "100%", background: "linear-gradient(45deg, #ff512f, #f9d423)" }}>
               🏁 Session beenden & abrechnen
             </button>
           </div>
@@ -1449,7 +1466,7 @@ function App() {
                                   )}
                                 </div>
                               )}
-                              <button onClick={() => { setDetailGameId(g.id); setScreen("gameDetail"); }} style={{ ...btnStyle, padding: "5px 10px", fontSize: "11px", background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)" }}>
+                              <button onClick={() => { setGameDetailReturn("game"); setDetailGameId(g.id); setScreen("gameDetail"); }} style={{ ...btnStyle, padding: "5px 10px", fontSize: "11px", background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)" }}>
                                 🔍 Details
                               </button>
                             </div>
@@ -1549,28 +1566,31 @@ function App() {
               <div className="glass" style={{ padding: "20px", textAlign: "center", color: "#aaa" }}>
                 Spiel nicht gefunden.
                 <div style={{ marginTop: "15px" }}>
-                  <button onClick={() => setScreen("game")} style={{ ...btnStyle, background: "rgba(255,255,255,0.1)" }}>← Zurück</button>
+                  <button onClick={() => setScreen(gameDetailReturn)} style={{ ...btnStyle, background: "rgba(255,255,255,0.1)" }}>← Zurück</button>
                 </div>
               </div>
             );
           }
           const isDeleted = !!g.deleted;
-          const isEditingGame = editingGameId === g.id;
+          // Korrektur/Löschung nur erlaubt, solange das Spiel Teil der AKTUELL laufenden
+          // Session ist - abgeschlossene Sessions sind reine Anzeige (siehe SessionCard).
+          const isCorrectable = !!activeSession && g.sessionId === activeSession.id;
+          const isEditingGame = isCorrectable && editingGameId === g.id;
           const rounds = g.rounds || [];
           return (
             <div>
-              <button onClick={() => setScreen("game")} style={{ ...btnStyle, padding: "8px 15px", fontSize: "13px", background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", marginBottom: "15px" }}>
-                ← Zurück zur Session
+              <button onClick={() => setScreen(gameDetailReturn)} style={{ ...btnStyle, padding: "8px 15px", fontSize: "13px", background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", marginBottom: "15px" }}>
+                ← Zurück
               </button>
 
-              {/* Endpunkte: HIER korrigierbar (Endstand), einzelne Runden NICHT */}
+              {/* Endpunkte: HIER korrigierbar (Endstand), einzelne Runden NICHT - und auch nur, solange die Session noch läuft */}
               <div className="glass" style={{ padding: "20px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "15px" }}>
                   <h3 style={{ color: "#00f2fe", fontSize: "16px" }}>
                     🃏 Spiel-Details
                     {isDeleted && <span style={{ marginLeft: "8px", color: "#ff4e50", border: "1px solid #ff4e50", borderRadius: "5px", padding: "1px 6px", fontSize: "10px" }}>🗑️ GELÖSCHT</span>}
                   </h3>
-                  {!isEditingGame && (
+                  {isCorrectable && !isEditingGame && (
                     <div style={{ display: "flex", gap: "12px" }}>
                       {!isDeleted && (
                         <button onClick={() => { setEditingGameId(g.id); const s = {}; g.players.forEach((p, i) => { s[p.id] = g.finalScores[i]; }); setEditScores(s); }} style={{ background: "none", border: "none", color: "#f9d423", cursor: "pointer", fontSize: "14px" }}>✏️ Endpunkte korrigieren</button>
@@ -1738,12 +1758,12 @@ function App() {
                 {isStammSpieler(p) && <div style={{ marginBottom: "15px" }} />}
 
                 <StatCard label="Spiele gesamt" value={stats.gamesPlayed}
-                  description="Anzahl aller (nicht gelöschten) beendeten Spiele, an denen dieser Spieler teilgenommen hat."
-                  formula="Anzahl der Spiele in der Spielhistorie mit deleted = false." />
+                  description="Anzahl aller beendeten Spiele, an denen dieser Spieler teilgenommen hat."
+                  formula="n_Spiele" />
 
                 <StatCard label="Siege" value={stats.gamesWon}
-                  description="Anzahl der Spiele, die dieser Spieler gewonnen hat (bei geteiltem Sieg zählt jeder Sieger einzeln)."
-                  formula="Anzahl der Spiele mit won = true." />
+                  description="Anzahl der Spiele, die dieser Spieler gewonnen hat (geteilter Sieg = Sieg)."
+                  formula="n_Spiele mit won = true" />
 
                 <StatCard label="Siegquote" value={`${de1(stats.winRate)}%`}
                   description="Anteil der gespielten Spiele, die gewonnen wurden."
@@ -1766,8 +1786,28 @@ function App() {
                   formula="⌀Stiche = (Σ Stiche_i) / n_mit, für alle i ∈ 'Mit'-Runden, mit n_mit = Anzahl dieser Runden." />
 
                 <StatCard label="Rausquote" value={`${de1(stats.rausquote)}%`}
-                  description="Anteil aller gespielten Runden, in denen der Spieler raus gegangen ist (freiwillig oder unfreiwillig nicht mitgespielt hat)."
+                  description="Anteil aller gespielten Runden, in denen der Spieler raus gegangen ist."
                   formula="Rausquote = (n_raus / n_Runden) × 100, mit n_Runden = n_mit + n_raus." />
+
+                <StatCard label="Ø Endpunkte" value={stats.avgFinalScore !== null ? de2(stats.avgFinalScore) : "—"}
+                  description="Durchschnittliche Punktzahl, mit der dieser Spieler ein Spiel abgeschlossen hat."
+                  formula="⌀Endpunkte = (Σ Endpunkte_i) / n_Spiele, für alle i ∈ Spiele." />
+
+                <StatCard label="Höchster Gewinn" value={stats.bestGame ? (
+                    <span onClick={(e) => { e.stopPropagation(); setGameDetailReturn("playerStats"); setDetailGameId(stats.bestGame.id); setScreen("gameDetail"); }} style={{ cursor: "pointer", textDecoration: "underline" }}>
+                      {euro(stats.bestGame.moneyDelta)} <span style={{ fontSize: "12px", color: "#888" }}>({stats.bestGame.date})</span>
+                    </span>
+                  ) : "—"}
+                  description="Das Spiel mit dem höchsten Geldgewinn dieses Spielers. Klick öffnet die Detailansicht dieses Spiels."
+                  formula="argmax_Spiel moneyDelta_Spiel" />
+
+                <StatCard label="Höchster Verlust" value={stats.worstGame ? (
+                    <span onClick={(e) => { e.stopPropagation(); setGameDetailReturn("playerStats"); setDetailGameId(stats.worstGame.id); setScreen("gameDetail"); }} style={{ cursor: "pointer", textDecoration: "underline" }}>
+                      {euro(stats.worstGame.moneyDelta)} <span style={{ fontSize: "12px", color: "#888" }}>({stats.worstGame.date})</span>
+                    </span>
+                  ) : "—"}
+                  description="Das Spiel mit dem höchsten Geldverlust dieses Spielers. Klick öffnet die Detailansicht dieses Spiels."
+                  formula="argmin_Spiel moneyDelta_Spiel" />
               </div>
 
               <div className="glass" style={{ padding: "20px" }}>
