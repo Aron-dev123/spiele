@@ -1106,7 +1106,7 @@ function App() {
                   <button onClick={() => startGame(activeSession.playerIds || [])} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #00f2fe, #4facfe)" }}>
                     ▶️ Weiterspielen
                   </button>
-                  <button onClick={endSession} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #ff512f, #f9d423)" }}>
+                  <button onClick={endSession} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #ff4e50, #c31432)" }}>
                     🏁 Session beenden
                   </button>
                 </div>
@@ -1249,10 +1249,10 @@ function App() {
 
               {/* Abbruch-Buttons: jederzeit während einer laufenden Partie verfügbar */}
               <div style={{ display: "flex", gap: "8px", marginBottom: "25px" }}>
-                <button onClick={restartCurrentGame} style={{ ...btnStyle, flex: 1, padding: "9px", fontSize: "12px", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)" }}>
+                <button onClick={restartCurrentGame} style={{ ...btnStyle, flex: 1, padding: "9px", fontSize: "12px", background: "linear-gradient(45deg, #f7971e, #ffd200)", color: "#000" }}>
                   ⏹️ Spiel neu starten
                 </button>
-                <button onClick={abortSessionDiscardGame} style={{ ...btnStyle, flex: 1, padding: "9px", fontSize: "12px", background: "rgba(255,78,80,0.12)", border: "1px solid rgba(255,78,80,0.35)", color: "#ff8c8c" }}>
+                <button onClick={abortSessionDiscardGame} style={{ ...btnStyle, flex: 1, padding: "9px", fontSize: "12px", background: "linear-gradient(45deg, #ff4e50, #c31432)" }}>
                   🚫 Session beenden
                 </button>
               </div>
@@ -1274,12 +1274,11 @@ function App() {
                     const active = selectedTrump.id === "herzblind";
                     return (
                       <button onClick={() => handleTrumpChange(herzBlind)} style={{
-                        ...btnStyle, width: "100%", padding: "12px 5px", fontSize: "14px", marginBottom: "20px",
-                        background: active ? `linear-gradient(45deg, ${herzBlind.color}, #d81b60)` : "rgba(123,31,162,0.15)",
-                        border: active ? "2px solid #fff" : "1px dashed #7b1fa2",
-                        boxShadow: active ? "0 0 15px #7b1fa2" : "none",
+                        ...btnStyle, padding: "10px 5px", fontSize: "13px", marginBottom: "20px",
+                        background: active ? `linear-gradient(45deg, ${herzBlind.color}, #d81b60)` : herzBlind.color,
+                        border: active ? "2px solid #fff" : "none",
                       }}>
-                        {herzBlind.emoji} {herzBlind.label} (×4) {!active && "— ab 50 Punkten ansagbar"}
+                        {herzBlind.emoji} {herzBlind.label} (×4)
                       </button>
                     );
                   })()}
@@ -1700,14 +1699,6 @@ function App() {
                             key={sessionEntry.sessionId || sessionEntry.games[0].id}
                             sessionEntry={sessionEntry}
                             registry={registry}
-                            editingGameId={editingGameId}
-                            setEditingGameId={setEditingGameId}
-                            editScores={editScores}
-                            setEditScores={setEditScores}
-                            saveEditedPastGame={saveEditedPastGame}
-                            deletePastGame={deletePastGame}
-                            restorePastGame={restorePastGame}
-                            btnStyle={btnStyle}
                           />
                         ))}
                       </div>
@@ -1881,7 +1872,7 @@ function App() {
 // Sub-Komponente: zeigt eine Session (oder ein einzelnes Legacy-Spiel ohne Session) als
 // aufklappbare Karte in der Historie. Beim Aufklappen erscheinen die einzelnen enthaltenen
 // Spiele - jedes davon mit der unveränderten Bearbeiten/Löschen/Änderungsverlauf-Logik.
-function SessionCard({ sessionEntry, registry, editingGameId, setEditingGameId, editScores, setEditScores, saveEditedPastGame, deletePastGame, restorePastGame, btnStyle }) {
+function SessionCard({ sessionEntry, registry }) {
   const [open, setOpen] = useState(false);
   const { type, games, deleted: allDeleted } = sessionEntry;
 
@@ -1938,27 +1929,9 @@ function SessionCard({ sessionEntry, registry, editingGameId, setEditingGameId, 
                     {g.date}
                     {isDeleted && <span style={{ marginLeft: "10px", color: "#ff4e50", fontWeight: "bold", border: "1px solid #ff4e50", borderRadius: "5px", padding: "2px 8px", fontSize: "11px" }}>🗑️ GELÖSCHT</span>}
                   </span>
-                  {editingGameId !== g.id && (
-                    <div style={{ display: "flex", gap: "10px" }}>
-                      {!isDeleted && (
-                        <button onClick={() => {
-                          setEditingGameId(g.id);
-                          const initialScores = {};
-                          g.players.forEach((p, idx) => { initialScores[p.id] = g.finalScores[idx]; });
-                          setEditScores(initialScores);
-                        }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "14px" }}>✏️ Endpunkte korrigieren</button>
-                      )}
-                      {isDeleted ? (
-                        <button onClick={() => restorePastGame(g.id)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "14px", color: "#43e97b" }}>↩️ Wiederherstellen</button>
-                      ) : (
-                        <button onClick={() => deletePastGame(g.id)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "14px", color: "#ff4e50" }}>🗑️ Löschen</button>
-                      )}
-                    </div>
-                  )}
                 </div>
 
-                {editingGameId !== g.id ? (
-                  <div>
+                <div>
                     {g.players.map((p, i) => {
                       const regPlayer = registry.find(rp => rp.id === p.id);
                       const playerExists = !!regPlayer;
@@ -2004,21 +1977,7 @@ function SessionCard({ sessionEntry, registry, editingGameId, setEditingGameId, 
                         Gelöscht am {new Date(g.deletedAt).toLocaleString("de-DE")}
                       </div>
                     )}
-                  </div>
-                ) : (
-                  <div style={{ background: "rgba(0,0,0,0.5)", padding: "10px", borderRadius: "8px" }}>
-                    {g.players.map((p) => (
-                      <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                        <span>{p.name}:</span>
-                        <input type="number" value={editScores[p.id] || 0} onChange={e => setEditScores({ ...editScores, [p.id]: e.target.value })} style={{ width: "70px", padding: "5px", borderRadius: "5px", border: "1px solid #ccc", background: "#000", color: "#fff", textAlign: "center" }} />
-                      </div>
-                    ))}
-                    <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
-                      <button onClick={() => setEditingGameId(null)} style={{ ...btnStyle, padding: "6px 12px", fontSize: "12px", background: "#aaa" }}>Abbrechen</button>
-                      <button onClick={() => saveEditedPastGame(g.id)} style={{ ...btnStyle, padding: "6px 12px", fontSize: "12px", background: "#43e97b", color: "#000" }}>Speichern & Synchronisieren</button>
-                    </div>
-                  </div>
-                )}
+                </div>
               </div>
             );
           })}
