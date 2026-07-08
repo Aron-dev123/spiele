@@ -283,8 +283,11 @@ function computeRoundDelta(players, rounds, roundIdx) {
 // Berechnet Spieler-Statistiken aus der kompletten (nicht gelöschten) Spielhistorie eines
 // Spielers. Wird als eigene Funktion gehalten, damit hier nach und nach weitere Kennzahlen
 // ergänzt werden können, ohne die Aufrufstelle (PlayerStats-Screen) anfassen zu müssen.
-function computePlayerStats(player) {
-  const games = (player.games || []).filter(g => !g.deleted);
+// gamesOverride: optionale explizite Spiele-Liste (z.B. eine Teilmenge "bis zu diesem
+// Zeitpunkt") - genutzt für den zeitlichen Verlauf einzelner Kennzahlen. Ohne Angabe werden
+// wie gehabt ALLE (nicht gelöschten) Spiele des Spielers verwendet.
+function computePlayerStats(player, gamesOverride) {
+  const games = gamesOverride || (player.games || []).filter(g => !g.deleted);
   const gamesPlayed = games.length;
   const gamesWon = games.filter(g => g.won).length;
   const winRate = gamesPlayed > 0 ? (gamesWon / gamesPlayed) * 100 : 0;
@@ -292,6 +295,8 @@ function computePlayerStats(player) {
   let ansagerRoundsCount = 0;
   let bidTricksSum = 0;
   const trumpCounts = {}; // trump.id -> Anzahl (als Ansager gewählt)
+  const trumpSuccessCounts = {}; // trump.id -> Anzahl, wie oft als Ansager damit Punkte gutgemacht (Δ < 0)
+  const trumpFailureCounts = {}; // trump.id -> Anzahl, wie oft als Ansager damit nach oben gelaufen (Δ > 0)
 
   let totalRounds = 0;   // alle Runden über alle Spiele hinweg
   let mitRounds = 0;     // Runden, in denen der Spieler mitgegangen ist
@@ -317,6 +322,8 @@ function computePlayerStats(player) {
         ansagerRoundsCount++;
         bidTricksSum += (r.bidTricks || 0);
         trumpCounts[r.trump.id] = (trumpCounts[r.trump.id] || 0) + 1;
+        if (delta < 0) trumpSuccessCounts[r.trump.id] = (trumpSuccessCounts[r.trump.id] || 0) + 1;
+        if (delta > 0) trumpFailureCounts[r.trump.id] = (trumpFailureCounts[r.trump.id] || 0) + 1;
       }
     });
   });
@@ -332,6 +339,24 @@ function computePlayerStats(player) {
     if (count > favoriteTrumpCount) {
       favoriteTrumpCount = count;
       favoriteTrump = SUITS.find(s => s.id === trumpId) || null;
+    }
+  });
+
+  // Bester/schlechtester Trumpf als Ansager: die Farbe, mit der er am häufigsten Punkte
+  // gutgemacht (Δ < 0) bzw. am häufigsten nach oben gelaufen (Δ > 0) ist. Der Betrag spielt
+  // dabei keine Rolle, nur die reine Häufigkeit.
+  let bestTrump = null, bestTrumpCount = 0;
+  Object.entries(trumpSuccessCounts).forEach(([trumpId, count]) => {
+    if (count > bestTrumpCount) {
+      bestTrumpCount = count;
+      bestTrump = SUITS.find(s => s.id === trumpId) || null;
+    }
+  });
+  let worstTrump = null, worstTrumpCount = 0;
+  Object.entries(trumpFailureCounts).forEach(([trumpId, count]) => {
+    if (count > worstTrumpCount) {
+      worstTrumpCount = count;
+      worstTrump = SUITS.find(s => s.id === trumpId) || null;
     }
   });
 
@@ -374,6 +399,8 @@ function computePlayerStats(player) {
   return {
     gamesPlayed, gamesWon, winRate,
     avgBidTricks, favoriteTrump, favoriteTrumpCount,
+    bestTrump, bestTrumpCount, worstTrump, worstTrumpCount,
+    trumpCounts, trumpSuccessCounts, trumpFailureCounts,
     totalRounds, mitRounds, rausRounds, laufRounds,
     laufquote, rausquote, avgTricksMade,
     avgFinalScore, bestGame, worstGame,
@@ -400,6 +427,31 @@ function computePlayerBalanceTimeline(player) {
     cumulative += entry.sum;
     return { timestamp: entry.timestamp, sessionDelta: entry.sum, cumulative };
   });
+}
+
+// Baut den zeitlichen (kumulativen) Verlauf EINER Kennzahl aus computePlayerStats: ein Punkt
+// pro Session, der zeigt, wie sich die Kennzahl über die "Karriere" des Spielers bis zu
+// diesem Zeitpunkt entwickelt hat (jeweils berechnet aus ALLEN Spielen bis einschließlich
+// dieser Session). metricKey muss ein Feld aus computePlayerStats() sein (z.B. "winRate",
+// "laufquote", "rausquote", "avgBidTricks", "avgTricksMade", "avgFinalScore").
+function computePlayerStatTimeline(player, metricKey) {
+  const games = (player.games || []).filter(g => !g.deleted).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+  const bySession = new Map(); // key -> { latestTimestamp, games[] }
+  games.forEach(g => {
+    const key = g.sessionId || `legacy-${g.id}`;
+    if (!bySession.has(key)) bySession.set(key, { latestTimestamp: g.timestamp, games: [] });
+    const entry = bySession.get(key);
+    entry.games.push(g);
+    if (new Date(g.timestamp) > new Date(entry.latestTimestamp)) entry.latestTimestamp = g.timestamp;
+  });
+  const ordered = Array.from(bySession.values()).sort((a, b) => new Date(a.latestTimestamp) - new Date(b.latestTimestamp));
+
+  let cumulativeGames = [];
+  return ordered.map(entry => {
+    cumulativeGames = cumulativeGames.concat(entry.games);
+    const stats = computePlayerStats(player, cumulativeGames);
+    return { timestamp: entry.latestTimestamp, value: stats[metricKey] };
+  }).filter(p => p.value !== null && p.value !== undefined);
 }
 
 // Ermittelt die längste Siegesserie und die längste Verlustserie eines Spielers
@@ -523,6 +575,11 @@ function App() {
 
   // Welcher Spieler wird gerade auf der Statistik-Seite betrachtet
   const [statsPlayerId, setStatsPlayerId] = useState(null);
+
+  // Konfiguration der aufgerufenen Statistik-Detail-Seite (Zeitverlauf oder Trumpf-Balken).
+  // null = keine Detail-Seite offen. { kind: "timeline"|"trumpBar", label, metricKey?,
+  // formatValue?, counts? }
+  const [statDetailConfig, setStatDetailConfig] = useState(null);
 
   // Game States
   const [gamePlayers, setGamePlayers] = useState([]);
@@ -2282,6 +2339,7 @@ function App() {
               setGameDetailReturn("playerStats"); setDetailGameId(link.gameId); setScreen("gameDetail");
             }
           };
+          const openStatDetail = (config) => { setStatDetailConfig(config); setScreen("statDetail"); };
           const streakLinksValue = (streak) => streak.length > 0 ? (
             <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "6px" }}>
               <span>{streak.length}</span>
@@ -2302,6 +2360,8 @@ function App() {
                 {!isStammSpieler(p) && <div style={{ fontSize: "12px", color: "#aaa", marginBottom: "15px" }}>Gast</div>}
                 {isStammSpieler(p) && <div style={{ marginBottom: "15px" }} />}
 
+                <h4 style={{ color: "#888", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "4px" }}>Übersicht</h4>
+
                 <StatCard label="Spiele gesamt" value={stats.gamesPlayed}
                   description="Anzahl aller beendeten Spiele, an denen dieser Spieler teilgenommen hat."
                   formula="n_Spiele" />
@@ -2310,65 +2370,86 @@ function App() {
                   description="Anzahl der Spiele, die dieser Spieler gewonnen hat (geteilter Sieg = Sieg)."
                   formula="n_Spiele mit won = true" />
 
+                <h4 style={{ color: "#888", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>Quoten</h4>
+
                 <StatCard label="Siegquote" value={`${de1(stats.winRate)}%`}
                   description="Anteil der gespielten Spiele, die gewonnen wurden."
-                  formula="Siegquote = (n_Sieg / n_Spiele) × 100, mit n_Sieg = Anzahl gewonnener Spiele, n_Spiele = Anzahl aller Spiele." />
-
-                <StatCard label="Ø angesagte Stiche" value={stats.avgBidTricks !== null ? de2(stats.avgBidTricks) : "—"}
-                  description="Durchschnittliche Anzahl Stiche, die dieser Spieler angesagt hat, wenn er Ansager war."
-                  formula="⌀Ansage = (Σ Ansage_i) / n_Ansager, für alle i ∈ Runden als Ansager, mit n_Ansager = Anzahl dieser Runden." />
-
-                <StatCard label="Lieblingstrumpf" value={stats.favoriteTrump ? `${stats.favoriteTrump.emoji} ${stats.favoriteTrump.label} (${stats.favoriteTrumpCount}×)` : "—"}
-                  description="Der Trumpf, den dieser Spieler als Ansager am häufigsten gewählt hat."
-                  formula="argmax_Trumpf n_Trumpf, wobei n_Trumpf = Häufigkeit dieses Trumpfs über alle Runden als Ansager." />
+                  formula="Siegquote = (n_Sieg / n_Spiele) × 100, mit n_Sieg = Anzahl gewonnener Spiele, n_Spiele = Anzahl aller Spiele."
+                  onDetails={() => openStatDetail({ kind: "timeline", label: "Siegquote", metricKey: "winRate", formatValue: v => `${de1(v)}%` })} />
 
                 <StatCard label="Laufquote" value={`${de1(stats.laufquote)}%`}
                   description="Anteil der mitgespielten Runden, bei denen der Spieler nach oben gelaufen ist (mehr Punkte bekommen hat). 'Raus'-Runden zählen nicht mit."
-                  formula="Laufquote = (n_↑ / n_mit) × 100, mit n_mit = Anzahl 'Mit'-Runden, n_↑ = Anzahl 'Mit'-Runden mit Punktezuwachs (Δ > 0)." />
-
-                <StatCard label="Ø gemachte Stiche" value={stats.avgTricksMade !== null ? de2(stats.avgTricksMade) : "—"}
-                  description="Durchschnittliche Anzahl Stiche, die der Spieler gemacht hat, wenn er mitgegangen ist."
-                  formula="⌀Stiche = (Σ Stiche_i) / n_mit, für alle i ∈ 'Mit'-Runden, mit n_mit = Anzahl dieser Runden." />
+                  formula="Laufquote = (n_↑ / n_mit) × 100, mit n_mit = Anzahl 'Mit'-Runden, n_↑ = Anzahl 'Mit'-Runden mit Punktezuwachs (Δ > 0)."
+                  onDetails={() => openStatDetail({ kind: "timeline", label: "Laufquote", metricKey: "laufquote", formatValue: v => `${de1(v)}%` })} />
 
                 <StatCard label="Rausquote" value={`${de1(stats.rausquote)}%`}
                   description="Anteil aller gespielten Runden, in denen der Spieler raus gegangen ist."
-                  formula="Rausquote = (n_raus / n_Runden) × 100, mit n_Runden = n_mit + n_raus." />
+                  formula="Rausquote = (n_raus / n_Runden) × 100, mit n_Runden = n_mit + n_raus."
+                  onDetails={() => openStatDetail({ kind: "timeline", label: "Rausquote", metricKey: "rausquote", formatValue: v => `${de1(v)}%` })} />
+
+                <h4 style={{ color: "#888", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>Durchschnitt</h4>
+
+                <StatCard label="Ø angesagte Stiche" value={stats.avgBidTricks !== null ? de2(stats.avgBidTricks) : "—"}
+                  description="Durchschnittliche Anzahl Stiche, die dieser Spieler angesagt hat, wenn er Ansager war."
+                  formula="⌀Ansage = (Σ Ansage_i) / n_Ansager, für alle i ∈ Runden als Ansager, mit n_Ansager = Anzahl dieser Runden."
+                  onDetails={() => openStatDetail({ kind: "timeline", label: "Ø angesagte Stiche", metricKey: "avgBidTricks", formatValue: v => de2(v) })} />
+
+                <StatCard label="Ø gemachte Stiche" value={stats.avgTricksMade !== null ? de2(stats.avgTricksMade) : "—"}
+                  description="Durchschnittliche Anzahl Stiche, die der Spieler gemacht hat, wenn er mitgegangen ist."
+                  formula="⌀Stiche = (Σ Stiche_i) / n_mit, für alle i ∈ 'Mit'-Runden, mit n_mit = Anzahl dieser Runden."
+                  onDetails={() => openStatDetail({ kind: "timeline", label: "Ø gemachte Stiche", metricKey: "avgTricksMade", formatValue: v => de2(v) })} />
 
                 <StatCard label="Ø Endpunkte" value={stats.avgFinalScore !== null ? de2(stats.avgFinalScore) : "—"}
                   description="Durchschnittliche Punktzahl, mit der dieser Spieler ein Spiel abgeschlossen hat."
-                  formula="⌀Endpunkte = (Σ Endpunkte_i) / n_Spiele, für alle i ∈ Spiele." />
+                  formula="⌀Endpunkte = (Σ Endpunkte_i) / n_Spiele, für alle i ∈ Spiele."
+                  onDetails={() => openStatDetail({ kind: "timeline", label: "Ø Endpunkte", metricKey: "avgFinalScore", formatValue: v => de2(v) })} />
+
+                <h4 style={{ color: "#888", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>Trumpf</h4>
+
+                <StatCard label="Lieblingstrumpf" value={stats.favoriteTrump ? `${stats.favoriteTrump.emoji} ${stats.favoriteTrump.label} (${stats.favoriteTrumpCount}×)` : "—"}
+                  description="Der Trumpf, den dieser Spieler als Ansager am häufigsten gewählt hat."
+                  formula="argmax_Trumpf n_Trumpf, wobei n_Trumpf = Häufigkeit dieses Trumpfs über alle Runden als Ansager."
+                  onDetails={() => openStatDetail({ kind: "trumpBar", label: "Lieblingstrumpf – Häufigkeit als Ansager gewählt", counts: stats.trumpCounts })} />
+
+                <StatCard label="Bester Trumpf" value={stats.bestTrump ? `${stats.bestTrump.emoji} ${stats.bestTrump.label} (${stats.bestTrumpCount}×)` : "—"}
+                  description="Der Trumpf, mit dem dieser Spieler als Ansager am häufigsten Punkte gutgemacht hat (Betrag egal, nur Häufigkeit zählt)."
+                  formula="argmax_Trumpf n_Trumpf↓, wobei n_Trumpf↓ = Anzahl Runden als Ansager mit diesem Trumpf und Δ < 0."
+                  onDetails={() => openStatDetail({ kind: "trumpBar", label: "Bester Trumpf – Häufigkeit Punkte gutgemacht als Ansager", counts: stats.trumpSuccessCounts })} />
+
+                <StatCard label="Schlechtester Trumpf" value={stats.worstTrump ? `${stats.worstTrump.emoji} ${stats.worstTrump.label} (${stats.worstTrumpCount}×)` : "—"}
+                  description="Der Trumpf, mit dem dieser Spieler als Ansager am häufigsten nach oben gelaufen ist (Betrag egal, nur Häufigkeit zählt)."
+                  formula="argmax_Trumpf n_Trumpf↑, wobei n_Trumpf↑ = Anzahl Runden als Ansager mit diesem Trumpf und Δ > 0."
+                  onDetails={() => openStatDetail({ kind: "trumpBar", label: "Schlechtester Trumpf – Häufigkeit nach oben gelaufen als Ansager", counts: stats.trumpFailureCounts })} />
+
+                <h4 style={{ color: "#888", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>Höchststände & Serien</h4>
 
                 <StatCard label="Höchster Gewinn (Spiel)" value={stats.bestGame ? (
-                    <span onClick={(e) => { e.stopPropagation(); setGameDetailReturn("playerStats"); setDetailGameId(stats.bestGame.id); setScreen("gameDetail"); }} style={{ cursor: "pointer", textDecoration: "underline" }}>
-                      {euro(stats.bestGame.moneyDelta)} <span style={{ fontSize: "12px", color: "#888" }}>({stats.bestGame.date})</span>
-                    </span>
+                    <span>{euro(stats.bestGame.moneyDelta)} <span style={{ fontSize: "12px", color: "#888" }}>({stats.bestGame.date})</span></span>
                   ) : "—"}
-                  description="Das EINZELNE Spiel mit dem höchsten Geldgewinn dieses Spielers. Klick öffnet die Detailansicht dieses Spiels."
-                  formula="argmax_Spiel moneyDelta_Spiel" />
+                  description="Das EINZELNE Spiel mit dem höchsten Geldgewinn dieses Spielers. Details öffnet die Ansicht dieses Spiels."
+                  formula="argmax_Spiel moneyDelta_Spiel"
+                  onDetails={stats.bestGame ? (() => { setGameDetailReturn("playerStats"); setDetailGameId(stats.bestGame.id); setScreen("gameDetail"); }) : undefined} />
 
                 <StatCard label="Höchster Verlust (Spiel)" value={stats.worstGame ? (
-                    <span onClick={(e) => { e.stopPropagation(); setGameDetailReturn("playerStats"); setDetailGameId(stats.worstGame.id); setScreen("gameDetail"); }} style={{ cursor: "pointer", textDecoration: "underline" }}>
-                      {euro(stats.worstGame.moneyDelta)} <span style={{ fontSize: "12px", color: "#888" }}>({stats.worstGame.date})</span>
-                    </span>
+                    <span>{euro(stats.worstGame.moneyDelta)} <span style={{ fontSize: "12px", color: "#888" }}>({stats.worstGame.date})</span></span>
                   ) : "—"}
-                  description="Das EINZELNE Spiel mit dem höchsten Geldverlust dieses Spielers. Klick öffnet die Detailansicht dieses Spiels."
-                  formula="argmin_Spiel moneyDelta_Spiel" />
+                  description="Das EINZELNE Spiel mit dem höchsten Geldverlust dieses Spielers. Details öffnet die Ansicht dieses Spiels."
+                  formula="argmin_Spiel moneyDelta_Spiel"
+                  onDetails={stats.worstGame ? (() => { setGameDetailReturn("playerStats"); setDetailGameId(stats.worstGame.id); setScreen("gameDetail"); }) : undefined} />
 
                 <StatCard label="Höchster Gewinn (Session)" value={stats.bestSession ? (
-                    <span onClick={(e) => { e.stopPropagation(); openSessionOrGameLink({ sessionId: stats.bestSession.sessionId, gameId: stats.bestSession.gameId }); }} style={{ cursor: "pointer", textDecoration: "underline" }}>
-                      {euro(stats.bestSession.sum)} <span style={{ fontSize: "12px", color: "#888" }}>({stats.bestSession.date})</span>
-                    </span>
+                    <span>{euro(stats.bestSession.sum)} <span style={{ fontSize: "12px", color: "#888" }}>({stats.bestSession.date})</span></span>
                   ) : "—"}
-                  description="Die GESAMTE Session (alle darin gespielten Spiele zusammengerechnet) mit dem höchsten Geldgewinn dieses Spielers. Klick öffnet die Session-Übersicht."
-                  formula="argmax_Session (Σ moneyDelta_Spiel), für alle Spiele i ∈ dieser Session." />
+                  description="Die GESAMTE Session (alle darin gespielten Spiele zusammengerechnet) mit dem höchsten Geldgewinn dieses Spielers. Details öffnet die Session-Übersicht."
+                  formula="argmax_Session (Σ moneyDelta_Spiel), für alle Spiele i ∈ dieser Session."
+                  onDetails={stats.bestSession ? (() => openSessionOrGameLink({ sessionId: stats.bestSession.sessionId, gameId: stats.bestSession.gameId })) : undefined} />
 
                 <StatCard label="Höchster Verlust (Session)" value={stats.worstSession ? (
-                    <span onClick={(e) => { e.stopPropagation(); openSessionOrGameLink({ sessionId: stats.worstSession.sessionId, gameId: stats.worstSession.gameId }); }} style={{ cursor: "pointer", textDecoration: "underline" }}>
-                      {euro(stats.worstSession.sum)} <span style={{ fontSize: "12px", color: "#888" }}>({stats.worstSession.date})</span>
-                    </span>
+                    <span>{euro(stats.worstSession.sum)} <span style={{ fontSize: "12px", color: "#888" }}>({stats.worstSession.date})</span></span>
                   ) : "—"}
-                  description="Die GESAMTE Session (alle darin gespielten Spiele zusammengerechnet) mit dem höchsten Geldverlust dieses Spielers. Klick öffnet die Session-Übersicht."
-                  formula="argmin_Session (Σ moneyDelta_Spiel), für alle Spiele i ∈ dieser Session." />
+                  description="Die GESAMTE Session (alle darin gespielten Spiele zusammengerechnet) mit dem höchsten Geldverlust dieses Spielers. Details öffnet die Session-Übersicht."
+                  formula="argmin_Session (Σ moneyDelta_Spiel), für alle Spiele i ∈ dieser Session."
+                  onDetails={stats.worstSession ? (() => openSessionOrGameLink({ sessionId: stats.worstSession.sessionId, gameId: stats.worstSession.gameId })) : undefined} />
 
                 <StatCard label="Größte Siegesserie" value={streakLinksValue(streaks.bestWinStreak)}
                   description="Die meisten am Stück gewonnenen Spiele (chronologisch). Erstreckt sich die Serie über mehrere Sessions, sind alle verlinkt."
@@ -2382,6 +2463,30 @@ function App() {
               <div className="glass" style={{ padding: "20px" }}>
                 <h3 style={{ color: "#f093fb", marginBottom: "12px", fontSize: "15px" }}>📈 Kontostand-Verlauf</h3>
                 <BalanceChart timeline={timeline} />
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* STATISTIK-DETAILSEITE (Zeitverlauf einer Quote/eines Durchschnitts, oder Trumpf-Balkendiagramm) */}
+        {screen === "statDetail" && statDetailConfig && (() => {
+          const p = registry.find(pl => pl.id === statsPlayerId);
+          if (!p) return null;
+          return (
+            <div>
+              <button onClick={() => { setStatDetailConfig(null); setScreen("playerStats"); }} style={{ ...btnStyle, padding: "8px 15px", fontSize: "13px", background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", marginBottom: "15px" }}>
+                ← Zurück zu den Statistiken
+              </button>
+              <div className="glass" style={{ padding: "20px" }}>
+                <h3 style={{ color: "#f9d423", marginBottom: "12px", fontSize: "16px" }}>{statDetailConfig.label}</h3>
+                {statDetailConfig.kind === "timeline" ? (
+                  <MetricTimelineChart
+                    points={computePlayerStatTimeline(p, statDetailConfig.metricKey)}
+                    formatValue={statDetailConfig.formatValue}
+                  />
+                ) : (
+                  <TrumpBarChart counts={statDetailConfig.counts || {}} />
+                )}
               </div>
             </div>
           );
@@ -2653,7 +2758,7 @@ function RoundInlineEditor({ gamePlayers, roundData, onSave, onCancel }) {
 
 // Aufklappbare Statistik-Kachel: zeigt Label + Wert, beim Aufklappen zusätzlich
 // Beschreibung und die genaue Berechnungsformel dieser Kennzahl.
-function StatCard({ label, value, description, formula }) {
+function StatCard({ label, value, description, formula, onDetails }) {
   const [open, setOpen] = useState(false);
   return (
     <div style={{ background: "rgba(0,0,0,0.35)", borderRadius: "10px", marginBottom: "10px", overflow: "hidden" }}>
@@ -2662,7 +2767,12 @@ function StatCard({ label, value, description, formula }) {
           <div style={{ fontSize: "11px", color: "#888", letterSpacing: "0.5px", textTransform: "uppercase", marginBottom: "4px" }}>{label}</div>
           <div style={{ fontSize: "18px", fontWeight: "bold", color: "#00f2fe" }}>{value}</div>
         </div>
-        <span style={{ fontSize: "14px", color: "#888", transform: open ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>▾</span>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          {onDetails && (
+            <button onClick={(e) => { e.stopPropagation(); onDetails(); }} title="Details" style={{ background: "none", border: "none", cursor: "pointer", fontSize: "16px" }}>🔍</button>
+          )}
+          <span style={{ fontSize: "14px", color: "#888", transform: open ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>▾</span>
+        </div>
       </div>
       {open && (
         <div style={{ padding: "0 14px 14px", fontSize: "12px", color: "#ccc", lineHeight: "1.5" }}>
@@ -2672,6 +2782,15 @@ function StatCard({ label, value, description, formula }) {
       )}
     </div>
   );
+}
+
+// Rundet einen positiven Betrag auf die nächste "runde" Zahl bezogen auf seine Zehnerpotenz
+// auf (z.B. 47 -> 50, 230 -> 300, 4 -> 4, 0.6 -> 0.6). Dient dazu, dass Chart-Achsen nicht
+// auf krummen Werten enden, sondern auf runden.
+function roundUpToMagnitude(absValue) {
+  if (absValue === 0) return 0;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(absValue)));
+  return Math.ceil(absValue / magnitude) * magnitude;
 }
 
 // Zeigt den zeitlichen Verlauf des Kontostands eines Spielers als SVG-Liniendiagramm mit
@@ -2691,15 +2810,6 @@ function BalanceChart({ timeline }) {
   const values = timeline.map(t => t.cumulative);
   const rawMinV = Math.min(0, ...values);
   const rawMaxV = Math.max(0, ...values);
-
-  // Rundet einen positiven Betrag auf die nächste "runde" Zahl bezogen auf seine
-  // Zehnerpotenz auf (z.B. 47 -> 50, 230 -> 300, 4 -> 4, 0.6 -> 0.6). Dient dazu, dass die
-  // y-Achse nicht auf krummen Cent-Beträgen wie 47,30€ endet, sondern auf runden Werten.
-  function roundUpToMagnitude(absValue) {
-    if (absValue === 0) return 0;
-    const magnitude = Math.pow(10, Math.floor(Math.log10(absValue)));
-    return Math.ceil(absValue / magnitude) * magnitude;
-  }
 
   const minV = rawMinV < 0 ? -roundUpToMagnitude(Math.abs(rawMinV)) : 0;
   const maxV = rawMaxV > 0 ? roundUpToMagnitude(rawMaxV) : 0;
@@ -2764,6 +2874,108 @@ function BalanceChart({ timeline }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Generisches SVG-Liniendiagramm für den zeitlichen Verlauf EINER Kennzahl (Quote/Durchschnitt),
+// ein Punkt pro Session (kumulativer Stand bis zu diesem Zeitpunkt). Analog zu BalanceChart,
+// aber ohne €-spezifische Formatierung/Farblogik.
+function MetricTimelineChart({ points, formatValue }) {
+  const [selectedIdx, setSelectedIdx] = useState(null);
+
+  if (points.length === 0) {
+    return <div style={{ color: "#666", fontSize: "13px", fontStyle: "italic" }}>Noch keine abgeschlossene Session gespielt.</div>;
+  }
+
+  const width = 320, height = 190;
+  const padLeft = 42, padRight = 12, padTop = 12, padBottom = 34;
+  const plotW = width - padLeft - padRight;
+  const plotH = height - padTop - padBottom;
+
+  const values = points.map(p => p.value);
+  const rawMinV = Math.min(0, ...values);
+  const rawMaxV = Math.max(0, ...values);
+  const minV = rawMinV < 0 ? -roundUpToMagnitude(Math.abs(rawMinV)) : 0;
+  const maxV = rawMaxV > 0 ? roundUpToMagnitude(rawMaxV) : (rawMaxV === 0 ? 1 : rawMaxV);
+  const range = (maxV - minV) || 1;
+  const n = points.length;
+
+  const xFor = i => n === 1 ? padLeft + plotW / 2 : padLeft + (i * plotW / (n - 1));
+  const yFor = v => padTop + plotH - ((v - minV) / range) * plotH;
+  const plotted = points.map((p, i) => ({ x: xFor(i), y: yFor(p.value), ...p }));
+  const pathD = plotted.map((p, i) => (i === 0 ? "M" : "L") + p.x + "," + p.y).join(" ");
+
+  const yTicks = [...new Set([maxV, (maxV + minV) / 2, minV])];
+  const xStep = Math.max(1, Math.ceil(n / 5));
+  const xTickIndices = [];
+  for (let i = 0; i < n; i += xStep) xTickIndices.push(i);
+  if (xTickIndices[xTickIndices.length - 1] !== n - 1) xTickIndices.push(n - 1);
+
+  const selected = selectedIdx !== null ? plotted[selectedIdx] : null;
+
+  return (
+    <div>
+      <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "auto", display: "block" }}>
+        <line x1={padLeft} y1={padTop} x2={padLeft} y2={padTop + plotH} stroke="rgba(255,255,255,0.25)" />
+        {yTicks.map((v, i) => (
+          <g key={i}>
+            <line x1={padLeft - 3} y1={yFor(v)} x2={width - padRight} y2={yFor(v)} stroke="rgba(255,255,255,0.08)" />
+            <text x={padLeft - 6} y={yFor(v) + 3} fontSize="8" fill="#888" textAnchor="end">{formatValue(v)}</text>
+          </g>
+        ))}
+
+        <line x1={padLeft} y1={padTop + plotH} x2={width - padRight} y2={padTop + plotH} stroke="rgba(255,255,255,0.25)" />
+        {xTickIndices.map(i => (
+          <text key={i} x={xFor(i)} y={padTop + plotH + 14} fontSize="8" fill="#888" textAnchor="middle">
+            {new Date(points[i].timestamp).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}
+          </text>
+        ))}
+
+        <path d={pathD} fill="none" stroke="#00f2fe" strokeWidth="2" />
+        {plotted.map((p, i) => (
+          <g key={i} onClick={() => setSelectedIdx(i)} style={{ cursor: "pointer" }}>
+            <circle cx={p.x} cy={p.y} r="10" fill="transparent" />
+            <circle cx={p.x} cy={p.y} r={selectedIdx === i ? 6 : 4} fill="#00f2fe" stroke="#fff" strokeWidth={selectedIdx === i ? 2 : 1} />
+          </g>
+        ))}
+      </svg>
+
+      {selected && (
+        <div style={{ marginTop: "10px", background: "rgba(0,0,0,0.35)", borderRadius: "8px", padding: "10px 12px", fontSize: "13px" }}>
+          <div style={{ color: "#aaa", fontSize: "11px", marginBottom: "3px" }}>
+            {new Date(selected.timestamp).toLocaleDateString("de-DE")}
+          </div>
+          <div>Stand zu diesem Zeitpunkt: <strong style={{ color: "#00f2fe" }}>{formatValue(selected.value)}</strong></div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Horizontales Balkendiagramm für die 4 "normalen" Trümpfe (ohne Herz Blind, da dort kein
+// Ansager existiert) - zeigt z.B. wie oft jeder Trumpf als Ansager gewählt/erfolgreich/
+// gescheitert war.
+function TrumpBarChart({ counts }) {
+  const trumps = SUITS.filter(s => s.id !== "herzblind");
+  const maxCount = Math.max(1, ...trumps.map(t => counts[t.id] || 0));
+  return (
+    <div>
+      {trumps.map(t => {
+        const count = counts[t.id] || 0;
+        const pct = (count / maxCount) * 100;
+        return (
+          <div key={t.id} style={{ marginBottom: "12px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "13px", marginBottom: "4px" }}>
+              <span>{t.emoji} {t.label}</span>
+              <span style={{ fontWeight: "bold", color: "#00f2fe" }}>{count}×</span>
+            </div>
+            <div style={{ background: "rgba(255,255,255,0.08)", borderRadius: "6px", height: "14px", overflow: "hidden" }}>
+              <div style={{ width: `${pct}%`, height: "100%", background: `linear-gradient(90deg, ${t.color}, #00f2fe)`, borderRadius: "6px" }} />
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
