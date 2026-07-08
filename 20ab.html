@@ -632,6 +632,68 @@ function computeSessionStats(games, registry) {
   };
 }
 
+// Definition aller "Auszeichnungen" (Session-Statistik-Kategorien), die ein Spieler über
+// eine Session gewinnen kann. isList=true -> mehrere Spieler können sie gleichzeitig
+// bekommen (statField wird statt eines Einzel-Gewinners geprüft).
+const SESSION_AWARD_DEFS = [
+  { key: "winner", label: "Gewinner", emoji: "💰" },
+  { key: "loser", label: "Verlierer", emoji: "💸" },
+  { key: "sprinter", label: "Sprinter", emoji: "🏃" },
+  { key: "lucker", label: "Lucker", emoji: "🍀" },
+  { key: "pussy", label: "Pussy", emoji: "🙀" },
+  { key: "macher", label: "Macher", emoji: "💪" },
+  { key: "einstellig", label: "Einstellig", emoji: "🔢" },
+  { key: "herzBlindStat", label: "Herz Blind", emoji: "❤️‍🔥" },
+  { key: "biggestWinner", label: "Größter Winner", emoji: "🏆" },
+  { key: "biggestLoser", label: "Größter Looser", emoji: "🤡" },
+  { key: "greedyBastard", label: "Gierigster Bastard", emoji: "🤑" },
+  { key: "tacticalBastard", label: "Taktischer Bastard", emoji: "🧠" },
+  { key: "stillesMaeuschen", label: "Stilles Mäuschen", emoji: "🐭" },
+  { key: "dummkopf", label: "Dummkopf", emoji: "🤪" },
+  { key: "bigBalls", label: "Big Balls", emoji: "🎱" },
+  { key: "machtErEhNet", label: "Macht er eh net", emoji: "🙄", isList: true, statField: "sixBidders" },
+  { key: "staffellauf", label: "Staffellauf", emoji: "🏅" },
+];
+
+// Sammelt alle (nicht gelöschten) Spiele einer Session über die GESAMTE Registry hinweg
+// (nicht nur die eines einzelnen Spielers) - nötig, um computeSessionStats() korrekt mit
+// ALLEN Teilnehmern der Session aufzurufen.
+function getGamesBySessionId(sessionId, registry) {
+  const map = new Map();
+  registry.forEach(p => (p.games || []).forEach(g => {
+    if (g.sessionId === sessionId && !map.has(g.id)) map.set(g.id, g);
+  }));
+  return Array.from(map.values());
+}
+
+// Zählt für EINEN Spieler, wie oft er über ALLE seine Sessions hinweg jede der
+// SESSION_AWARD_DEFS-Auszeichnungen "gewonnen" hat.
+function computePlayerAwards(player, registry) {
+  const games = (player.games || []).filter(g => !g.deleted);
+  const counts = {};
+  SESSION_AWARD_DEFS.forEach(d => { counts[d.key] = 0; });
+
+  const processedKeys = new Set();
+  games.forEach(g => {
+    const key = g.sessionId || `legacy-${g.id}`;
+    if (processedKeys.has(key)) return;
+    processedKeys.add(key);
+
+    const sessionGames = g.sessionId ? getGamesBySessionId(g.sessionId, registry) : [g];
+    const stats = computeSessionStats(sessionGames, registry);
+
+    SESSION_AWARD_DEFS.forEach(d => {
+      if (d.isList) {
+        if ((stats[d.statField] || []).some(e => e.id === player.id)) counts[d.key]++;
+      } else if (stats[d.key] && stats[d.key].id === player.id) {
+        counts[d.key]++;
+      }
+    });
+  });
+
+  return counts;
+}
+
 // Hilfsfunktion zur Neuberechnung aller Kontostände aus den Spieler-Historien
 // Gelöschte Spiele (g.deleted === true) zählen NICHT mehr in den Kontostand,
 // bleiben aber als Datensatz erhalten (für die sichtbare "gelöscht"-Markierung in der Historie).
@@ -2430,103 +2492,103 @@ function App() {
               <div className="glass" style={{ padding: "20px" }}>
                 <h3 style={{ color: "#f9d423", marginBottom: "15px", fontSize: "20px" }}>📊 Session-Statistiken</h3>
 
-                <h4 style={{ color: "#888", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px" }}>Geld</h4>
+                <h4 style={{ color: "#43e97b", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px" }}>💰 Geld</h4>
 
-                <StatCard label="Gewinner" value={stats.winner ? `${stats.winner.name} (${euro(stats.winner.moneyTotal)})` : "—"}
+                <StatCard label="💰 Gewinner" value={stats.winner ? `${stats.winner.name} (${euro(stats.winner.moneyTotal)})` : "—"}
                   description="Der Spieler, der in dieser Session insgesamt das meiste Geld gewonnen hat."
                   formula="argmax_Spieler (Σ moneyDelta), über alle Spiele dieser Session."
                   onDetails={() => openDetail("moneyTotal", "Gewinner – Geldbilanz pro Spieler", v => euro(v))} />
 
-                <StatCard label="Verlierer" value={stats.loser ? `${stats.loser.name} (${euro(stats.loser.moneyTotal)})` : "—"}
+                <StatCard label="💸 Verlierer" value={stats.loser ? `${stats.loser.name} (${euro(stats.loser.moneyTotal)})` : "—"}
                   description="Der Spieler, der in dieser Session insgesamt das meiste Geld verloren hat."
                   formula="argmin_Spieler (Σ moneyDelta), über alle Spiele dieser Session."
                   onDetails={() => openDetail("moneyTotal", "Verlierer – Geldbilanz pro Spieler", v => euro(v))} />
 
-                <h4 style={{ color: "#888", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>Verhalten</h4>
+                <h4 style={{ color: "#f7971e", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>🎭 Verhalten</h4>
 
-                <StatCard label="Sprinter" value={stats.sprinter ? `${stats.sprinter.name} (${stats.sprinter.sprinterCount}×)` : "—"}
+                <StatCard label="🏃 Sprinter" value={stats.sprinter ? `${stats.sprinter.name} (${stats.sprinter.sprinterCount}×)` : "—"}
                   description="Wer in dieser Session am häufigsten (mitgespielt) nach oben gelaufen ist."
                   formula="argmax_Spieler n_↑, mit n_↑ = Anzahl 'Mit'-Runden mit Punktezuwachs (Δ > 0)."
                   onDetails={() => openDetail("sprinterCount", "Sprinter – Anzahl nach oben gelaufen", v => `${v}×`)} />
 
-                <StatCard label="Lucker" value={stats.lucker ? `${stats.lucker.name} (${stats.lucker.luckerCount}×)` : "—"}
+                <StatCard label="🍀 Lucker" value={stats.lucker ? `${stats.lucker.name} (${stats.lucker.luckerCount}×)` : "—"}
                   description="Wer in dieser Session am häufigsten (mitgespielt) Punkte nach unten gemacht hat."
                   formula="argmax_Spieler n_↓, mit n_↓ = Anzahl 'Mit'-Runden mit Punkteabbau (Δ < 0)."
                   onDetails={() => openDetail("luckerCount", "Lucker – Anzahl Punkte gutgemacht", v => `${v}×`)} />
 
-                <StatCard label="Pussy" value={stats.pussy ? `${stats.pussy.name} (${stats.pussy.rausCount}×)` : "—"}
+                <StatCard label="🙀 Pussy" value={stats.pussy ? `${stats.pussy.name} (${stats.pussy.rausCount}×)` : "—"}
                   description="Wer in dieser Session am häufigsten raus gegangen ist (freiwillig oder unfreiwillig)."
                   formula="argmax_Spieler n_raus, über alle Runden dieser Session."
                   onDetails={() => openDetail("rausCount", "Pussy – Anzahl raus gegangen", v => `${v}×`)} />
 
-                <StatCard label="Macher" value={stats.macher ? `${stats.macher.name} (${stats.macher.macherCount}×)` : "—"}
+                <StatCard label="💪 Macher" value={stats.macher ? `${stats.macher.name} (${stats.macher.macherCount}×)` : "—"}
                   description="Wer am häufigsten FREIWILLIG mitgespielt hat (also 'mit' war, obwohl er auch raus hätte gehen können - Pflicht-Runden zählen nicht)."
                   formula="argmax_Spieler n_freiwillig-mit, gezählt für Runden mit Status 'mit', in denen der Spieler NICHT zum Mitgehen gezwungen war."
                   onDetails={() => openDetail("macherCount", "Macher – freiwillig mitgespielt", v => `${v}×`)} />
 
-                <h4 style={{ color: "#888", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>Punktestand</h4>
+                <h4 style={{ color: "#00f2fe", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>🔢 Punktestand</h4>
 
-                <StatCard label="Einstellig" value={stats.einstellig ? `${stats.einstellig.name} (${stats.einstellig.einstelligCount}×)` : "—"}
+                <StatCard label="🔢 Einstellig" value={stats.einstellig ? `${stats.einstellig.name} (${stats.einstellig.einstelligCount}×)` : "—"}
                   description="Wer am häufigsten mit einer einstelligen Punktzahl (1-9) in eine Runde gestartet ist."
                   formula="argmax_Spieler n_einstellig, mit n_einstellig = Anzahl Runden mit Punktestand 1-9 zu Rundenbeginn."
                   onDetails={() => openDetail("einstelligCount", "Einstellig – Rundenstart mit 1-9 Punkten", v => `${v}×`)} />
 
-                <StatCard label="Herz Blind" value={stats.herzBlindStat ? `${stats.herzBlindStat.name} (${stats.herzBlindStat.over50Count}×)` : "—"}
+                <StatCard label="❤️‍🔥 Herz Blind" value={stats.herzBlindStat ? `${stats.herzBlindStat.name} (${stats.herzBlindStat.over50Count}×)` : "—"}
                   description="Wer am häufigsten mit über 50 Punkten in eine Runde gestartet ist (analog zur echten Herz-Blind-Berechtigungsregel, die diese App sonst nicht prüft)."
                   formula="argmax_Spieler n_>50, mit n_>50 = Anzahl Runden mit Punktestand > 50 zu Rundenbeginn."
                   onDetails={() => openDetail("over50Count", "Herz Blind – Rundenstart mit über 50 Punkten", v => `${v}×`)} />
 
-                <h4 style={{ color: "#888", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>Spiele</h4>
+                <h4 style={{ color: "#ff4e50", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>🎮 Spiele</h4>
 
-                <StatCard label="Größter Winner" value={stats.biggestWinner ? `${stats.biggestWinner.name} (${stats.biggestWinner.gamesWon}×)` : "—"}
+                <StatCard label="🏆 Größter Winner" value={stats.biggestWinner ? `${stats.biggestWinner.name} (${stats.biggestWinner.gamesWon}×)` : "—"}
                   description="Wer in dieser Session die meisten Spiele gewonnen hat (Betrag egal, nur Anzahl)."
                   formula="argmax_Spieler n_Siege, über alle Spiele dieser Session."
                   onDetails={() => openDetail("gamesWon", "Größter Winner – gewonnene Spiele", v => `${v}×`)} />
 
-                <StatCard label="Größter Looser" value={stats.biggestLoser ? `${stats.biggestLoser.name} (${stats.biggestLoser.gamesLost}×)` : "—"}
+                <StatCard label="🤡 Größter Looser" value={stats.biggestLoser ? `${stats.biggestLoser.name} (${stats.biggestLoser.gamesLost}×)` : "—"}
                   description="Wer in dieser Session die meisten Spiele verloren hat (Betrag egal, nur Anzahl)."
                   formula="argmax_Spieler n_Niederlagen, über alle Spiele dieser Session."
                   onDetails={() => openDetail("gamesLost", "Größter Looser – verlorene Spiele", v => `${v}×`)} />
 
-                <h4 style={{ color: "#888", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>Ansage</h4>
+                <h4 style={{ color: "#f9d423", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>📣 Ansage</h4>
 
-                <StatCard label="Gierigster Bastard" value={stats.greedyBastard ? `${stats.greedyBastard.name} (${stats.greedyBastard.bidTricksTotal})` : "—"}
+                <StatCard label="🤑 Gierigster Bastard" value={stats.greedyBastard ? `${stats.greedyBastard.name} (${stats.greedyBastard.bidTricksTotal})` : "—"}
                   description="Wer in dieser Session insgesamt die meisten Stiche angesagt hat (Summe, nicht Durchschnitt)."
                   formula="argmax_Spieler (Σ Ansage), über alle Runden als Ansager."
                   onDetails={() => openDetail("bidTricksTotal", "Gierigster Bastard – Summe angesagter Stiche", v => `${v}`)} />
 
-                <StatCard label="Taktischer Bastard" value={stats.tacticalBastard ? `${stats.tacticalBastard.name} (${stats.tacticalBastard.tacticCount}×)` : "—"}
+                <StatCard label="🧠 Taktischer Bastard" value={stats.tacticalBastard ? `${stats.tacticalBastard.name} (${stats.tacticalBastard.tacticCount}×)` : "—"}
                   description="Wer am häufigsten mitgespielt hat, obwohl (bzw. gerade als) der Ansager in dieser Runde nach oben gelaufen ist."
                   formula="argmax_Spieler n_Mit-bei-Ansager-Fail, gezählt für alle Nicht-Ansager-Spieler mit Status 'mit' in Runden, in denen der Ansager Δ > 0 hatte."
                   onDetails={() => openDetail("tacticCount", "Taktischer Bastard – Mitgespielt bei Ansager-Fail", v => `${v}×`)} />
 
-                <StatCard label="Stilles Mäuschen" value={stats.stillesMaeuschen ? `${stats.stillesMaeuschen.name} (${stats.stillesMaeuschen.bidTricksTotal})` : "—"}
+                <StatCard label="🐭 Stilles Mäuschen" value={stats.stillesMaeuschen ? `${stats.stillesMaeuschen.name} (${stats.stillesMaeuschen.bidTricksTotal})` : "—"}
                   description="Der Spieler, der als Ansager insgesamt am wenigsten Stiche angesagt hat (Summe, nicht Durchschnitt). Nur Spieler, die mindestens einmal Ansager waren, zählen mit."
                   formula="argmin_Spieler (Σ Ansage), über alle Runden als Ansager, nur für Spieler mit n_Ansager > 0."
                   onDetails={() => openDetail("bidTricksTotal", "Stilles Mäuschen – Summe angesagter Stiche", v => `${v}`)} />
 
-                <StatCard label="Dummkopf" value={stats.dummkopf ? `${stats.dummkopf.name} (${stats.dummkopf.ansagerFailCount}×)` : "—"}
+                <StatCard label="🤪 Dummkopf" value={stats.dummkopf ? `${stats.dummkopf.name} (${stats.dummkopf.ansagerFailCount}×)` : "—"}
                   description="Wer als Ansager am häufigsten sein eigenes Ansage-Ziel verfehlt hat (nach oben gelaufen ist)."
                   formula="argmax_Spieler n_Ansager-Fail, mit n_Ansager-Fail = Anzahl Runden als Ansager mit Δ > 0."
                   onDetails={() => openDetail("ansagerFailCount", "Dummkopf – als Ansager gelaufen", v => `${v}×`)} />
 
-                <StatCard label="Big Balls" value={stats.bigBalls ? `${stats.bigBalls.name} (${stats.bigBalls.bigBallsCount}×)` : "—"}
+                <StatCard label="🎱 Big Balls" value={stats.bigBalls ? `${stats.bigBalls.name} (${stats.bigBalls.bigBallsCount}×)` : "—"}
                   description="Wer als Ansager am häufigsten 3 oder mehr Stiche angesagt hat."
                   formula="argmax_Spieler n_≥3, mit n_≥3 = Anzahl Runden als Ansager mit Ansage ≥ 3."
                   onDetails={() => openDetail("bigBallsCount", "Big Balls – Ansage ≥ 3 Stiche", v => `${v}×`)} />
 
-                <StatCard label="Macht er eh net" value={stats.sixBidders.length > 0 ? stats.sixBidders.map(e => `${e.name} (${e.bidSixCount}×)`).join(", ") : "Niemand"}
+                <StatCard label="🙄 Macht er eh net" value={stats.sixBidders.length > 0 ? stats.sixBidders.map(e => `${e.name} (${e.bidSixCount}×)`).join(", ") : "Niemand"}
                   description="Jeder Spieler, der in dieser Session mindestens einmal alle 6 Stiche als Ansager angesagt hat. Hat das niemand getan, steht hier 'Niemand'."
                   formula="{ Spieler : bidSixCount > 0 }, mit bidSixCount = Anzahl Runden als Ansager mit Ansage = 6."
                   onDetails={() => openDetail("bidSixCount", "Macht er eh net – Ansage von genau 6 Stichen", v => `${v}×`)} />
 
-                <h4 style={{ color: "#888", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>Spaß</h4>
+                <h4 style={{ color: "#7b1fa2", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>🎉 Spaß</h4>
 
-                <StatCard label="Adi bei Herz gelaufen" value={`${stats.adiHerzRuns.count}×`}
+                <StatCard label="😂 Adi bei Herz gelaufen" value={`${stats.adiHerzRuns.count}×`}
                   description="Wie oft Stammspieler Adi in dieser Session bei Herz nach oben gelaufen ist. War Adi nicht dabei, ist der Wert 0."
                   formula="n_↑ für Adi, mit Trumpf = Herz und Δ > 0 (nur 'Mit'-Runden)." />
 
-                <StatCard label="Staffellauf" value={stats.staffellauf ? `${stats.staffellauf.name} (${stats.staffellauf.herzRunCount}×)` : "—"}
+                <StatCard label="🏅 Staffellauf" value={stats.staffellauf ? `${stats.staffellauf.name} (${stats.staffellauf.herzRunCount}×)` : "—"}
                   description="Wer in dieser Session am häufigsten bei Herz nach oben gelaufen ist (alle Spieler, nicht nur Adi)."
                   formula="argmax_Spieler n_↑Herz, mit n_↑Herz = Anzahl 'Mit'-Runden mit Trumpf = Herz und Δ > 0."
                   onDetails={() => openDetail("herzRunCount", "Staffellauf – bei Herz nach oben gelaufen", v => `${v}×`)} />
@@ -2651,110 +2713,115 @@ function App() {
           ) : "—";
           return (
             <div>
-              <button onClick={() => setScreen("home")} style={{ ...btnStyle, padding: "8px 15px", fontSize: "13px", background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", marginBottom: "15px" }}>
-                ← Zurück
-              </button>
+              <div style={{ display: "flex", gap: "8px", marginBottom: "15px" }}>
+                <button onClick={() => setScreen("home")} style={{ ...btnStyle, padding: "8px 15px", fontSize: "13px", background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)" }}>
+                  ← Zurück
+                </button>
+                <button onClick={() => setScreen("playerAwards")} style={{ ...btnStyle, padding: "8px 15px", fontSize: "13px", background: "linear-gradient(45deg, #f9d423, #ff8c00)", color: "#000" }}>
+                  🏅 Auszeichnungen
+                </button>
+              </div>
               <div className="glass" style={{ padding: "20px" }}>
                 <h3 style={{ color: "#f9d423", marginBottom: "4px", fontSize: "20px" }}>📊 {p.name}</h3>
                 {!isStammSpieler(p) && <div style={{ fontSize: "12px", color: "#aaa", marginBottom: "15px" }}>Gast</div>}
                 {isStammSpieler(p) && <div style={{ marginBottom: "15px" }} />}
 
-                <h4 style={{ color: "#888", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "4px" }}>Übersicht</h4>
+                <h4 style={{ color: "#00f2fe", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "4px" }}>🔎 Übersicht</h4>
 
-                <StatCard label="Spiele gesamt" value={stats.gamesPlayed}
+                <StatCard label="🎮 Spiele gesamt" value={stats.gamesPlayed}
                   description="Anzahl aller beendeten Spiele, an denen dieser Spieler teilgenommen hat."
                   formula="n_Spiele" />
 
-                <StatCard label="Siege" value={stats.gamesWon}
+                <StatCard label="🏆 Siege" value={stats.gamesWon}
                   description="Anzahl der Spiele, die dieser Spieler gewonnen hat (geteilter Sieg = Sieg)."
                   formula="n_Spiele mit won = true" />
 
-                <h4 style={{ color: "#888", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>Quoten</h4>
+                <h4 style={{ color: "#f7971e", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>📈 Quoten</h4>
 
-                <StatCard label="Siegquote" value={`${de1(stats.winRate)}%`}
+                <StatCard label="📊 Siegquote" value={`${de1(stats.winRate)}%`}
                   description="Anteil der gespielten Spiele, die gewonnen wurden."
                   formula="Siegquote = (n_Sieg / n_Spiele) × 100, mit n_Sieg = Anzahl gewonnener Spiele, n_Spiele = Anzahl aller Spiele."
                   onDetails={() => openStatDetail({ kind: "timeline", label: "Siegquote", metricKey: "winRate", formatValue: v => `${de1(v)}%` })} />
 
-                <StatCard label="Laufquote" value={`${de1(stats.laufquote)}%`}
+                <StatCard label="⬆️ Laufquote" value={`${de1(stats.laufquote)}%`}
                   description="Anteil der mitgespielten Runden, bei denen der Spieler nach oben gelaufen ist (mehr Punkte bekommen hat). 'Raus'-Runden zählen nicht mit."
                   formula="Laufquote = (n_↑ / n_mit) × 100, mit n_mit = Anzahl 'Mit'-Runden, n_↑ = Anzahl 'Mit'-Runden mit Punktezuwachs (Δ > 0)."
                   onDetails={() => openStatDetail({ kind: "timeline", label: "Laufquote", metricKey: "laufquote", formatValue: v => `${de1(v)}%` })} />
 
-                <StatCard label="Rausquote" value={`${de1(stats.rausquote)}%`}
+                <StatCard label="🚪 Rausquote" value={`${de1(stats.rausquote)}%`}
                   description="Anteil aller gespielten Runden, in denen der Spieler raus gegangen ist."
                   formula="Rausquote = (n_raus / n_Runden) × 100, mit n_Runden = n_mit + n_raus."
                   onDetails={() => openStatDetail({ kind: "timeline", label: "Rausquote", metricKey: "rausquote", formatValue: v => `${de1(v)}%` })} />
 
-                <h4 style={{ color: "#888", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>Durchschnitt</h4>
+                <h4 style={{ color: "#43e97b", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>📐 Durchschnitt</h4>
 
-                <StatCard label="Ø angesagte Stiche" value={stats.avgBidTricks !== null ? de2(stats.avgBidTricks) : "—"}
+                <StatCard label="📣 Ø angesagte Stiche" value={stats.avgBidTricks !== null ? de2(stats.avgBidTricks) : "—"}
                   description="Durchschnittliche Anzahl Stiche, die dieser Spieler angesagt hat, wenn er Ansager war."
                   formula="⌀Ansage = (Σ Ansage_i) / n_Ansager, für alle i ∈ Runden als Ansager, mit n_Ansager = Anzahl dieser Runden."
                   onDetails={() => openStatDetail({ kind: "timeline", label: "Ø angesagte Stiche", metricKey: "avgBidTricks", formatValue: v => de2(v) })} />
 
-                <StatCard label="Ø gemachte Stiche" value={stats.avgTricksMade !== null ? de2(stats.avgTricksMade) : "—"}
+                <StatCard label="🃏 Ø gemachte Stiche" value={stats.avgTricksMade !== null ? de2(stats.avgTricksMade) : "—"}
                   description="Durchschnittliche Anzahl Stiche, die der Spieler gemacht hat, wenn er mitgegangen ist."
                   formula="⌀Stiche = (Σ Stiche_i) / n_mit, für alle i ∈ 'Mit'-Runden, mit n_mit = Anzahl dieser Runden."
                   onDetails={() => openStatDetail({ kind: "timeline", label: "Ø gemachte Stiche", metricKey: "avgTricksMade", formatValue: v => de2(v) })} />
 
-                <StatCard label="Ø Endpunkte" value={stats.avgFinalScore !== null ? de2(stats.avgFinalScore) : "—"}
+                <StatCard label="🎯 Ø Endpunkte" value={stats.avgFinalScore !== null ? de2(stats.avgFinalScore) : "—"}
                   description="Durchschnittliche Punktzahl, mit der dieser Spieler ein Spiel abgeschlossen hat."
                   formula="⌀Endpunkte = (Σ Endpunkte_i) / n_Spiele, für alle i ∈ Spiele."
                   onDetails={() => openStatDetail({ kind: "timeline", label: "Ø Endpunkte", metricKey: "avgFinalScore", formatValue: v => de2(v) })} />
 
-                <h4 style={{ color: "#888", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>Trumpf</h4>
+                <h4 style={{ color: "#ff4e50", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>🃏 Trumpf</h4>
 
-                <StatCard label="Lieblingstrumpf" value={stats.favoriteTrump ? `${stats.favoriteTrump.emoji} ${stats.favoriteTrump.label} (${stats.favoriteTrumpCount}×)` : "—"}
+                <StatCard label="❤️ Lieblingstrumpf" value={stats.favoriteTrump ? `${stats.favoriteTrump.emoji} ${stats.favoriteTrump.label} (${stats.favoriteTrumpCount}×)` : "—"}
                   description="Der Trumpf, den dieser Spieler als Ansager am häufigsten gewählt hat."
                   formula="argmax_Trumpf n_Trumpf, wobei n_Trumpf = Häufigkeit dieses Trumpfs über alle Runden als Ansager."
                   onDetails={() => openStatDetail({ kind: "trumpBar", label: "Lieblingstrumpf – Häufigkeit als Ansager gewählt", counts: stats.trumpCounts })} />
 
-                <StatCard label="Bester Trumpf" value={stats.bestTrump ? `${stats.bestTrump.emoji} ${stats.bestTrump.label} (${stats.bestTrumpCount}×)` : "—"}
+                <StatCard label="✅ Bester Trumpf" value={stats.bestTrump ? `${stats.bestTrump.emoji} ${stats.bestTrump.label} (${stats.bestTrumpCount}×)` : "—"}
                   description="Der Trumpf, mit dem dieser Spieler als Ansager am häufigsten Punkte gutgemacht hat (Betrag egal, nur Häufigkeit zählt)."
                   formula="argmax_Trumpf n_Trumpf↓, wobei n_Trumpf↓ = Anzahl Runden als Ansager mit diesem Trumpf und Δ < 0."
                   onDetails={() => openStatDetail({ kind: "trumpBar", label: "Bester Trumpf – Häufigkeit Punkte gutgemacht als Ansager", counts: stats.trumpSuccessCounts })} />
 
-                <StatCard label="Schlechtester Trumpf" value={stats.worstTrump ? `${stats.worstTrump.emoji} ${stats.worstTrump.label} (${stats.worstTrumpCount}×)` : "—"}
+                <StatCard label="❌ Schlechtester Trumpf" value={stats.worstTrump ? `${stats.worstTrump.emoji} ${stats.worstTrump.label} (${stats.worstTrumpCount}×)` : "—"}
                   description="Der Trumpf, mit dem dieser Spieler als Ansager am häufigsten nach oben gelaufen ist (Betrag egal, nur Häufigkeit zählt)."
                   formula="argmax_Trumpf n_Trumpf↑, wobei n_Trumpf↑ = Anzahl Runden als Ansager mit diesem Trumpf und Δ > 0."
                   onDetails={() => openStatDetail({ kind: "trumpBar", label: "Schlechtester Trumpf – Häufigkeit nach oben gelaufen als Ansager", counts: stats.trumpFailureCounts })} />
 
-                <h4 style={{ color: "#888", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>Höchststände & Serien</h4>
+                <h4 style={{ color: "#f9d423", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>🏆 Höchststände & Serien</h4>
 
-                <StatCard label="Höchster Gewinn (Spiel)" value={stats.bestGame ? (
+                <StatCard label="💵 Höchster Gewinn (Spiel)" value={stats.bestGame ? (
                     <span>{euro(stats.bestGame.moneyDelta)} <span style={{ fontSize: "12px", color: "#888" }}>({stats.bestGame.date})</span></span>
                   ) : "—"}
                   description="Das EINZELNE Spiel mit dem höchsten Geldgewinn dieses Spielers. Details öffnet die Ansicht dieses Spiels."
                   formula="argmax_Spiel moneyDelta_Spiel"
                   onDetails={stats.bestGame ? (() => { setGameDetailReturn("playerStats"); setDetailGameId(stats.bestGame.id); setScreen("gameDetail"); }) : undefined} />
 
-                <StatCard label="Höchster Verlust (Spiel)" value={stats.worstGame ? (
+                <StatCard label="💸 Höchster Verlust (Spiel)" value={stats.worstGame ? (
                     <span>{euro(stats.worstGame.moneyDelta)} <span style={{ fontSize: "12px", color: "#888" }}>({stats.worstGame.date})</span></span>
                   ) : "—"}
                   description="Das EINZELNE Spiel mit dem höchsten Geldverlust dieses Spielers. Details öffnet die Ansicht dieses Spiels."
                   formula="argmin_Spiel moneyDelta_Spiel"
                   onDetails={stats.worstGame ? (() => { setGameDetailReturn("playerStats"); setDetailGameId(stats.worstGame.id); setScreen("gameDetail"); }) : undefined} />
 
-                <StatCard label="Höchster Gewinn (Session)" value={stats.bestSession ? (
+                <StatCard label="💰 Höchster Gewinn (Session)" value={stats.bestSession ? (
                     <span>{euro(stats.bestSession.sum)} <span style={{ fontSize: "12px", color: "#888" }}>({stats.bestSession.date})</span></span>
                   ) : "—"}
                   description="Die GESAMTE Session (alle darin gespielten Spiele zusammengerechnet) mit dem höchsten Geldgewinn dieses Spielers. Details öffnet die Session-Übersicht."
                   formula="argmax_Session (Σ moneyDelta_Spiel), für alle Spiele i ∈ dieser Session."
                   onDetails={stats.bestSession ? (() => openSessionOrGameLink({ sessionId: stats.bestSession.sessionId, gameId: stats.bestSession.gameId })) : undefined} />
 
-                <StatCard label="Höchster Verlust (Session)" value={stats.worstSession ? (
+                <StatCard label="📉 Höchster Verlust (Session)" value={stats.worstSession ? (
                     <span>{euro(stats.worstSession.sum)} <span style={{ fontSize: "12px", color: "#888" }}>({stats.worstSession.date})</span></span>
                   ) : "—"}
                   description="Die GESAMTE Session (alle darin gespielten Spiele zusammengerechnet) mit dem höchsten Geldverlust dieses Spielers. Details öffnet die Session-Übersicht."
                   formula="argmin_Session (Σ moneyDelta_Spiel), für alle Spiele i ∈ dieser Session."
                   onDetails={stats.worstSession ? (() => openSessionOrGameLink({ sessionId: stats.worstSession.sessionId, gameId: stats.worstSession.gameId })) : undefined} />
 
-                <StatCard label="Größte Siegesserie" value={streakLinksValue(streaks.bestWinStreak)}
+                <StatCard label="🔥 Größte Siegesserie" value={streakLinksValue(streaks.bestWinStreak)}
                   description="Die meisten am Stück gewonnenen Spiele (chronologisch). Erstreckt sich die Serie über mehrere Sessions, sind alle verlinkt."
                   formula="max Länge einer zusammenhängenden Folge von Spielen mit won = true." />
 
-                <StatCard label="Größte Verlustserie" value={streakLinksValue(streaks.bestLossStreak)}
+                <StatCard label="❄️ Größte Verlustserie" value={streakLinksValue(streaks.bestLossStreak)}
                   description="Die meisten am Stück verlorenen Spiele (chronologisch). Erstreckt sich die Serie über mehrere Sessions, sind alle verlinkt."
                   formula="max Länge einer zusammenhängenden Folge von Spielen mit won = false." />
               </div>
@@ -2762,6 +2829,40 @@ function App() {
               <div className="glass" style={{ padding: "20px" }}>
                 <h3 style={{ color: "#f093fb", marginBottom: "12px", fontSize: "15px" }}>📈 Kontostand-Verlauf</h3>
                 <BalanceChart timeline={timeline} />
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* AUSZEICHNUNGEN: wie oft dieser Spieler jede Session-Statistik-Kategorie über alle seine Sessions hinweg "gewonnen" hat */}
+        {screen === "playerAwards" && (() => {
+          const p = registry.find(pl => pl.id === statsPlayerId);
+          if (!p) {
+            return (
+              <div className="glass" style={{ padding: "20px", textAlign: "center", color: "#aaa" }}>
+                Spieler nicht gefunden.
+                <div style={{ marginTop: "15px" }}>
+                  <button onClick={() => setScreen("home")} style={{ ...btnStyle, background: "rgba(255,255,255,0.1)" }}>← Zurück</button>
+                </div>
+              </div>
+            );
+          }
+          const awardCounts = computePlayerAwards(p, registry);
+          return (
+            <div>
+              <button onClick={() => setScreen("playerStats")} style={{ ...btnStyle, padding: "8px 15px", fontSize: "13px", background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", marginBottom: "15px" }}>
+                ← Zurück zu den Statistiken
+              </button>
+              <div className="glass" style={{ padding: "20px" }}>
+                <h3 style={{ color: "#f9d423", marginBottom: "4px", fontSize: "20px" }}>🏅 Auszeichnungen von {p.name}</h3>
+                <p style={{ fontSize: "12px", color: "#aaa", marginBottom: "15px" }}>
+                  Wie oft {p.name} in einer Session die jeweilige Auszeichnung geholt hat.
+                </p>
+                {SESSION_AWARD_DEFS.map(d => (
+                  <StatCard key={d.key} label={`${d.emoji} ${d.label}`} value={`${awardCounts[d.key]}×`}
+                    description={`Anzahl Sessions, in denen ${p.name} die Auszeichnung "${d.label}" erhalten hat.`}
+                    formula={`n_Sessions mit ${d.label}-Gewinner = ${p.name}`} />
+                ))}
               </div>
             </div>
           );
