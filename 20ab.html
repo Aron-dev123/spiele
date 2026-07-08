@@ -335,10 +335,10 @@ function computePlayerStats(player) {
     }
   });
 
-  // Endpunkte + bestes/schlechtestes Einzelspiel (nach moneyDelta) über alle Spiele hinweg
+  // Endpunkte + bestes/schlechtestes EINZELSPIEL (nach moneyDelta) über alle Spiele hinweg
   let finalScoreSum = 0;
-  let bestGame = null;  // { id, date, moneyDelta } mit dem höchsten Gewinn
-  let worstGame = null; // { id, date, moneyDelta } mit dem höchsten Verlust
+  let bestGame = null;  // { id, date, moneyDelta } mit dem höchsten Gewinn EINES SPIELS
+  let worstGame = null; // { id, date, moneyDelta } mit dem höchsten Verlust EINES SPIELS
   games.forEach(g => {
     const myIdx = g.players.findIndex(pl => pl.id === player.id);
     finalScoreSum += g.finalScores[myIdx];
@@ -348,12 +348,36 @@ function computePlayerStats(player) {
   });
   const avgFinalScore = gamesPlayed > 0 ? finalScoreSum / gamesPlayed : null;
 
+  // Bestes/schlechtestes GESAMTERGEBNIS EINER SESSION (Summe aller moneyDelta-Werte
+  // dieses Spielers über alle Spiele derselben Session). Spiele ohne sessionId (Legacy,
+  // vor dem Session-Feature) zählen als eigenständige "Ein-Spiel-Session".
+  const sessionTotals = new Map(); // key -> { sessionId, gameId, date, sum, latestTimestamp }
+  games.forEach(g => {
+    const key = g.sessionId || `legacy-${g.id}`;
+    if (!sessionTotals.has(key)) {
+      sessionTotals.set(key, { sessionId: g.sessionId || null, gameId: g.id, date: g.date, sum: 0, latestTimestamp: g.timestamp });
+    }
+    const entry = sessionTotals.get(key);
+    entry.sum += g.moneyDelta;
+    if (new Date(g.timestamp) > new Date(entry.latestTimestamp)) {
+      entry.latestTimestamp = g.timestamp;
+      entry.date = g.date;
+    }
+  });
+  let bestSession = null;  // { sessionId, gameId, date, sum } mit dem höchsten Gewinn EINER SESSION
+  let worstSession = null; // { sessionId, gameId, date, sum } mit dem höchsten Verlust EINER SESSION
+  sessionTotals.forEach(entry => {
+    if (!bestSession || entry.sum > bestSession.sum) bestSession = entry;
+    if (!worstSession || entry.sum < worstSession.sum) worstSession = entry;
+  });
+
   return {
     gamesPlayed, gamesWon, winRate,
     avgBidTricks, favoriteTrump, favoriteTrumpCount,
     totalRounds, mitRounds, rausRounds, laufRounds,
     laufquote, rausquote, avgTricksMade,
     avgFinalScore, bestGame, worstGame,
+    bestSession, worstSession,
   };
 }
 
@@ -2314,21 +2338,37 @@ function App() {
                   description="Durchschnittliche Punktzahl, mit der dieser Spieler ein Spiel abgeschlossen hat."
                   formula="⌀Endpunkte = (Σ Endpunkte_i) / n_Spiele, für alle i ∈ Spiele." />
 
-                <StatCard label="Höchster Gewinn" value={stats.bestGame ? (
+                <StatCard label="Höchster Gewinn (Spiel)" value={stats.bestGame ? (
                     <span onClick={(e) => { e.stopPropagation(); setGameDetailReturn("playerStats"); setDetailGameId(stats.bestGame.id); setScreen("gameDetail"); }} style={{ cursor: "pointer", textDecoration: "underline" }}>
                       {euro(stats.bestGame.moneyDelta)} <span style={{ fontSize: "12px", color: "#888" }}>({stats.bestGame.date})</span>
                     </span>
                   ) : "—"}
-                  description="Das Spiel mit dem höchsten Geldgewinn dieses Spielers. Klick öffnet die Detailansicht dieses Spiels."
+                  description="Das EINZELNE Spiel mit dem höchsten Geldgewinn dieses Spielers. Klick öffnet die Detailansicht dieses Spiels."
                   formula="argmax_Spiel moneyDelta_Spiel" />
 
-                <StatCard label="Höchster Verlust" value={stats.worstGame ? (
+                <StatCard label="Höchster Verlust (Spiel)" value={stats.worstGame ? (
                     <span onClick={(e) => { e.stopPropagation(); setGameDetailReturn("playerStats"); setDetailGameId(stats.worstGame.id); setScreen("gameDetail"); }} style={{ cursor: "pointer", textDecoration: "underline" }}>
                       {euro(stats.worstGame.moneyDelta)} <span style={{ fontSize: "12px", color: "#888" }}>({stats.worstGame.date})</span>
                     </span>
                   ) : "—"}
-                  description="Das Spiel mit dem höchsten Geldverlust dieses Spielers. Klick öffnet die Detailansicht dieses Spiels."
+                  description="Das EINZELNE Spiel mit dem höchsten Geldverlust dieses Spielers. Klick öffnet die Detailansicht dieses Spiels."
                   formula="argmin_Spiel moneyDelta_Spiel" />
+
+                <StatCard label="Höchster Gewinn (Session)" value={stats.bestSession ? (
+                    <span onClick={(e) => { e.stopPropagation(); openSessionOrGameLink({ sessionId: stats.bestSession.sessionId, gameId: stats.bestSession.gameId }); }} style={{ cursor: "pointer", textDecoration: "underline" }}>
+                      {euro(stats.bestSession.sum)} <span style={{ fontSize: "12px", color: "#888" }}>({stats.bestSession.date})</span>
+                    </span>
+                  ) : "—"}
+                  description="Die GESAMTE Session (alle darin gespielten Spiele zusammengerechnet) mit dem höchsten Geldgewinn dieses Spielers. Klick öffnet die Session-Übersicht."
+                  formula="argmax_Session (Σ moneyDelta_Spiel), für alle Spiele i ∈ dieser Session." />
+
+                <StatCard label="Höchster Verlust (Session)" value={stats.worstSession ? (
+                    <span onClick={(e) => { e.stopPropagation(); openSessionOrGameLink({ sessionId: stats.worstSession.sessionId, gameId: stats.worstSession.gameId }); }} style={{ cursor: "pointer", textDecoration: "underline" }}>
+                      {euro(stats.worstSession.sum)} <span style={{ fontSize: "12px", color: "#888" }}>({stats.worstSession.date})</span>
+                    </span>
+                  ) : "—"}
+                  description="Die GESAMTE Session (alle darin gespielten Spiele zusammengerechnet) mit dem höchsten Geldverlust dieses Spielers. Klick öffnet die Session-Übersicht."
+                  formula="argmin_Session (Σ moneyDelta_Spiel), für alle Spiele i ∈ dieser Session." />
 
                 <StatCard label="Größte Siegesserie" value={streakLinksValue(streaks.bestWinStreak)}
                   description="Die meisten am Stück gewonnenen Spiele (chronologisch). Erstreckt sich die Serie über mehrere Sessions, sind alle verlinkt."
