@@ -497,6 +497,141 @@ function computePlayerStreaks(player) {
   };
 }
 
+// Prüft, ob ein Spieler in einer Runde ZWINGEND "mit" gehen musste (Eichel-Runde, er selbst
+// Ansager, Punktestand <= 6, oder 3. Mal in Folge raus) - unabhängig davon, was tatsächlich
+// eingetragen wurde. Spiegelt dieselben Regeln wie getForcedReason() im Live-Spiel, aber
+// zustandslos nutzbar für die nachträgliche Auswertung abgeschlossener Sessions.
+function isRoundForced(trump, ansagerId, playerId, scoresBefore, idx, rausBefore) {
+  if (trump.id === "eichel") return true;
+  if (trump.id !== "herzblind" && ansagerId === playerId) return true;
+  if (scoresBefore[idx] <= 6) return true;
+  if ((rausBefore[playerId] || 0) >= 2) return true;
+  return false;
+}
+
+// Berechnet Statistiken für EINE GANZE SESSION (alle Spieler, die daran teilgenommen haben).
+// games: alle (nicht gelöschten) Spiele dieser Session (z.B. via getUniqueGames().filter(...)).
+// registry: die komplette Spieler-Registry (für Namen + moneyDelta/won-Nachschlagewerte).
+function computeSessionStats(games, registry) {
+  const finishedGames = games.filter(g => !g.deleted);
+  const totals = new Map();
+
+  function ensureEntry(id, name) {
+    if (!totals.has(id)) {
+      totals.set(id, {
+        id, name, moneyTotal: 0, gamesWon: 0, gamesLost: 0,
+        sprinterCount: 0, luckerCount: 0, herzRunCount: 0,
+        bidTricksTotal: 0, ansagerRoundsCount: 0, ansagerFailCount: 0, bigBallsCount: 0, bidSixCount: 0,
+        tacticCount: 0, rausCount: 0, macherCount: 0,
+        einstelligCount: 0, over50Count: 0,
+      });
+    }
+    return totals.get(id);
+  }
+
+  finishedGames.forEach(g => {
+    g.players.forEach(p => {
+      const entry = ensureEntry(p.id, p.name);
+      const regPlayer = registry.find(rp => rp.id === p.id);
+      const specificGame = regPlayer?.games?.find(rg => rg.id === g.id);
+      const moneyDelta = specificGame?.moneyDelta || 0;
+      const won = specificGame?.won || false;
+      entry.moneyTotal += moneyDelta;
+      if (won) entry.gamesWon++; else entry.gamesLost++;
+    });
+
+    const rounds = g.rounds || [];
+    rounds.forEach((r, rIdx) => {
+      const deltas = computeRoundDelta(g.players, rounds, rIdx);
+      // Punktestand + Raus-Streak JEWEILS VOR dieser Runde (für Einstellig/Herz Blind/Macher).
+      const { scores: scoresBefore, consecutiveRaus: rausBefore } = calculateScoresFromRounds(g.players, rounds.slice(0, rIdx));
+
+      g.players.forEach((p, idx) => {
+        const entry = ensureEntry(p.id, p.name);
+        const status = r.playerStatus?.[p.id] || "mit";
+        const scoreBefore = scoresBefore[idx];
+
+        if (scoreBefore >= 1 && scoreBefore <= 9) entry.einstelligCount++;
+        if (scoreBefore > 50) entry.over50Count++;
+
+        if (status === "mit") {
+          const delta = deltas[p.id] || 0;
+          if (delta > 0) entry.sprinterCount++;
+          if (delta < 0) entry.luckerCount++;
+          if (r.trump.id === "herz" && delta > 0) entry.herzRunCount++;
+
+          const forced = isRoundForced(r.trump, r.ansagerId, p.id, scoresBefore, idx, rausBefore);
+          if (!forced) entry.macherCount++;
+        } else {
+          entry.rausCount++;
+        }
+
+        if (r.ansagerId === p.id) {
+          const bid = r.bidTricks || 0;
+          entry.bidTricksTotal += bid;
+          entry.ansagerRoundsCount++;
+          if (bid >= 3) entry.bigBallsCount++;
+          if (bid === 6) entry.bidSixCount++;
+          if ((deltas[p.id] || 0) > 0) entry.ansagerFailCount++;
+        }
+      });
+
+      // "Taktischer Bastard": zählt für alle NICHT-Ansager-Spieler, die "mit" waren, in
+      // Runden, in denen der ANSAGER selbst nach oben gelaufen ist (sein Ziel verfehlt hat).
+      if (r.ansagerId) {
+        const ansagerDelta = deltas[r.ansagerId] || 0;
+        if (ansagerDelta > 0) {
+          g.players.forEach(p => {
+            if (p.id === r.ansagerId) return;
+            const status = r.playerStatus?.[p.id] || "mit";
+            if (status === "mit") ensureEntry(p.id, p.name).tacticCount++;
+          });
+        }
+      }
+    });
+  });
+
+  const list = Array.from(totals.values());
+
+  function argmax(key, filterFn) {
+    const pool = filterFn ? list.filter(filterFn) : list;
+    if (pool.length === 0) return null;
+    return pool.reduce((best, e) => (!best || e[key] > best[key]) ? e : best, null);
+  }
+  function argmin(key, filterFn) {
+    const pool = filterFn ? list.filter(filterFn) : list;
+    if (pool.length === 0) return null;
+    return pool.reduce((best, e) => (!best || e[key] < best[key]) ? e : best, null);
+  }
+
+  const wasAnsager = e => e.ansagerRoundsCount > 0;
+  const adiPlayer = registry.find(rp => rp.name === "Adi");
+  const adiEntry = adiPlayer ? totals.get(adiPlayer.id) : null;
+  const sixBidders = list.filter(e => e.bidSixCount > 0);
+
+  return {
+    players: list, // für Detail-Balkendiagramme (alle Spieler dieser Session)
+    winner: argmax("moneyTotal"),
+    loser: argmin("moneyTotal"),
+    sprinter: argmax("sprinterCount"),
+    lucker: argmax("luckerCount"),
+    biggestWinner: argmax("gamesWon"),
+    biggestLoser: argmax("gamesLost"),
+    greedyBastard: argmax("bidTricksTotal"),
+    tacticalBastard: argmax("tacticCount"),
+    adiHerzRuns: { name: "Adi", count: adiEntry ? adiEntry.herzRunCount : 0 },
+    stillesMaeuschen: argmin("bidTricksTotal", wasAnsager),
+    pussy: argmax("rausCount"),
+    macher: argmax("macherCount"),
+    einstellig: argmax("einstelligCount"),
+    herzBlindStat: argmax("over50Count"),
+    dummkopf: argmax("ansagerFailCount", wasAnsager),
+    bigBalls: argmax("bigBallsCount", wasAnsager),
+    sixBidders, // Liste aller Spieler, die je 6 Stiche angesagt haben (kann leer sein)
+    staffellauf: argmax("herzRunCount"),
+  };
+}
+
 // Hilfsfunktion zur Neuberechnung aller Kontostände aus den Spieler-Historien
 // Gelöschte Spiele (g.deleted === true) zählen NICHT mehr in den Kontostand,
 // bleiben aber als Datensatz erhalten (für die sichtbare "gelöscht"-Markierung in der Historie).
@@ -580,6 +715,12 @@ function App() {
   // null = keine Detail-Seite offen. { kind: "timeline"|"trumpBar", label, metricKey?,
   // formatValue?, counts? }
   const [statDetailConfig, setStatDetailConfig] = useState(null);
+
+  // Session-Statistiken: welche Session wird betrachtet + wohin "Zurück" führt, sowie
+  // die aufgerufene Detail-Ansicht (Balkendiagramm über alle Spieler dieser Session).
+  const [sessionStatsSessionId, setSessionStatsSessionId] = useState(null);
+  const [sessionStatsReturn, setSessionStatsReturn] = useState("home");
+  const [sessionStatDetailConfig, setSessionStatDetailConfig] = useState(null); // { label, formatValue, metricKey }
 
   // Game States
   const [gamePlayers, setGamePlayers] = useState([]);
@@ -1256,7 +1397,7 @@ function App() {
       }
     });
     const transactions = simplifyDebts(balances, idToName);
-    return { balances, idToName, transactions, gameCount: sessionGames.length };
+    return { sessionId: session.id, balances, idToName, transactions, gameCount: sessionGames.length };
   }
 
   function endSession(sessionId) {
@@ -1721,9 +1862,14 @@ function App() {
                 </div>
               )}
 
-              <button onClick={() => { setSessionSummary(null); setScreen("home"); }} style={{ ...btnStyle, width: "100%", background: "linear-gradient(45deg, #43e97b, #38f9d7)", color: "#000" }}>
-                Alles klar ✓
-              </button>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button onClick={() => { setSessionStatsSessionId(sessionSummary.sessionId); setSessionStatsReturn("home"); setSessionSummary(null); setScreen("sessionStats"); }} style={{ ...btnStyle, flex: 1, background: "linear-gradient(45deg, #7b1fa2, #4a148c)" }}>
+                  📊 Statistiken
+                </button>
+                <button onClick={() => { setSessionSummary(null); setScreen("home"); }} style={{ ...btnStyle, flex: 1, background: "linear-gradient(45deg, #43e97b, #38f9d7)", color: "#000" }}>
+                  Alles klar ✓
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -2210,9 +2356,14 @@ function App() {
               </button>
 
               <div className="glass" style={{ padding: "20px" }}>
-                <h3 style={{ color: "#00f2fe", marginBottom: "12px", fontSize: "16px" }}>
-                  📦 Session vom {games[0].date}{games[0].date !== games[games.length - 1].date ? " – " + games[games.length - 1].date : ""}
-                </h3>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                  <h3 style={{ color: "#00f2fe", fontSize: "16px" }}>
+                    📦 Session vom {games[0].date}{games[0].date !== games[games.length - 1].date ? " – " + games[games.length - 1].date : ""}
+                  </h3>
+                  <button onClick={() => { setSessionStatsSessionId(detailSessionId); setSessionStatsReturn("sessionDetail"); setScreen("sessionStats"); }} style={{ ...btnStyle, padding: "6px 12px", fontSize: "11px", background: "linear-gradient(45deg, #7b1fa2, #4a148c)" }}>
+                    📊 Statistiken
+                  </button>
+                </div>
                 {totalsList.length > 0 && (
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
                     {totalsList.map(t => (
@@ -2250,6 +2401,153 @@ function App() {
                     </div>
                   );
                 })}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* SESSION-STATISTIKEN */}
+        {screen === "sessionStats" && (() => {
+          const games = getUniqueGames().filter(g => g.sessionId === sessionStatsSessionId);
+          if (games.length === 0) {
+            return (
+              <div className="glass" style={{ padding: "20px", textAlign: "center", color: "#aaa" }}>
+                Session nicht gefunden.
+                <div style={{ marginTop: "15px" }}>
+                  <button onClick={() => setScreen(sessionStatsReturn)} style={{ ...btnStyle, background: "rgba(255,255,255,0.1)" }}>← Zurück</button>
+                </div>
+              </div>
+            );
+          }
+          const stats = computeSessionStats(games, registry);
+          const openDetail = (metricKey, label, formatValue) => { setSessionStatDetailConfig({ metricKey, label, formatValue }); setScreen("sessionStatDetail"); };
+          const nameOrDash = (entry) => entry ? entry.name : "—";
+          return (
+            <div>
+              <button onClick={() => setScreen(sessionStatsReturn)} style={{ ...btnStyle, padding: "8px 15px", fontSize: "13px", background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", marginBottom: "15px" }}>
+                ← Zurück
+              </button>
+              <div className="glass" style={{ padding: "20px" }}>
+                <h3 style={{ color: "#f9d423", marginBottom: "15px", fontSize: "20px" }}>📊 Session-Statistiken</h3>
+
+                <h4 style={{ color: "#888", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px" }}>Geld</h4>
+
+                <StatCard label="Gewinner" value={stats.winner ? `${stats.winner.name} (${euro(stats.winner.moneyTotal)})` : "—"}
+                  description="Der Spieler, der in dieser Session insgesamt das meiste Geld gewonnen hat."
+                  formula="argmax_Spieler (Σ moneyDelta), über alle Spiele dieser Session."
+                  onDetails={() => openDetail("moneyTotal", "Gewinner – Geldbilanz pro Spieler", v => euro(v))} />
+
+                <StatCard label="Verlierer" value={stats.loser ? `${stats.loser.name} (${euro(stats.loser.moneyTotal)})` : "—"}
+                  description="Der Spieler, der in dieser Session insgesamt das meiste Geld verloren hat."
+                  formula="argmin_Spieler (Σ moneyDelta), über alle Spiele dieser Session."
+                  onDetails={() => openDetail("moneyTotal", "Verlierer – Geldbilanz pro Spieler", v => euro(v))} />
+
+                <h4 style={{ color: "#888", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>Verhalten</h4>
+
+                <StatCard label="Sprinter" value={stats.sprinter ? `${stats.sprinter.name} (${stats.sprinter.sprinterCount}×)` : "—"}
+                  description="Wer in dieser Session am häufigsten (mitgespielt) nach oben gelaufen ist."
+                  formula="argmax_Spieler n_↑, mit n_↑ = Anzahl 'Mit'-Runden mit Punktezuwachs (Δ > 0)."
+                  onDetails={() => openDetail("sprinterCount", "Sprinter – Anzahl nach oben gelaufen", v => `${v}×`)} />
+
+                <StatCard label="Lucker" value={stats.lucker ? `${stats.lucker.name} (${stats.lucker.luckerCount}×)` : "—"}
+                  description="Wer in dieser Session am häufigsten (mitgespielt) Punkte nach unten gemacht hat."
+                  formula="argmax_Spieler n_↓, mit n_↓ = Anzahl 'Mit'-Runden mit Punkteabbau (Δ < 0)."
+                  onDetails={() => openDetail("luckerCount", "Lucker – Anzahl Punkte gutgemacht", v => `${v}×`)} />
+
+                <StatCard label="Pussy" value={stats.pussy ? `${stats.pussy.name} (${stats.pussy.rausCount}×)` : "—"}
+                  description="Wer in dieser Session am häufigsten raus gegangen ist (freiwillig oder unfreiwillig)."
+                  formula="argmax_Spieler n_raus, über alle Runden dieser Session."
+                  onDetails={() => openDetail("rausCount", "Pussy – Anzahl raus gegangen", v => `${v}×`)} />
+
+                <StatCard label="Macher" value={stats.macher ? `${stats.macher.name} (${stats.macher.macherCount}×)` : "—"}
+                  description="Wer am häufigsten FREIWILLIG mitgespielt hat (also 'mit' war, obwohl er auch raus hätte gehen können - Pflicht-Runden zählen nicht)."
+                  formula="argmax_Spieler n_freiwillig-mit, gezählt für Runden mit Status 'mit', in denen der Spieler NICHT zum Mitgehen gezwungen war."
+                  onDetails={() => openDetail("macherCount", "Macher – freiwillig mitgespielt", v => `${v}×`)} />
+
+                <h4 style={{ color: "#888", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>Punktestand</h4>
+
+                <StatCard label="Einstellig" value={stats.einstellig ? `${stats.einstellig.name} (${stats.einstellig.einstelligCount}×)` : "—"}
+                  description="Wer am häufigsten mit einer einstelligen Punktzahl (1-9) in eine Runde gestartet ist."
+                  formula="argmax_Spieler n_einstellig, mit n_einstellig = Anzahl Runden mit Punktestand 1-9 zu Rundenbeginn."
+                  onDetails={() => openDetail("einstelligCount", "Einstellig – Rundenstart mit 1-9 Punkten", v => `${v}×`)} />
+
+                <StatCard label="Herz Blind" value={stats.herzBlindStat ? `${stats.herzBlindStat.name} (${stats.herzBlindStat.over50Count}×)` : "—"}
+                  description="Wer am häufigsten mit über 50 Punkten in eine Runde gestartet ist (analog zur echten Herz-Blind-Berechtigungsregel, die diese App sonst nicht prüft)."
+                  formula="argmax_Spieler n_>50, mit n_>50 = Anzahl Runden mit Punktestand > 50 zu Rundenbeginn."
+                  onDetails={() => openDetail("over50Count", "Herz Blind – Rundenstart mit über 50 Punkten", v => `${v}×`)} />
+
+                <h4 style={{ color: "#888", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>Spiele</h4>
+
+                <StatCard label="Größter Winner" value={stats.biggestWinner ? `${stats.biggestWinner.name} (${stats.biggestWinner.gamesWon}×)` : "—"}
+                  description="Wer in dieser Session die meisten Spiele gewonnen hat (Betrag egal, nur Anzahl)."
+                  formula="argmax_Spieler n_Siege, über alle Spiele dieser Session."
+                  onDetails={() => openDetail("gamesWon", "Größter Winner – gewonnene Spiele", v => `${v}×`)} />
+
+                <StatCard label="Größter Looser" value={stats.biggestLoser ? `${stats.biggestLoser.name} (${stats.biggestLoser.gamesLost}×)` : "—"}
+                  description="Wer in dieser Session die meisten Spiele verloren hat (Betrag egal, nur Anzahl)."
+                  formula="argmax_Spieler n_Niederlagen, über alle Spiele dieser Session."
+                  onDetails={() => openDetail("gamesLost", "Größter Looser – verlorene Spiele", v => `${v}×`)} />
+
+                <h4 style={{ color: "#888", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>Ansage</h4>
+
+                <StatCard label="Gierigster Bastard" value={stats.greedyBastard ? `${stats.greedyBastard.name} (${stats.greedyBastard.bidTricksTotal})` : "—"}
+                  description="Wer in dieser Session insgesamt die meisten Stiche angesagt hat (Summe, nicht Durchschnitt)."
+                  formula="argmax_Spieler (Σ Ansage), über alle Runden als Ansager."
+                  onDetails={() => openDetail("bidTricksTotal", "Gierigster Bastard – Summe angesagter Stiche", v => `${v}`)} />
+
+                <StatCard label="Taktischer Bastard" value={stats.tacticalBastard ? `${stats.tacticalBastard.name} (${stats.tacticalBastard.tacticCount}×)` : "—"}
+                  description="Wer am häufigsten mitgespielt hat, obwohl (bzw. gerade als) der Ansager in dieser Runde nach oben gelaufen ist."
+                  formula="argmax_Spieler n_Mit-bei-Ansager-Fail, gezählt für alle Nicht-Ansager-Spieler mit Status 'mit' in Runden, in denen der Ansager Δ > 0 hatte."
+                  onDetails={() => openDetail("tacticCount", "Taktischer Bastard – Mitgespielt bei Ansager-Fail", v => `${v}×`)} />
+
+                <StatCard label="Stilles Mäuschen" value={stats.stillesMaeuschen ? `${stats.stillesMaeuschen.name} (${stats.stillesMaeuschen.bidTricksTotal})` : "—"}
+                  description="Der Spieler, der als Ansager insgesamt am wenigsten Stiche angesagt hat (Summe, nicht Durchschnitt). Nur Spieler, die mindestens einmal Ansager waren, zählen mit."
+                  formula="argmin_Spieler (Σ Ansage), über alle Runden als Ansager, nur für Spieler mit n_Ansager > 0."
+                  onDetails={() => openDetail("bidTricksTotal", "Stilles Mäuschen – Summe angesagter Stiche", v => `${v}`)} />
+
+                <StatCard label="Dummkopf" value={stats.dummkopf ? `${stats.dummkopf.name} (${stats.dummkopf.ansagerFailCount}×)` : "—"}
+                  description="Wer als Ansager am häufigsten sein eigenes Ansage-Ziel verfehlt hat (nach oben gelaufen ist)."
+                  formula="argmax_Spieler n_Ansager-Fail, mit n_Ansager-Fail = Anzahl Runden als Ansager mit Δ > 0."
+                  onDetails={() => openDetail("ansagerFailCount", "Dummkopf – als Ansager gelaufen", v => `${v}×`)} />
+
+                <StatCard label="Big Balls" value={stats.bigBalls ? `${stats.bigBalls.name} (${stats.bigBalls.bigBallsCount}×)` : "—"}
+                  description="Wer als Ansager am häufigsten 3 oder mehr Stiche angesagt hat."
+                  formula="argmax_Spieler n_≥3, mit n_≥3 = Anzahl Runden als Ansager mit Ansage ≥ 3."
+                  onDetails={() => openDetail("bigBallsCount", "Big Balls – Ansage ≥ 3 Stiche", v => `${v}×`)} />
+
+                <StatCard label="Macht er eh net" value={stats.sixBidders.length > 0 ? stats.sixBidders.map(e => `${e.name} (${e.bidSixCount}×)`).join(", ") : "Niemand"}
+                  description="Jeder Spieler, der in dieser Session mindestens einmal alle 6 Stiche als Ansager angesagt hat. Hat das niemand getan, steht hier 'Niemand'."
+                  formula="{ Spieler : bidSixCount > 0 }, mit bidSixCount = Anzahl Runden als Ansager mit Ansage = 6."
+                  onDetails={() => openDetail("bidSixCount", "Macht er eh net – Ansage von genau 6 Stichen", v => `${v}×`)} />
+
+                <h4 style={{ color: "#888", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>Spaß</h4>
+
+                <StatCard label="Adi bei Herz gelaufen" value={`${stats.adiHerzRuns.count}×`}
+                  description="Wie oft Stammspieler Adi in dieser Session bei Herz nach oben gelaufen ist. War Adi nicht dabei, ist der Wert 0."
+                  formula="n_↑ für Adi, mit Trumpf = Herz und Δ > 0 (nur 'Mit'-Runden)." />
+
+                <StatCard label="Staffellauf" value={stats.staffellauf ? `${stats.staffellauf.name} (${stats.staffellauf.herzRunCount}×)` : "—"}
+                  description="Wer in dieser Session am häufigsten bei Herz nach oben gelaufen ist (alle Spieler, nicht nur Adi)."
+                  formula="argmax_Spieler n_↑Herz, mit n_↑Herz = Anzahl 'Mit'-Runden mit Trumpf = Herz und Δ > 0."
+                  onDetails={() => openDetail("herzRunCount", "Staffellauf – bei Herz nach oben gelaufen", v => `${v}×`)} />
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* SESSION-STATISTIK-DETAIL: Balkendiagramm über alle Spieler dieser Session für EINE Kennzahl */}
+        {screen === "sessionStatDetail" && sessionStatDetailConfig && (() => {
+          const games = getUniqueGames().filter(g => g.sessionId === sessionStatsSessionId);
+          const stats = computeSessionStats(games, registry);
+          const data = stats.players.map(p => ({ id: p.id, name: p.name, value: p[sessionStatDetailConfig.metricKey] }));
+          return (
+            <div>
+              <button onClick={() => { setSessionStatDetailConfig(null); setScreen("sessionStats"); }} style={{ ...btnStyle, padding: "8px 15px", fontSize: "13px", background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", marginBottom: "15px" }}>
+                ← Zurück zu den Session-Statistiken
+              </button>
+              <div className="glass" style={{ padding: "20px" }}>
+                <h3 style={{ color: "#f9d423", marginBottom: "12px", fontSize: "16px" }}>{sessionStatDetailConfig.label}</h3>
+                <PlayerMetricBarChart data={data} formatValue={sessionStatDetailConfig.formatValue} />
               </div>
             </div>
           );
@@ -2303,6 +2601,7 @@ function App() {
                             key={sessionEntry.sessionId || sessionEntry.games[0].id}
                             sessionEntry={sessionEntry}
                             registry={registry}
+                            onOpenStats={(sessionId) => { setSessionStatsSessionId(sessionId); setSessionStatsReturn("history"); setScreen("sessionStats"); }}
                           />
                         ))}
                       </div>
@@ -2593,7 +2892,7 @@ function App() {
 // Sub-Komponente: zeigt eine Session (oder ein einzelnes Legacy-Spiel ohne Session) als
 // aufklappbare Karte in der Historie. Beim Aufklappen erscheinen die einzelnen enthaltenen
 // Spiele - jedes davon mit der unveränderten Bearbeiten/Löschen/Änderungsverlauf-Logik.
-function SessionCard({ sessionEntry, registry }) {
+function SessionCard({ sessionEntry, registry, onOpenStats }) {
   const [open, setOpen] = useState(false);
   const { type, games, deleted: allDeleted } = sessionEntry;
 
@@ -2623,7 +2922,12 @@ function SessionCard({ sessionEntry, registry }) {
             {type === "session" ? "📦" : "🃏"} {headerLabel}
             {allDeleted && <span style={{ marginLeft: "8px", color: "#ff4e50", fontWeight: "bold", border: "1px solid #ff4e50", borderRadius: "5px", padding: "1px 6px", fontSize: "10px" }}>🗑️ GELÖSCHT</span>}
           </span>
-          <span style={{ fontSize: "18px", transform: open ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>▾</span>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            {type === "session" && (
+              <button onClick={(e) => { e.stopPropagation(); onOpenStats(sessionEntry.sessionId); }} style={{ background: "none", border: "none", color: "#7b1fa2", cursor: "pointer", fontSize: "14px" }} title="Session-Statistiken">📊</button>
+            )}
+            <span style={{ fontSize: "18px", transform: open ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>▾</span>
+          </div>
         </div>
         <div style={{ fontSize: "11px", color: "#888", marginBottom: totalsList.length ? "8px" : 0 }}>
           {games.length} {games.length === 1 ? "Spiel" : "Spiele"}
@@ -2972,6 +3276,35 @@ function TrumpBarChart({ counts }) {
             </div>
             <div style={{ background: "rgba(255,255,255,0.08)", borderRadius: "6px", height: "14px", overflow: "hidden" }}>
               <div style={{ width: `${pct}%`, height: "100%", background: `linear-gradient(90deg, ${t.color}, #00f2fe)`, borderRadius: "6px" }} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Horizontales Balkendiagramm, das EINE Kennzahl über ALLE Spieler einer Session hinweg
+// vergleicht (z.B. "wer hat am meisten Geld gewonnen"). Absteigend sortiert nach Wert.
+function PlayerMetricBarChart({ data, formatValue }) {
+  if (!data || data.length === 0) {
+    return <div style={{ color: "#666", fontSize: "13px", fontStyle: "italic" }}>Keine Daten für diese Session.</div>;
+  }
+  const sorted = [...data].sort((a, b) => b.value - a.value);
+  const maxAbs = Math.max(1, ...sorted.map(d => Math.abs(d.value)));
+  return (
+    <div>
+      {sorted.map(d => {
+        const pct = (Math.abs(d.value) / maxAbs) * 100;
+        const color = d.value > 0 ? "#43e97b" : d.value < 0 ? "#ff4e50" : "#888";
+        return (
+          <div key={d.id} style={{ marginBottom: "12px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "13px", marginBottom: "4px" }}>
+              <span>{d.name}</span>
+              <span style={{ fontWeight: "bold", color }}>{formatValue(d.value)}</span>
+            </div>
+            <div style={{ background: "rgba(255,255,255,0.08)", borderRadius: "6px", height: "14px", overflow: "hidden" }}>
+              <div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: "6px" }} />
             </div>
           </div>
         );
