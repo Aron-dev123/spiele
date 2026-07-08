@@ -574,6 +574,37 @@ function App() {
     liveGamesRef.child(currentSessionId).set(payload).catch(() => {});
   }, [currentSessionId, screen, isObserver, gameRounds, dealerIdx, roundPhase, selectedTrump, playerStatus, playerTricks, ansagerId, bidTricks]);
 
+  // Beobachter: übernimmt laufend (rundenweise, nicht nur spielweise) den Live-Rundenstand
+  // des Hosts, solange man im "game"-Screen zuschaut. Ohne dies sah man neue Runden erst,
+  // nachdem man den Screen verlassen und wieder betreten hatte.
+  useEffect(() => {
+    if (!isObserver || screen !== "game" || !currentSessionId) return;
+    const live = liveGames[currentSessionId];
+    if (!live) return;
+    setGameRounds(live.gameRounds || []);
+    setDealerIdx(live.dealerIdx ?? 0);
+    setRoundPhase(live.roundPhase || "setup");
+    setSelectedTrump(live.selectedTrump || SUITS[0]);
+    setPlayerStatus(live.playerStatus || {});
+    setPlayerTricks(live.playerTricks || {});
+    setAnsagerId(live.ansagerId ?? null);
+    setBidTricks(live.bidTricks ?? 2);
+  }, [liveGames, isObserver, screen, currentSessionId]);
+
+  // Erkennt, wenn die gerade angeschaute/gespielte Session anderswo (vom Host) beendet
+  // wurde, während man noch im "game"-Screen ist - zeigt einen Hinweis und springt zurück
+  // ins Hauptmenü (betrifft v.a. Beobachter; der Host selbst navigiert bereits in
+  // endSession() weg, bevor dieser Effekt greifen könnte).
+  useEffect(() => {
+    if (screen !== "game" || !currentSessionId) return;
+    const stillExists = activeSessions.some(s => s.id === currentSessionId);
+    if (!stillExists) {
+      alert("Diese Session wurde vom Host beendet.");
+      setCurrentSessionId(null);
+      setScreen("home");
+    }
+  }, [activeSessions, screen, currentSessionId]);
+
   // Pflegt "hostActive" für jede Session, die DIESES Gerät hostet: aktiv (=nicht
   // übernehmbar), solange der Host im laufenden Spiel dieser Session ist (Screen "game"
   // oder "sessionEnd"); inaktiv (=für andere übernehmbar), sobald der Host zurück ins
