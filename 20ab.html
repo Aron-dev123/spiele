@@ -3407,7 +3407,7 @@ function GameRoundsTable({ players, rounds }) {
                     const sign = delta < 0 ? "-" : delta > 0 ? "+" : "";
                     return (
                       <td key={p.id} style={{ textAlign: "right", padding: "0 8px", fontSize: "10px" }}>
-                        {isAnsager && <span style={{ color: "#f9d423" }}>📣({r.bidTricks}) </span>}
+                        {isAnsager && <span><span style={{ color: "#f9d423" }}>📣</span><span style={{ color: "#888" }}>({r.bidTricks})</span> </span>}
                         <span style={{ color, fontWeight: "bold" }}>{sign}{Math.abs(delta)}</span>
                       </td>
                     );
