@@ -2267,7 +2267,7 @@ function App() {
                                   const isWinner = g.winnerIndices ? g.winnerIndices.includes(i) : g.winnerIdx === i;
                                   return (
                                     <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-                                      <span>{isWinner ? "🏆 " : ""}{p.name} <span style={{ color: "#aaa" }}>({g.finalScores[i]} Pkt)</span></span>
+                                      <span>{isWinner ? "🏆 " : ""}{p.name}</span>
                                       <span style={{ fontWeight: "bold", color: isDeleted ? "#888" : ((specificGame?.moneyDelta || 0) >= 0 ? "#43e97b" : "#ff4e50"), textDecoration: isDeleted ? "line-through" : "none" }}>
                                         {regPlayer ? euro(specificGame?.moneyDelta || 0) : "—"}
                                       </span>
@@ -2387,7 +2387,7 @@ function App() {
                       const isWinner = g.winnerIndices ? g.winnerIndices.includes(i) : g.winnerIdx === i;
                       return (
                         <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-                          <span>{isWinner ? "🏆 " : ""}{p.name} <span style={{ color: "#aaa" }}>({g.finalScores[i]} Pkt)</span></span>
+                          <span>{isWinner ? "🏆 " : ""}{p.name}</span>
                           <span style={{ fontWeight: "bold", color: isDeleted ? "#888" : ((specificGame?.moneyDelta || 0) >= 0 ? "#43e97b" : "#ff4e50"), textDecoration: isDeleted ? "line-through" : "none" }}>
                             {regPlayer ? euro(specificGame?.moneyDelta || 0) : "—"}
                           </span>
@@ -2492,7 +2492,7 @@ function App() {
                         const isWinner = g.winnerIndices ? g.winnerIndices.includes(i) : g.winnerIdx === i;
                         return (
                           <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: "1px solid rgba(255,255,255,0.06)", fontSize: "13px" }}>
-                            <span>{isWinner ? "🏆 " : ""}{p.name} <span style={{ color: "#aaa" }}>({g.finalScores[i]} Pkt)</span></span>
+                            <span>{isWinner ? "🏆 " : ""}{p.name}</span>
                             <span style={{ fontWeight: "bold", color: isDeleted ? "#888" : ((specificGame?.moneyDelta || 0) >= 0 ? "#43e97b" : "#ff4e50"), textDecoration: isDeleted ? "line-through" : "none" }}>
                               {regPlayer ? euro(specificGame?.moneyDelta || 0) : "—"}
                             </span>
@@ -3107,8 +3107,7 @@ function SessionCard({ sessionEntry, registry, onOpenStats, onOpenGameDetail }) 
                       return (
                         <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
                           <span>
-                            {(g.winnerIndices ? g.winnerIndices.includes(i) : g.winnerIdx === i) ? "🏆" : ""} {p.name}{" "}
-                            <span style={{ color: "#aaa", fontSize: "13px" }}>({g.finalScores[i]} Pkt)</span>
+                            {(g.winnerIndices ? g.winnerIndices.includes(i) : g.winnerIdx === i) ? "🏆" : ""} {p.name}
                             {!playerExists && (
                               <span style={{ marginLeft: "8px", fontSize: "11px", color: "#ff8c5a", fontStyle: "italic" }}>(Spieler existiert nicht mehr)</span>
                             )}
@@ -3425,33 +3424,50 @@ function GameRoundsTable({ players, rounds }) {
           </tr>
           {rounds.map((r, rIdx) => {
             const changes = computeRoundScoreChange(players, rounds, rIdx);
+            const isLastRound = rIdx === rounds.length - 1;
+            const frameSide = "3px double #fff";
+            // Rahmen für die letzte Runde: oben (auf der Delta-Zeile), unten (auf der
+            // Punktestand-Zeile), links NUR auf der ersten Spalte, rechts NUR auf der letzten
+            // Spalte - keine Linien zwischen den einzelnen Spieler-Spalten.
+            const deltaCellFrame = (isFirstCol, isLastCol) => isLastRound ? {
+              borderTop: frameSide,
+              ...(isFirstCol ? { borderLeft: frameSide } : {}),
+              ...(isLastCol ? { borderRight: frameSide } : {}),
+            } : {};
+            const scoreCellFrame = (isFirstCol, isLastCol) => isLastRound ? {
+              borderBottom: frameSide,
+              ...(isFirstCol ? { borderLeft: frameSide } : {}),
+              ...(isLastCol ? { borderRight: frameSide } : {}),
+            } : {};
             return (
               <React.Fragment key={rIdx}>
                 {/* Schmale Zwischenzeile: Trumpf dieser Runde + Veränderung je Spieler */}
-                <tr style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}>
-                  <td style={{ padding: "4px 8px 0", color: "#00f2fe", whiteSpace: "nowrap", verticalAlign: "top" }}>{r.roundNum} {r.trump.emoji}</td>
-                  {players.map(p => {
+                <tr style={{ borderTop: isLastRound ? undefined : "1px solid rgba(255,255,255,0.05)" }}>
+                  <td style={{ padding: "4px 8px 0", color: "#00f2fe", whiteSpace: "nowrap", verticalAlign: "top", ...deltaCellFrame(true, false) }}>{r.roundNum} {r.trump.emoji}</td>
+                  {players.map((p, pIdx) => {
+                    const isLastCol = pIdx === players.length - 1;
                     const status = r.playerStatus?.[p.id] || "mit";
                     if (status === "raus") {
-                      return <td key={p.id} style={{ textAlign: "right", padding: "0 8px", color: "#666", fontSize: "10px" }}>–</td>;
+                      return <td key={p.id} style={{ textAlign: "right", padding: "0 8px", color: "#666", fontSize: "10px", ...deltaCellFrame(false, isLastCol) }}>–</td>;
                     }
                     const isAnsager = r.ansagerId === p.id;
                     const { delta } = changes[p.id];
                     const color = delta < 0 ? "#43e97b" : delta > 0 ? "#ff4e50" : "#aaa";
                     const sign = delta < 0 ? "-" : delta > 0 ? "+" : "";
                     return (
-                      <td key={p.id} style={{ textAlign: "right", padding: "0 8px", fontSize: "10px" }}>
+                      <td key={p.id} style={{ textAlign: "right", padding: "0 8px", fontSize: "10px", ...deltaCellFrame(false, isLastCol) }}>
                         {isAnsager && <span><span style={{ color: "#f9d423" }}>📣</span><span style={{ color: "#888" }}>({r.bidTricks})</span> </span>}
                         <span style={{ color, fontWeight: "bold" }}>{sign}{Math.abs(delta)}</span>
                       </td>
                     );
                   })}
                 </tr>
-                {/* Punktestand-Zeile: aktuelle Punktzahl nach dieser Runde (immer sichtbar, auch bei raus/unverändert) */}
+                {/* Punktestand-Zeile: aktuelle Punktzahl nach dieser Runde (immer sichtbar, auch bei raus/unverändert).
+                    Die letzte Runde (Endstand) wird komplett umrahmt (siehe deltaCellFrame/scoreCellFrame oben). */}
                 <tr>
-                  <td></td>
-                  {players.map(p => (
-                    <td key={p.id} style={{ textAlign: "right", padding: "4px 8px", color: "#eee", fontWeight: "bold" }}>{changes[p.id].after}</td>
+                  <td style={scoreCellFrame(true, false)}></td>
+                  {players.map((p, pIdx) => (
+                    <td key={p.id} style={{ textAlign: "right", padding: "4px 8px", color: "#eee", fontWeight: "bold", ...scoreCellFrame(false, pIdx === players.length - 1) }}>{changes[p.id].after}</td>
                   ))}
                 </tr>
               </React.Fragment>
