@@ -877,7 +877,7 @@ function App() {
 
   // Game States
   const [gamePlayers, setGamePlayers] = useState([]);
-  const [gameRounds, setGameRounds] = useState([]); 
+  const [gameRounds, setGameRounds] = useState([]);
   const [dealerIdx, setDealerIdx] = useState(0);
   const [roundPhase, setRoundPhase] = useState("setup"); 
   const [selectedTrump, setSelectedTrump] = useState(SUITS[0]);
@@ -1301,6 +1301,24 @@ function App() {
     }
 
     setActiveSessions(activeSessions.map(s => s.id === session.id ? { ...s, hostDeviceId: deviceId, hostActive: false } : s));
+  }
+
+  // Vertauscht zwei benachbarte Spieler in der Sitzordnung DIREKT im laufenden Spiel (Punkte-
+  // Tafel/Runden-Tabelle-Spaltenreihenfolge). Der GEBER (per Spieler-Identität, nicht
+  // Spaltenposition!) bleibt dabei derselbe, damit sich durchs Umsortieren nicht heimlich
+  // ändert, wer gerade am Geben/Aussetzen ist. Wird auch dauerhaft in der Session gespeichert.
+  function moveGamePlayer(idx, dir) {
+    const j = idx + dir;
+    if (j < 0 || j >= gamePlayers.length) return;
+    const dealerPlayerId = gamePlayers[dealerIdx]?.id;
+    const next = [...gamePlayers];
+    [next[idx], next[j]] = [next[j], next[idx]];
+    setGamePlayers(next);
+    const newDealerIdx = next.findIndex(p => p.id === dealerPlayerId);
+    if (newDealerIdx !== -1) setDealerIdx(newDealerIdx);
+    if (currentSessionId) {
+      setActiveSessions(activeSessions.map(s => s.id === currentSessionId ? { ...s, playerIds: next.map(p => p.id) } : s));
+    }
   }
 
   function initRound(playersList, trump, dealerIndexForRound = 0) {
@@ -2156,7 +2174,7 @@ function App() {
                 return (
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "15px" }}>
                 {gamePlayers.map((p, i) => (
-                  <div key={p.id} style={{ padding: "12px", background: "rgba(0,0,0,0.4)", borderRadius: "10px", textAlign: "center", border: i === dealerIdx ? "1px solid #c9a83e" : "1px solid rgba(255,255,255,0.05)" }}>
+                  <div key={p.id} style={{ padding: "12px", background: "rgba(0,0,0,0.4)", borderRadius: "10px", textAlign: "center", border: i === dealerIdx ? "1px solid #c9a83e" : "1px solid rgba(255,255,255,0.05)", position: "relative" }}>
                     <div style={{ fontSize: "14px", color: "#aaa" }}>
                       {p.name} {currentScores[i] <= 3 && <span style={{ color: "#a3383c" }}>🚫🔄</span>}
                       {p.id === sittingOutId && <span style={{ marginLeft: "6px", fontSize: "10px", color: "#888", border: "1px solid #666", borderRadius: "4px", padding: "1px 5px" }}>🪑 setzt aus</span>}
@@ -2170,6 +2188,15 @@ function App() {
                     <div style={{ fontSize: "28px", fontWeight: "900", color: currentScores[i] <= 3 ? "#8f2233" : currentScores[i] <= 7 ? "#c9a084" : "#d4af37" }}>
                       {currentScores[i] < 0 ? 0 : currentScores[i]}
                     </div>
+                    {/* Sitzordnung direkt hier tauschen - wirkt sich auf die ganze Anzeige
+                        darunter (Runden-Tabelle usw.) aus. Der Geber bleibt dabei an der
+                        Person (nicht an der Position) hängen. */}
+                    {!isObserver && (
+                      <div style={{ position: "absolute", top: "4px", right: "4px", display: "flex", gap: "2px" }}>
+                        <button onClick={() => moveGamePlayer(i, -1)} disabled={i === 0} title="Nach links/oben tauschen" style={{ width: "20px", height: "20px", lineHeight: "20px", padding: 0, borderRadius: "4px", border: "none", background: "rgba(255,255,255,0.12)", color: "#fff", fontSize: "10px", cursor: i === 0 ? "default" : "pointer", opacity: i === 0 ? 0.25 : 1 }}>◀</button>
+                        <button onClick={() => moveGamePlayer(i, 1)} disabled={i === gamePlayers.length - 1} title="Nach rechts/unten tauschen" style={{ width: "20px", height: "20px", lineHeight: "20px", padding: 0, borderRadius: "4px", border: "none", background: "rgba(255,255,255,0.12)", color: "#fff", fontSize: "10px", cursor: i === gamePlayers.length - 1 ? "default" : "pointer", opacity: i === gamePlayers.length - 1 ? 0.25 : 1 }}>▶</button>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
