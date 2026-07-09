@@ -13,48 +13,53 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="20 Ab">
-<meta name="theme-color" content="#0f2027">
+<meta name="theme-color" content="#15161a">
 <title>🃏 20 Ab - Stammtisch Edition</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Segoe+UI&display=swap" rel="stylesheet">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
-  body { 
-    background: linear-gradient(135deg, #0f2027 0%, #112233 50%, #1f4068 100%); 
-    color: #e9f5db; 
+  h1, h2, h3, h4 { font-family: 'Cinzel', 'Segoe UI', serif; letter-spacing: 1px; }
+  body {
+    background: linear-gradient(160deg, #0d3b2e 0%, #0a2e24 45%, #06201a 100%);
+    color: #eef5f0;
     -webkit-tap-highlight-color: transparent;
     min-height: 100vh;
     background-attachment: fixed;
     overflow-x: hidden;
   }
   input, textarea, button { font-family: inherit; }
-  input:focus { outline: none; border-color: #00f2fe !important; box-shadow: 0 0 15px rgba(0, 242, 254, 0.8); }
+  input:focus { outline: none; border-color: #ffffff !important; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25); }
   button:active { transform: scale(0.95); }
-  
+
   .glass {
-    background: rgba(255, 255, 255, 0.07);
-    backdrop-filter: blur(15px);
-    -webkit-backdrop-filter: blur(15px);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 16px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    background: linear-gradient(160deg, rgba(255, 255, 255, 0.07), rgba(0, 0, 0, 0.3));
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 12px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
     position: relative;
     z-index: 10;
     margin-bottom: 20px;
   }
-  
+
   .neon-text {
-    text-shadow: 0 0 10px #00f2fe, 0 0 20px #00f2fe, 0 0 30px #4facfe;
-    color: #fff;
+    font-family: 'Cinzel', serif;
+    color: #ffffff;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
     font-size: 2.8rem;
     font-weight: 900;
     letter-spacing: 3px;
     text-align: center;
   }
 
-  .pulse-btn { animation: pulse 2s infinite; }
+  .pulse-btn { animation: pulse 3s infinite; }
   @keyframes pulse {
-    0% { box-shadow: 0 0 10px rgba(0, 242, 254, 0.4); }
-    50% { box-shadow: 0 0 25px rgba(0, 242, 254, 0.8); }
-    100% { box-shadow: 0 0 10px rgba(0, 242, 254, 0.4); }
+    0% { box-shadow: 0 0 0 rgba(255, 255, 255, 0.25); }
+    50% { box-shadow: 0 0 12px rgba(255, 255, 255, 0.4); }
+    100% { box-shadow: 0 0 0 rgba(255, 255, 255, 0.25); }
   }
 
   .suit-container {
@@ -69,14 +74,15 @@
     bottom: -10%;
     font-size: 3rem;
     animation: floatUp 12s infinite linear;
+    opacity: 0.5;
   }
-  .floating-suit.red { color: rgba(255, 78, 80, 0.12); text-shadow: 0 0 10px rgba(255, 78, 80, 0.2); }
-  .floating-suit.blue { color: rgba(0, 242, 254, 0.10); text-shadow: 0 0 10px rgba(0, 242, 254, 0.2); }
+  .floating-suit.red { color: rgba(255, 255, 255, 0.5); }
+  .floating-suit.gold { color: rgba(255, 255, 255, 0.35); }
 
   @keyframes floatUp {
     0% { transform: translateY(0) rotate(0deg); opacity: 0; }
-    10% { opacity: 1; }
-    90% { opacity: 1; }
+    10% { opacity: 0.5; }
+    90% { opacity: 0.5; }
     100% { transform: translateY(-120vh) rotate(360deg); opacity: 0; }
   }
 </style>
@@ -117,11 +123,11 @@
 const { useState, useEffect } = React;
 
 const SUITS = [
-  { id: "eichel", label: "Eichel", emoji: "🌰", color: "#a0522d", double: false, multiplier: 1 },
-  { id: "herz", label: "Herz", emoji: "❤️", color: "#ff0844", double: true, multiplier: 2 },
-  { id: "bollen", label: "Bollen", emoji: "🔔", color: "#ff512f", double: false, multiplier: 1 },
-  { id: "blatt", label: "Blatt", emoji: "🍃", color: "#0ba360", double: false, multiplier: 1 },
-  { id: "herzblind", label: "Herz Blind", emoji: "🃏❤️", color: "#7b1fa2", double: true, multiplier: 4 }
+  { id: "eichel", label: "Eichel", emoji: "🌰", icon: "assets/suits/eichel.png", color: "#a0522d", double: false, multiplier: 1 },
+  { id: "herz", label: "Herz", emoji: "❤️", icon: "assets/suits/herz.png", color: "#8f2233", double: true, multiplier: 2 },
+  { id: "bollen", label: "Bollen", emoji: "🔔", icon: "assets/suits/bollen.png", color: "#a15c2a", double: false, multiplier: 1 },
+  { id: "blatt", label: "Blatt", emoji: "🍃", icon: "assets/suits/blatt.png", color: "#0ba360", double: false, multiplier: 1 },
+  { id: "herzblind", label: "Herz Blind", emoji: "🃏❤️", icon: "assets/suits/herz.png", color: "#5c616c", double: true, multiplier: 4 }
 ];
 
 const MAX_POINTS = 20;
@@ -756,15 +762,16 @@ function refreshBalances(allPlayers) {
 }
 
 function BackgroundEffects() {
-  const suits = [{ symbol: '🌰', color: 'blue' }, { symbol: '🔔', color: 'red' }, { symbol: '♥', color: 'red' }, { symbol: '🍃', color: 'blue' }];
+  // Die 4 Binokel-Farben (deutsches Blatt): Eichel, Herz, Schellen/Bollen, Blatt/Laub -
+  // dieselben Symbole, die auch im Spiel selbst als Trumpf-Farben verwendet werden (siehe SUITS).
+  const icons = SUITS.filter(s => s.id !== "herzblind").map(s => s.icon);
   return (
     <div className="suit-container">
       {Array.from({ length: 16 }).map((_, i) => {
-        const suit = suits[Math.floor(Math.random() * suits.length)];
+        const icon = icons[Math.floor(Math.random() * icons.length)];
+        const size = 2 + Math.random() * 3;
         return (
-          <div key={i} className={`floating-suit ${suit.color}`} style={{ left: `${Math.random() * 100}%`, animationDuration: `${10 + Math.random() * 10}s`, animationDelay: `-${Math.random() * 12}s`, fontSize: `${1.5 + Math.random() * 2.5}rem` }}>
-            {suit.symbol}
-          </div>
+          <img key={i} src={icon} className="floating-suit" style={{ left: `${Math.random() * 100}%`, animationDuration: `${10 + Math.random() * 10}s`, animationDelay: `-${Math.random() * 12}s`, width: `${size}rem`, height: "auto" }} />
         );
       })}
     </div>
@@ -1832,7 +1839,7 @@ function App() {
       <div style={{ padding: "15px", maxWidth: "600px", margin: "0 auto", position: "relative", zIndex: 10 }}>
         
         <h1 className="neon-text" onClick={() => setScreen("home")} style={{ cursor: "pointer", margin: "15px 0 5px 0" }}>🃏 20 AB</h1>
-        <div style={{ textAlign: "center", marginBottom: "20px", fontSize: "11px", color: syncState === "error" ? "#ff4e50" : "#43e97b", letterSpacing: "1px" }}>
+        <div style={{ textAlign: "center", marginBottom: "20px", fontSize: "11px", color: syncState === "error" ? "#a3383c" : "#4e8b5c", letterSpacing: "1px" }}>
           {syncState === "error"
             ? `⚠️ Sync-Fehler${firebaseInitError ? " — " + firebaseInitError : " — Änderung evtl. nicht gespeichert"}`
             : "● Live verbunden (Firebase)"}
@@ -1853,9 +1860,9 @@ function App() {
               // "eigene" Session für jeden - Abwärtskompatibilität, keine Sperre.
               const isMine = !session.hostDeviceId || session.hostDeviceId === deviceId;
               return (
-              <div key={session.id} className="glass" style={{ padding: "16px 20px", marginBottom: "15px", border: `1px solid ${isMine ? "#f9d423" : "#7b8794"}`, background: isMine ? "rgba(249,212,35,0.08)" : "rgba(120,140,160,0.08)" }}>
+              <div key={session.id} className="glass" style={{ padding: "16px 20px", marginBottom: "15px", border: `1px solid ${isMine ? "#c9a83e" : "#7b8794"}`, background: isMine ? "rgba(249,212,35,0.08)" : "rgba(120,140,160,0.08)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
-                  <span style={{ fontWeight: "bold", color: isMine ? "#f9d423" : "#9fb3c8" }}>
+                  <span style={{ fontWeight: "bold", color: isMine ? "#c9a83e" : "#b8a8c9" }}>
                     {isMine ? "🔥 Session läuft" : "👁️ Session läuft (Beobachtungsmodus)"}
                   </span>
                   <span style={{ fontSize: "12px", color: "#aaa" }}>
@@ -1867,10 +1874,10 @@ function App() {
                 </div>
                 {isMine ? (
                   <div style={{ display: "flex", gap: "8px" }}>
-                    <button onClick={() => startGame(session.playerIds || [], session.id)} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #00f2fe, #4facfe)" }}>
+                    <button onClick={() => startGame(session.playerIds || [], session.id)} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #d4af37, #c9a83e)" }}>
                       ▶️ Weiterspielen
                     </button>
-                    <button onClick={() => { if (window.confirm("Session wirklich beenden und abrechnen?")) endSession(session.id); }} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #ff4e50, #c31432)" }}>
+                    <button onClick={() => { if (window.confirm("Session wirklich beenden und abrechnen?")) endSession(session.id); }} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #a3383c, #6e1f28)" }}>
                       🏁 Session beenden
                     </button>
                   </div>
@@ -1880,7 +1887,7 @@ function App() {
                       👁️ Ansehen
                     </button>
                     {!session.hostActive && (
-                      <button onClick={() => takeoverHost(session)} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #7b1fa2, #4a148c)" }}>
+                      <button onClick={() => takeoverHost(session)} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #5c616c, #2c2e35)" }}>
                         🎮 Host werden
                       </button>
                     )}
@@ -1891,39 +1898,39 @@ function App() {
             })}
 
             <div className="glass" style={{ padding: "20px", textAlign: "center" }}>
-              <button className="pulse-btn" style={{ ...btnStyle, width: "100%", marginBottom: "15px", background: "linear-gradient(45deg, #00f2fe, #4facfe)", boxShadow: "0 0 15px #00f2fe" }}
+              <button className="pulse-btn" style={{ ...btnStyle, width: "100%", marginBottom: "15px", background: "linear-gradient(45deg, #d4af37, #c9a83e)", boxShadow: "0 0 15px #d4af37" }}
                 onClick={() => { setSelectSessionContext(null); setSelectedIds([]); setScreen("select"); }}>
                 🎴 Neue Session starten
               </button>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-                <button style={{ ...btnStyle, background: "linear-gradient(45deg, #f093fb, #f5576c)" }} onClick={() => setScreen("players")}>👤 Spieler</button>
-                <button style={{ ...btnStyle, background: "linear-gradient(45deg, #f9d423, #ff4e50)" }} onClick={() => setScreen("history")}>🕰️ Alte Sessions</button>
+                <button style={{ ...btnStyle, background: "linear-gradient(45deg, #b8bcc4, #4a4d57)" }} onClick={() => setScreen("players")}>👤 Spieler</button>
+                <button style={{ ...btnStyle, background: "linear-gradient(45deg, #c9a83e, #a3383c)" }} onClick={() => setScreen("history")}>🕰️ Alte Sessions</button>
               </div>
             </div>
 
             <div className="glass" style={{ padding: "20px" }}>
-              <h2 style={{ textAlign: "center", color: "#f9d423", marginBottom: "15px", fontSize: "20px" }}>🏆 BESTENLISTE</h2>
+              <h2 style={{ textAlign: "center", color: "#c9a83e", marginBottom: "15px", fontSize: "20px" }}>🏆 BESTENLISTE</h2>
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 {sortedLeaderboard.map((p, index) => {
                   const movement = lastSessionMovement[p.id];
                   return (
-                  <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 15px", background: index < 3 ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.3)", borderRadius: "10px", border: index === 0 ? "1px solid #f9d423" : "1px solid transparent" }}>
+                  <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 15px", background: index < 3 ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.3)", borderRadius: "10px", border: index === 0 ? "1px solid #c9a83e" : "1px solid transparent" }}>
                     <span style={{ fontSize: "16px", fontWeight: "bold", display: "flex", alignItems: "center" }}>
                       <span style={{ marginRight: "8px" }}>{index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : "⚫"}</span>
                       {p.name}
                       {!isStammSpieler(p) && <span style={{ marginLeft: "6px", fontSize: "11px", color: "#aaa", fontWeight: "normal", border: "1px solid #555", borderRadius: "4px", padding: "1px 5px" }}>Gast</span>}
                       {movement !== undefined && (
                         movement > 0 ? (
-                          <span style={{ marginLeft: "8px", fontSize: "12px", color: "#43e97b", fontWeight: "bold" }}>▲ {movement}</span>
+                          <span style={{ marginLeft: "8px", fontSize: "12px", color: "#4e8b5c", fontWeight: "bold" }}>▲ {movement}</span>
                         ) : movement < 0 ? (
-                          <span style={{ marginLeft: "8px", fontSize: "12px", color: "#ff4e50", fontWeight: "bold" }}>▼ {Math.abs(movement)}</span>
+                          <span style={{ marginLeft: "8px", fontSize: "12px", color: "#a3383c", fontWeight: "bold" }}>▼ {Math.abs(movement)}</span>
                         ) : (
-                          <span style={{ marginLeft: "8px", fontSize: "12px", color: "#f9d423", fontWeight: "bold" }}>−</span>
+                          <span style={{ marginLeft: "8px", fontSize: "12px", color: "#c9a83e", fontWeight: "bold" }}>−</span>
                         )
                       )}
                     </span>
                     <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                      <span style={{ fontWeight: "900", color: (p.session?.balance || 0) >= 0 ? "#43e97b" : "#ff4e50", fontSize: "16px" }}>
+                      <span style={{ fontWeight: "900", color: (p.session?.balance || 0) >= 0 ? "#4e8b5c" : "#a3383c", fontSize: "16px" }}>
                         {euro(p.session?.balance || 0)}
                       </span>
                       <button onClick={() => { setStatsPlayerId(p.id); setScreen("playerStats"); }} title="Statistiken" style={{ background: "none", border: "none", cursor: "pointer", fontSize: "16px" }}>📊</button>
@@ -1940,7 +1947,7 @@ function App() {
         {screen === "sessionEnd" && (
           <div className="glass" style={{ padding: "25px", textAlign: "center" }}>
             <div style={{ fontSize: "40px", marginBottom: "10px" }}>🃏</div>
-            <h3 style={{ color: "#f9d423", marginBottom: "8px" }}>Spiel beendet!</h3>
+            <h3 style={{ color: "#c9a83e", marginBottom: "8px" }}>Spiel beendet!</h3>
             <p style={{ color: "#aaa", fontSize: "13px", marginBottom: "20px" }}>
               Noch ein Spiel in dieser Session, oder jetzt abrechnen?
             </p>
@@ -1948,7 +1955,7 @@ function App() {
               <button onClick={() => {
                 const session = activeSessions.find(s => s.id === currentSessionId);
                 startGame(session ? session.playerIds : gamePlayers.map(p => p.id), currentSessionId);
-              }} style={{ ...btnStyle, flex: 1, background: "linear-gradient(45deg, #00f2fe, #4facfe)" }}>
+              }} style={{ ...btnStyle, flex: 1, background: "linear-gradient(45deg, #d4af37, #c9a83e)" }}>
                 ▶️ Weiteres Spiel starten
               </button>
               <button onClick={() => {
@@ -1960,7 +1967,7 @@ function App() {
                 👥
               </button>
             </div>
-            <button onClick={() => { if (window.confirm("Session wirklich beenden und abrechnen?")) endSession(currentSessionId); }} style={{ ...btnStyle, width: "100%", background: "linear-gradient(45deg, #ff512f, #f9d423)" }}>
+            <button onClick={() => { if (window.confirm("Session wirklich beenden und abrechnen?")) endSession(currentSessionId); }} style={{ ...btnStyle, width: "100%", background: "linear-gradient(45deg, #a15c2a, #c9a83e)" }}>
               🏁 Session beenden & abrechnen
             </button>
           </div>
@@ -1970,7 +1977,7 @@ function App() {
         {pendingPassword && (
           <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
             <div className="glass" style={{ padding: "25px", maxWidth: "360px", width: "100%" }}>
-              <h3 style={{ color: "#f9d423", marginBottom: "10px" }}>🔒 Passwort erforderlich</h3>
+              <h3 style={{ color: "#c9a83e", marginBottom: "10px" }}>🔒 Passwort erforderlich</h3>
               <p style={{ fontSize: "13px", color: "#aaa", marginBottom: "15px" }}>
                 Mindestens ein Stammspieler ist dabei - bitte Passwort eingeben, um die Session zu starten.
               </p>
@@ -1982,10 +1989,10 @@ function App() {
                 autoFocus
                 style={{ width: "100%", padding: "12px", borderRadius: "10px", border: "1px solid #555", background: "rgba(0,0,0,0.4)", color: "#fff", fontSize: "16px", marginBottom: "10px", boxSizing: "border-box" }}
               />
-              {passwordError && <div style={{ color: "#ff4e50", fontSize: "12px", marginBottom: "10px" }}>{passwordError}</div>}
+              {passwordError && <div style={{ color: "#a3383c", fontSize: "12px", marginBottom: "10px" }}>{passwordError}</div>}
               <div style={{ display: "flex", gap: "8px" }}>
                 <button onClick={() => setPendingPassword(null)} style={{ ...btnStyle, flex: 1, background: "rgba(255,255,255,0.1)" }}>Abbrechen</button>
-                <button onClick={confirmPendingPassword} style={{ ...btnStyle, flex: 1, background: "linear-gradient(45deg, #f9d423, #ff4e50)" }}>Bestätigen</button>
+                <button onClick={confirmPendingPassword} style={{ ...btnStyle, flex: 1, background: "linear-gradient(45deg, #c9a83e, #a3383c)" }}>Bestätigen</button>
               </div>
             </div>
           </div>
@@ -1995,22 +2002,22 @@ function App() {
         {sessionSummary && (
           <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
             <div className="glass" style={{ padding: "25px", maxWidth: "420px", width: "100%", maxHeight: "85vh", overflowY: "auto" }}>
-              <h2 style={{ color: "#f9d423", marginBottom: "5px", textAlign: "center" }}>🏁 Session beendet!</h2>
+              <h2 style={{ color: "#c9a83e", marginBottom: "5px", textAlign: "center" }}>🏁 Session beendet!</h2>
               <p style={{ color: "#aaa", fontSize: "13px", textAlign: "center", marginBottom: "20px" }}>
                 {sessionSummary.gameCount} {sessionSummary.gameCount === 1 ? "Spiel" : "Spiele"} gespielt
               </p>
 
-              <h3 style={{ color: "#00f2fe", fontSize: "14px", marginBottom: "10px" }}>💰 Gesamtbilanz dieser Session</h3>
+              <h3 style={{ color: "#d4af37", fontSize: "14px", marginBottom: "10px" }}>💰 Gesamtbilanz dieser Session</h3>
               <div style={{ marginBottom: "20px" }}>
                 {Object.entries(sessionSummary.balances).sort((a,b) => b[1]-a[1]).map(([id, amt]) => (
                   <div key={id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
                     <span>{sessionSummary.idToName[id]}</span>
-                    <span style={{ fontWeight: "bold", color: amt >= 0 ? "#43e97b" : "#ff4e50" }}>{euro(amt)}</span>
+                    <span style={{ fontWeight: "bold", color: amt >= 0 ? "#4e8b5c" : "#a3383c" }}>{euro(amt)}</span>
                   </div>
                 ))}
               </div>
 
-              <h3 style={{ color: "#00f2fe", fontSize: "14px", marginBottom: "10px" }}>🔄 Wer zahlt wem?</h3>
+              <h3 style={{ color: "#d4af37", fontSize: "14px", marginBottom: "10px" }}>🔄 Wer zahlt wem?</h3>
               {sessionSummary.transactions.length === 0 ? (
                 <p style={{ color: "#888", fontSize: "13px", marginBottom: "20px" }}>Alles ausgeglichen, niemand muss etwas zahlen. 🎉</p>
               ) : (
@@ -2020,17 +2027,17 @@ function App() {
                       <span style={{ fontWeight: "bold" }}>{t.fromName}</span>
                       <span style={{ color: "#aaa" }}>→</span>
                       <span style={{ fontWeight: "bold" }}>{t.toName}</span>
-                      <span style={{ marginLeft: "auto", fontWeight: "900", color: "#f9d423" }}>{t.amount.toFixed(2).replace(".", ",")} €</span>
+                      <span style={{ marginLeft: "auto", fontWeight: "900", color: "#c9a83e" }}>{t.amount.toFixed(2).replace(".", ",")} €</span>
                     </div>
                   ))}
                 </div>
               )}
 
               <div style={{ display: "flex", gap: "8px" }}>
-                <button onClick={() => { setSessionStatsSessionId(sessionSummary.sessionId); setSessionStatsReturn("home"); setSessionSummary(null); setScreen("sessionStats"); }} style={{ ...btnStyle, flex: 1, background: "linear-gradient(45deg, #7b1fa2, #4a148c)" }}>
+                <button onClick={() => { setSessionStatsSessionId(sessionSummary.sessionId); setSessionStatsReturn("home"); setSessionSummary(null); setScreen("sessionStats"); }} style={{ ...btnStyle, flex: 1, background: "linear-gradient(45deg, #5c616c, #2c2e35)" }}>
                   📊 Statistiken
                 </button>
-                <button onClick={() => { setSessionSummary(null); setScreen("home"); }} style={{ ...btnStyle, flex: 1, background: "linear-gradient(45deg, #43e97b, #38f9d7)", color: "#000" }}>
+                <button onClick={() => { setSessionSummary(null); setScreen("home"); }} style={{ ...btnStyle, flex: 1, background: "linear-gradient(45deg, #4e8b5c, #6ea88a)", color: "#000" }}>
                   Alles klar ✓
                 </button>
               </div>
@@ -2043,8 +2050,8 @@ function App() {
           <div>
             <div className="glass" style={{ padding: "20px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", borderBottom: "1px solid rgba(255,255,255,0.1)", paddingBottom: "10px" }}>
-                <span style={{ fontSize: "20px", fontWeight: "bold", color: "#00f2fe" }}>🔥 Runde {gameRounds.length + 1}</span>
-                <span style={{ fontSize: "14px", color: "#ccc" }}>Geber: <strong style={{color:"#f9d423"}}>{gamePlayers[dealerIdx]?.name}</strong></span>
+                <span style={{ fontSize: "20px", fontWeight: "bold", color: "#d4af37" }}>🔥 Runde {gameRounds.length + 1}</span>
+                <span style={{ fontSize: "14px", color: "#ccc" }}>Geber: <strong style={{color:"#c9a83e"}}>{gamePlayers[dealerIdx]?.name}</strong></span>
               </div>
 
               {/* Punkte-Tafel */}
@@ -2053,17 +2060,17 @@ function App() {
                 return (
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "15px" }}>
                 {gamePlayers.map((p, i) => (
-                  <div key={p.id} style={{ padding: "12px", background: "rgba(0,0,0,0.4)", borderRadius: "10px", textAlign: "center", border: i === dealerIdx ? "1px solid #f9d423" : "1px solid rgba(255,255,255,0.05)" }}>
+                  <div key={p.id} style={{ padding: "12px", background: "rgba(0,0,0,0.4)", borderRadius: "10px", textAlign: "center", border: i === dealerIdx ? "1px solid #c9a83e" : "1px solid rgba(255,255,255,0.05)" }}>
                     <div style={{ fontSize: "14px", color: "#aaa" }}>
-                      {p.name} {currentScores[i] <= 3 && <span style={{ color: "#ff4e50" }}>🚫🔄</span>}
+                      {p.name} {currentScores[i] <= 3 && <span style={{ color: "#a3383c" }}>🚫🔄</span>}
                       {currentSessionId && (
-                        <span style={{ marginLeft: "6px", fontSize: "11px", fontWeight: "bold", color: (sessionMoneyScores[p.id] || 0) >= 0 ? "#43e97b" : "#ff4e50" }}>
+                        <span style={{ marginLeft: "6px", fontSize: "11px", fontWeight: "bold", color: (sessionMoneyScores[p.id] || 0) >= 0 ? "#4e8b5c" : "#a3383c" }}>
                           {euro(sessionMoneyScores[p.id] || 0)}
                         </span>
                       )}
                     </div>
                     {/* Live-Kappung auf 0 in der Punkte-Tafel */}
-                    <div style={{ fontSize: "28px", fontWeight: "900", color: currentScores[i] <= 3 ? "#ff0844" : currentScores[i] <= 7 ? "#ffb199" : "#00f2fe" }}>
+                    <div style={{ fontSize: "28px", fontWeight: "900", color: currentScores[i] <= 3 ? "#8f2233" : currentScores[i] <= 7 ? "#c9a084" : "#d4af37" }}>
                       {currentScores[i] < 0 ? 0 : currentScores[i]}
                     </div>
                   </div>
@@ -2073,7 +2080,7 @@ function App() {
               })()}
 
               {isObserver && (
-                <div style={{ padding: "10px 14px", marginBottom: "20px", borderRadius: "8px", background: "rgba(120,140,160,0.15)", border: "1px solid rgba(159,179,200,0.4)", color: "#9fb3c8", fontSize: "13px", textAlign: "center" }}>
+                <div style={{ padding: "10px 14px", marginBottom: "20px", borderRadius: "8px", background: "rgba(120,140,160,0.15)", border: "1px solid rgba(159,179,200,0.4)", color: "#b8a8c9", fontSize: "13px", textAlign: "center" }}>
                   👁️ Beobachtungsmodus – nur Ansicht, keine Eingaben möglich
                 </div>
               )}
@@ -2081,10 +2088,10 @@ function App() {
               {/* Abbruch-Buttons: nur für den Host, jederzeit während einer laufenden Partie verfügbar */}
               {!isObserver && (
                 <div style={{ display: "flex", gap: "8px", marginBottom: "25px" }}>
-                  <button onClick={restartCurrentGame} style={{ ...btnStyle, flex: 1, padding: "9px", fontSize: "12px", background: "linear-gradient(45deg, #f7971e, #ffd200)", color: "#000" }}>
+                  <button onClick={restartCurrentGame} style={{ ...btnStyle, flex: 1, padding: "9px", fontSize: "12px", background: "linear-gradient(45deg, #c98a3e, #c9a83e)", color: "#000" }}>
                     ⏹️ Spiel neu starten
                   </button>
-                  <button onClick={abortSessionDiscardGame} style={{ ...btnStyle, flex: 1, padding: "9px", fontSize: "12px", background: "linear-gradient(45deg, #ff4e50, #c31432)" }}>
+                  <button onClick={abortSessionDiscardGame} style={{ ...btnStyle, flex: 1, padding: "9px", fontSize: "12px", background: "linear-gradient(45deg, #a3383c, #6e1f28)" }}>
                     🚫 Session beenden
                   </button>
                 </div>
@@ -2092,7 +2099,7 @@ function App() {
 
               {/* Test-Hilfsmittel: komplettes Spiel zufällig durchspielen lassen (nur Host) */}
               {!isObserver && (
-                <button onClick={simulateRandomGame} style={{ ...btnStyle, width: "100%", padding: "9px", fontSize: "12px", background: "linear-gradient(45deg, #7b1fa2, #4a148c)", marginBottom: "25px" }}>
+                <button onClick={simulateRandomGame} style={{ ...btnStyle, width: "100%", padding: "9px", fontSize: "12px", background: "linear-gradient(45deg, #5c616c, #2c2e35)", marginBottom: "25px" }}>
                   🎲 Zufällig spielen (Test)
                 </button>
               )}
@@ -2102,11 +2109,12 @@ function App() {
               {/* PHASE 1: TRUMPF & STATUS */}
               {roundPhase === "setup" && (
                 <div>
-                  <h3 style={{ color: "#f9d423", marginBottom: "10px", fontSize: "15px" }}>1. Trumpf auswählen:</h3>
+                  <h3 style={{ color: "#c9a83e", marginBottom: "10px", fontSize: "15px" }}>1. Trumpf auswählen:</h3>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "8px", marginBottom: "10px" }}>
                     {SUITS.filter(s => s.id !== "herzblind").map(s => (
-                      <button key={s.id} onClick={() => handleTrumpChange(s)} style={{ ...btnStyle, padding: "10px 5px", fontSize: "13px", background: selectedTrump.id === s.id ? s.color : "rgba(0,0,0,0.4)", border: selectedTrump.id === s.id ? "2px solid #fff" : "none" }}>
-                        {s.emoji} {s.label}
+                      <button key={s.id} onClick={() => handleTrumpChange(s)} style={{ ...btnStyle, display: "flex", flexDirection: "column", alignItems: "center", gap: "4px", padding: "8px 5px", fontSize: "13px", background: selectedTrump.id === s.id ? s.color : "rgba(0,0,0,0.4)", border: selectedTrump.id === s.id ? "2px solid #fff" : "none" }}>
+                        <img src={s.icon} alt={s.label} style={{ height: "28px", width: "auto" }} />
+                        {s.label}
                       </button>
                     ))}
                   </div>
@@ -2117,7 +2125,7 @@ function App() {
                     return (
                       <button onClick={() => handleTrumpChange(herzBlind)} style={{
                         ...btnStyle, padding: "10px 5px", fontSize: "13px", marginBottom: "20px",
-                        background: active ? `linear-gradient(45deg, ${herzBlind.color}, #d81b60)` : herzBlind.color,
+                        background: active ? `linear-gradient(45deg, ${herzBlind.color}, #7a3b5c)` : herzBlind.color,
                         border: active ? "2px solid #fff" : "none",
                       }}>
                         {herzBlind.emoji} {herzBlind.label} (×4)
@@ -2128,12 +2136,12 @@ function App() {
                   {/* Ansager-Auswahl: nur bei normalen Trümpfen, bei Herz Blind gibt es keinen Ansager */}
                   {selectedTrump.id !== "herzblind" && (
                     <div style={{ marginBottom: "20px" }}>
-                      <h3 style={{ color: "#f9d423", marginBottom: "10px", fontSize: "15px" }}>2. Ansager & Ansage:</h3>
+                      <h3 style={{ color: "#c9a83e", marginBottom: "10px", fontSize: "15px" }}>2. Ansager & Ansage:</h3>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "10px" }}>
                         {gamePlayers.map(p => (
                           <button key={p.id} onClick={() => handleAnsagerChange(p.id)} style={{
                             ...btnStyle, padding: "8px 14px", fontSize: "13px",
-                            background: ansagerId === p.id ? "linear-gradient(45deg, #f9d423, #ff512f)" : "rgba(0,0,0,0.4)",
+                            background: ansagerId === p.id ? "linear-gradient(45deg, #c9a83e, #a15c2a)" : "rgba(0,0,0,0.4)",
                             color: ansagerId === p.id ? "#000" : "#fff",
                             border: ansagerId === p.id ? "2px solid #fff" : "none",
                           }}>
@@ -2148,7 +2156,7 @@ function App() {
                             {[1,2,3,4,5,6].map(n => (
                               <button key={n} onClick={() => setBidTricks(n)} style={{
                                 width: "32px", height: "32px", borderRadius: "6px", border: "none", fontWeight: "bold", cursor: "pointer",
-                                background: bidTricks === n ? "#f9d423" : "rgba(255,255,255,0.1)",
+                                background: bidTricks === n ? "#c9a83e" : "rgba(255,255,255,0.1)",
                                 color: bidTricks === n ? "#000" : "#fff",
                               }}>{n}</button>
                             ))}
@@ -2158,7 +2166,7 @@ function App() {
                     </div>
                   )}
 
-                  <h3 style={{ color: "#f9d423", marginBottom: "10px", fontSize: "15px" }}>{selectedTrump.id !== "herzblind" ? "3." : "2."} Wer geht mit?</h3>
+                  <h3 style={{ color: "#c9a83e", marginBottom: "10px", fontSize: "15px" }}>{selectedTrump.id !== "herzblind" ? "3." : "2."} Wer geht mit?</h3>
                   {gamePlayers.map((p, idx) => {
                     const forcedReason = getForcedReason(p, idx, selectedTrump);
                     const isForced = forcedReason !== null;
@@ -2167,17 +2175,17 @@ function App() {
                     return (
                       <div key={p.id} style={{ display: "flex", flexDirection: "column", padding: "10px", background: "rgba(255,255,255,0.05)", borderRadius: "8px", marginBottom: "8px" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <span style={{ fontWeight: "bold" }}>{p.name} {currentScores[idx] <= 3 && <span style={{ color: "#ff4e50", fontSize: "11px" }}>🚫🔄</span>}</span>
+                          <span style={{ fontWeight: "bold" }}>{p.name} {currentScores[idx] <= 3 && <span style={{ color: "#a3383c", fontSize: "11px" }}>🚫🔄</span>}</span>
                           <div style={{ display: "flex", gap: "5px" }}>
-                            <button onClick={() => !isForced && setPlayerStatus({ ...playerStatus, [p.id]: "mit" })} style={{ padding: "6px 14px", borderRadius: "6px", border: "none", fontWeight: "bold", background: currentStatus === "mit" ? "#43e97b" : "rgba(0,0,0,0.3)", color: currentStatus === "mit" ? "#000" : "#fff" }}>Mit</button>
-                            <button onClick={() => !isForced && setPlayerStatus({ ...playerStatus, [p.id]: "raus" })} disabled={isForced} style={{ padding: "6px 14px", borderRadius: "6px", border: "none", fontWeight: "bold", background: currentStatus === "raus" ? "#ff4e50" : "rgba(0,0,0,0.3)", color: "#fff", opacity: isForced ? 0.2 : 1 }}>Raus</button>
+                            <button onClick={() => !isForced && setPlayerStatus({ ...playerStatus, [p.id]: "mit" })} style={{ padding: "6px 14px", borderRadius: "6px", border: "none", fontWeight: "bold", background: currentStatus === "mit" ? "#4e8b5c" : "rgba(0,0,0,0.3)", color: currentStatus === "mit" ? "#000" : "#fff" }}>Mit</button>
+                            <button onClick={() => !isForced && setPlayerStatus({ ...playerStatus, [p.id]: "raus" })} disabled={isForced} style={{ padding: "6px 14px", borderRadius: "6px", border: "none", fontWeight: "bold", background: currentStatus === "raus" ? "#a3383c" : "rgba(0,0,0,0.3)", color: "#fff", opacity: isForced ? 0.2 : 1 }}>Raus</button>
                           </div>
                         </div>
-                        {isForced && <div style={{ fontSize: "11px", color: "#ffb199", marginTop: "4px" }}>{forcedReason}</div>}
+                        {isForced && <div style={{ fontSize: "11px", color: "#c9a084", marginTop: "4px" }}>{forcedReason}</div>}
                       </div>
                     );
                   })}
-                  <button onClick={proceedToTricks} style={{ ...btnStyle, background: "linear-gradient(45deg, #00f2fe, #4facfe)", width: "100%", marginTop: "15px" }}>Stiche eintragen →</button>
+                  <button onClick={proceedToTricks} style={{ ...btnStyle, background: "linear-gradient(45deg, #d4af37, #c9a83e)", width: "100%", marginTop: "15px" }}>Stiche eintragen →</button>
                 </div>
               )}
 
@@ -2185,8 +2193,8 @@ function App() {
               {roundPhase === "tricks" && (
                 <div>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "15px" }}>
-                    <h3 style={{ color: "#f9d423", fontSize: "16px" }}>Stiche ({selectedTrump.emoji}):</h3>
-                    <span style={{ fontWeight: "900", color: getTotalTricksEntered(playerTricks, playerStatus) === 6 ? "#43e97b" : "#ff4e50" }}>
+                    <h3 style={{ color: "#c9a83e", fontSize: "16px" }}>Stiche ({selectedTrump.emoji}):</h3>
+                    <span style={{ fontWeight: "900", color: getTotalTricksEntered(playerTricks, playerStatus) === 6 ? "#4e8b5c" : "#a3383c" }}>
                       Verteilt: {getTotalTricksEntered(playerTricks, playerStatus)} / 6
                     </span>
                   </div>
@@ -2198,13 +2206,13 @@ function App() {
                     if (status === "raus") {
                       return (
                         <div key={p.id} style={{ padding: "10px 12px", background: "rgba(0,0,0,0.2)", borderRadius: "8px", marginBottom: "6px", opacity: 0.5 }}>
-                          <span>{p.name} - <i style={{color: "#ff4e50"}}>Raus gegangen</i></span>
+                          <span>{p.name} - <i style={{color: "#a3383c"}}>Raus gegangen</i></span>
                         </div>
                       );
                     }
                     return (
-                      <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", background: ansagerId === p.id ? "rgba(249,212,35,0.1)" : "rgba(255,255,255,0.05)", borderRadius: "8px", marginBottom: "6px", border: ansagerId === p.id ? "1px solid #f9d423" : "none" }}>
-                        <span style={{ fontWeight: "bold" }}>{ansagerId === p.id && "📣 "}{p.name}{ansagerId === p.id && <span style={{ fontSize: "11px", color: "#f9d423", fontWeight: "normal" }}> (Ansage: {bidTricks})</span>}</span>
+                      <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", background: ansagerId === p.id ? "rgba(249,212,35,0.1)" : "rgba(255,255,255,0.05)", borderRadius: "8px", marginBottom: "6px", border: ansagerId === p.id ? "1px solid #c9a83e" : "none" }}>
+                        <span style={{ fontWeight: "bold" }}>{ansagerId === p.id && "📣 "}{p.name}{ansagerId === p.id && <span style={{ fontSize: "11px", color: "#c9a83e", fontWeight: "normal" }}> (Ansage: {bidTricks})</span>}</span>
                         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                           <button onClick={() => setPlayerTricks({ ...playerTricks, [p.id]: Math.max(0, (playerTricks[p.id] || 0) - 1) })} style={{ width: "32px", height: "32px", borderRadius: "5px", border: "none", background: "#fff", fontWeight: "bold" }}>-</button>
                           <span style={{ fontSize: "20px", fontWeight: "900", minWidth: "25px", textAlign: "center" }}>{playerTricks[p.id] || 0}</span>
@@ -2219,7 +2227,7 @@ function App() {
                   })}
                   <div style={{ display: "flex", gap: "10px", marginTop: "20px" }}>
                     <button onClick={() => setRoundPhase("setup")} style={{ ...btnStyle, background: "rgba(255,255,255,0.1)", flex: 1 }}>Zurück</button>
-                    <button onClick={evaluateRound} style={{ ...btnStyle, background: "linear-gradient(45deg, #43e97b, #38f9d7)", color: "#000", flex: 2 }}>Runde auswerten ✓</button>
+                    <button onClick={evaluateRound} style={{ ...btnStyle, background: "linear-gradient(45deg, #4e8b5c, #6ea88a)", color: "#000", flex: 2 }}>Runde auswerten ✓</button>
                   </div>
                 </div>
               )}
@@ -2227,7 +2235,7 @@ function App() {
 
               {/* Link zur eigenen Seite mit den bisherigen Spielen dieser Session */}
               {currentSessionId && (
-                <button onClick={() => setScreen("activeSessionGames")} style={{ ...btnStyle, width: "100%", marginTop: "15px", background: "linear-gradient(45deg, #7b1fa2, #4a148c)" }}>
+                <button onClick={() => setScreen("activeSessionGames")} style={{ ...btnStyle, width: "100%", marginTop: "15px", background: "linear-gradient(45deg, #5c616c, #2c2e35)" }}>
                   🃏 Spiele dieser Session ansehen
                 </button>
               )}
@@ -2236,7 +2244,7 @@ function App() {
             {/* RUNDEN-HISTORIE DES LAUFENDEN SPIELS - volle Breite, baut sich live als Tabelle auf */}
             {gameRounds.length > 0 && (
               <div className="glass" style={{ padding: "16px", marginTop: "15px" }}>
-                <h3 style={{ color: "#f093fb", marginBottom: "12px", fontSize: "15px" }}>🛠️ Runden</h3>
+                <h3 style={{ color: "#b8bcc4", marginBottom: "12px", fontSize: "15px" }}>🛠️ Runden</h3>
 
                 <GameRoundsTable players={gamePlayers} rounds={gameRounds} />
 
@@ -2245,14 +2253,14 @@ function App() {
                     {editingRoundIdx === null ? (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
                         {gameRounds.map((r, rIdx) => (
-                          <button key={rIdx} onClick={() => setEditingRoundIdx(rIdx)} style={{ background: "rgba(255,255,255,0.08)", border: "none", borderRadius: "6px", color: "#f9d423", cursor: "pointer", fontSize: "11px", padding: "4px 8px" }}>
+                          <button key={rIdx} onClick={() => setEditingRoundIdx(rIdx)} style={{ background: "rgba(255,255,255,0.08)", border: "none", borderRadius: "6px", color: "#c9a83e", cursor: "pointer", fontSize: "11px", padding: "4px 8px" }}>
                             ✏️ Runde {r.roundNum}
                           </button>
                         ))}
                       </div>
                     ) : (
                       <div style={{ background: "rgba(0,0,0,0.3)", padding: "12px", borderRadius: "10px", border: "1px solid rgba(255,255,255,0.05)" }}>
-                        <div style={{ fontSize: "12px", color: "#43e97b", marginBottom: "8px" }}>Runde {gameRounds[editingRoundIdx].roundNum} wird editiert...</div>
+                        <div style={{ fontSize: "12px", color: "#4e8b5c", marginBottom: "8px" }}>Runde {gameRounds[editingRoundIdx].roundNum} wird editiert...</div>
                         <RoundInlineEditor
                           gamePlayers={gamePlayers}
                           roundData={gameRounds[editingRoundIdx]}
@@ -2300,13 +2308,13 @@ function App() {
                   <div>
                     <button onClick={() => setScreen("game")} style={{ ...btnStyle, padding: "8px 15px", fontSize: "13px", background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", marginBottom: "15px" }}>← Zurück zum Spiel</button>
                     <div className="glass" style={{ padding: "16px" }}>
-                    <h3 style={{ color: "#f9d423", marginBottom: "12px", fontSize: "15px" }}>🃏 Session ({sessionGames.length})</h3>
+                    <h3 style={{ color: "#c9a83e", marginBottom: "12px", fontSize: "15px" }}>🃏 Session ({sessionGames.length})</h3>
 
                     {/* Momentaner Session-Score */}
                     {sessionScoresList.length > 0 && (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "14px", paddingBottom: "14px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
                         {sessionScoresList.map(t => (
-                          <span key={t.name} style={{ fontSize: "12px", padding: "4px 10px", borderRadius: "20px", background: "rgba(255,255,255,0.06)", color: t.sum >= 0 ? "#43e97b" : "#ff4e50", fontWeight: "bold" }}>
+                          <span key={t.name} style={{ fontSize: "12px", padding: "4px 10px", borderRadius: "20px", background: "rgba(255,255,255,0.06)", color: t.sum >= 0 ? "#4e8b5c" : "#a3383c", fontWeight: "bold" }}>
                             {t.name}: {euro(t.sum)}
                           </span>
                         ))}
@@ -2326,21 +2334,21 @@ function App() {
 
                           {/* Kopfzeile */}
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px" }}>
-                            <strong style={{ color: "#00f2fe", fontSize: "13px" }}>
+                            <strong style={{ color: "#d4af37", fontSize: "13px" }}>
                               Spiel {gIdx + 1}
-                              {isDeleted && <span style={{ marginLeft: "8px", color: "#ff4e50", border: "1px solid #ff4e50", borderRadius: "5px", padding: "1px 6px", fontSize: "10px" }}>🗑️ GELÖSCHT</span>}
+                              {isDeleted && <span style={{ marginLeft: "8px", color: "#a3383c", border: "1px solid #a3383c", borderRadius: "5px", padding: "1px 6px", fontSize: "10px" }}>🗑️ GELÖSCHT</span>}
                               <span style={{ marginLeft: "8px", fontSize: "11px", color: "#888" }}>{rounds.length} Runden</span>
                             </strong>
                             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                               {!isEditingGame && !isObserver && (
                                 <div style={{ display: "flex", gap: "8px" }}>
                                   {!isDeleted && (
-                                    <button onClick={() => { setEditingGameId(g.id); const s = {}; g.players.forEach((p, i) => { s[p.id] = g.finalScores[i]; }); setEditScores(s); }} style={{ background: "none", border: "none", color: "#f9d423", cursor: "pointer", fontSize: "13px" }}>✏️</button>
+                                    <button onClick={() => { setEditingGameId(g.id); const s = {}; g.players.forEach((p, i) => { s[p.id] = g.finalScores[i]; }); setEditScores(s); }} style={{ background: "none", border: "none", color: "#c9a83e", cursor: "pointer", fontSize: "13px" }}>✏️</button>
                                   )}
                                   {isDeleted ? (
-                                    <button onClick={() => restorePastGame(g.id)} style={{ background: "none", border: "none", color: "#43e97b", cursor: "pointer", fontSize: "13px" }}>↩️</button>
+                                    <button onClick={() => restorePastGame(g.id)} style={{ background: "none", border: "none", color: "#4e8b5c", cursor: "pointer", fontSize: "13px" }}>↩️</button>
                                   ) : (
-                                    <button onClick={() => deletePastGame(g.id)} style={{ background: "none", border: "none", color: "#ff4e50", cursor: "pointer", fontSize: "13px" }}>🗑️</button>
+                                    <button onClick={() => deletePastGame(g.id)} style={{ background: "none", border: "none", color: "#a3383c", cursor: "pointer", fontSize: "13px" }}>🗑️</button>
                                   )}
                                 </div>
                               )}
@@ -2361,7 +2369,7 @@ function App() {
                                   return (
                                     <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
                                       <span>{isWinner ? "🏆 " : ""}{p.name}</span>
-                                      <span style={{ fontWeight: "bold", color: isDeleted ? "#888" : ((specificGame?.moneyDelta || 0) >= 0 ? "#43e97b" : "#ff4e50"), textDecoration: isDeleted ? "line-through" : "none" }}>
+                                      <span style={{ fontWeight: "bold", color: isDeleted ? "#888" : ((specificGame?.moneyDelta || 0) >= 0 ? "#4e8b5c" : "#a3383c"), textDecoration: isDeleted ? "line-through" : "none" }}>
                                         {regPlayer ? euro(specificGame?.moneyDelta || 0) : "—"}
                                       </span>
                                     </div>
@@ -2378,7 +2386,7 @@ function App() {
                                 ))}
                                 <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
                                   <button onClick={() => setEditingGameId(null)} style={{ ...btnStyle, padding: "5px 10px", fontSize: "12px", background: "#aaa" }}>Abbrechen</button>
-                                  <button onClick={() => saveEditedPastGame(g.id)} style={{ ...btnStyle, padding: "5px 10px", fontSize: "12px", background: "#43e97b", color: "#000" }}>Speichern</button>
+                                  <button onClick={() => saveEditedPastGame(g.id)} style={{ ...btnStyle, padding: "5px 10px", fontSize: "12px", background: "#4e8b5c", color: "#000" }}>Speichern</button>
                                 </div>
                               </div>
                             )}
@@ -2420,19 +2428,19 @@ function App() {
               {/* Endpunkte: HIER korrigierbar (Endstand), einzelne Runden NICHT - und auch nur, solange die Session noch läuft */}
               <div className="glass" style={{ padding: "20px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "15px" }}>
-                  <h3 style={{ color: "#00f2fe", fontSize: "16px" }}>
+                  <h3 style={{ color: "#d4af37", fontSize: "16px" }}>
                     🃏 Spiel-Details
-                    {isDeleted && <span style={{ marginLeft: "8px", color: "#ff4e50", border: "1px solid #ff4e50", borderRadius: "5px", padding: "1px 6px", fontSize: "10px" }}>🗑️ GELÖSCHT</span>}
+                    {isDeleted && <span style={{ marginLeft: "8px", color: "#a3383c", border: "1px solid #a3383c", borderRadius: "5px", padding: "1px 6px", fontSize: "10px" }}>🗑️ GELÖSCHT</span>}
                   </h3>
                   {isCorrectable && !isEditingGame && (
                     <div style={{ display: "flex", gap: "12px" }}>
                       {!isDeleted && (
-                        <button onClick={() => { setEditingGameId(g.id); const s = {}; g.players.forEach((p, i) => { s[p.id] = g.finalScores[i]; }); setEditScores(s); }} style={{ background: "none", border: "none", color: "#f9d423", cursor: "pointer", fontSize: "14px" }}>✏️ Endpunkte korrigieren</button>
+                        <button onClick={() => { setEditingGameId(g.id); const s = {}; g.players.forEach((p, i) => { s[p.id] = g.finalScores[i]; }); setEditScores(s); }} style={{ background: "none", border: "none", color: "#c9a83e", cursor: "pointer", fontSize: "14px" }}>✏️ Endpunkte korrigieren</button>
                       )}
                       {isDeleted ? (
-                        <button onClick={() => restorePastGame(g.id)} style={{ background: "none", border: "none", color: "#43e97b", cursor: "pointer", fontSize: "14px" }}>↩️ Wiederherstellen</button>
+                        <button onClick={() => restorePastGame(g.id)} style={{ background: "none", border: "none", color: "#4e8b5c", cursor: "pointer", fontSize: "14px" }}>↩️ Wiederherstellen</button>
                       ) : (
-                        <button onClick={() => deletePastGame(g.id)} style={{ background: "none", border: "none", color: "#ff4e50", cursor: "pointer", fontSize: "14px" }}>🗑️ Löschen</button>
+                        <button onClick={() => deletePastGame(g.id)} style={{ background: "none", border: "none", color: "#a3383c", cursor: "pointer", fontSize: "14px" }}>🗑️ Löschen</button>
                       )}
                     </div>
                   )}
@@ -2447,7 +2455,7 @@ function App() {
                       return (
                         <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
                           <span>{isWinner ? "🏆 " : ""}{p.name}</span>
-                          <span style={{ fontWeight: "bold", color: isDeleted ? "#888" : ((specificGame?.moneyDelta || 0) >= 0 ? "#43e97b" : "#ff4e50"), textDecoration: isDeleted ? "line-through" : "none" }}>
+                          <span style={{ fontWeight: "bold", color: isDeleted ? "#888" : ((specificGame?.moneyDelta || 0) >= 0 ? "#4e8b5c" : "#a3383c"), textDecoration: isDeleted ? "line-through" : "none" }}>
                             {regPlayer ? euro(specificGame?.moneyDelta || 0) : "—"}
                           </span>
                         </div>
@@ -2464,7 +2472,7 @@ function App() {
                     ))}
                     <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
                       <button onClick={() => setEditingGameId(null)} style={{ ...btnStyle, padding: "6px 12px", fontSize: "12px", background: "#aaa" }}>Abbrechen</button>
-                      <button onClick={() => saveEditedPastGame(g.id)} style={{ ...btnStyle, padding: "6px 12px", fontSize: "12px", background: "#43e97b", color: "#000" }}>Speichern</button>
+                      <button onClick={() => saveEditedPastGame(g.id)} style={{ ...btnStyle, padding: "6px 12px", fontSize: "12px", background: "#4e8b5c", color: "#000" }}>Speichern</button>
                     </div>
                   </div>
                 )}
@@ -2472,7 +2480,7 @@ function App() {
 
               {/* Alle Runden dieses Spiels - NUR lesend, keine Bearbeitung/Löschung einzelner Runden */}
               <div className="glass" style={{ padding: "20px" }}>
-                <h3 style={{ color: "#f093fb", marginBottom: "15px", fontSize: "16px" }}>🔄 Runden ({rounds.length})</h3>
+                <h3 style={{ color: "#b8bcc4", marginBottom: "15px", fontSize: "16px" }}>🔄 Runden ({rounds.length})</h3>
                 {rounds.length === 0 ? (
                   <div style={{ fontSize: "13px", color: "#666", fontStyle: "italic" }}>Keine Runden gespeichert (älteres Spiel).</div>
                 ) : (
@@ -2517,17 +2525,17 @@ function App() {
 
               <div className="glass" style={{ padding: "20px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-                  <h3 style={{ color: "#00f2fe", fontSize: "16px" }}>
+                  <h3 style={{ color: "#d4af37", fontSize: "16px" }}>
                     📦 Session vom {games[0].date}{games[0].date !== games[games.length - 1].date ? " – " + games[games.length - 1].date : ""}
                   </h3>
-                  <button onClick={() => { setSessionStatsSessionId(detailSessionId); setSessionStatsReturn("sessionDetail"); setScreen("sessionStats"); }} style={{ ...btnStyle, padding: "6px 12px", fontSize: "11px", background: "linear-gradient(45deg, #7b1fa2, #4a148c)" }}>
+                  <button onClick={() => { setSessionStatsSessionId(detailSessionId); setSessionStatsReturn("sessionDetail"); setScreen("sessionStats"); }} style={{ ...btnStyle, padding: "6px 12px", fontSize: "11px", background: "linear-gradient(45deg, #5c616c, #2c2e35)" }}>
                     📊 Statistiken
                   </button>
                 </div>
                 {totalsList.length > 0 && (
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
                     {totalsList.map(t => (
-                      <span key={t.name} style={{ fontSize: "12px", padding: "3px 9px", borderRadius: "20px", background: "rgba(255,255,255,0.06)", color: t.sum >= 0 ? "#43e97b" : "#ff4e50", fontWeight: "bold" }}>
+                      <span key={t.name} style={{ fontSize: "12px", padding: "3px 9px", borderRadius: "20px", background: "rgba(255,255,255,0.06)", color: t.sum >= 0 ? "#4e8b5c" : "#a3383c", fontWeight: "bold" }}>
                         {t.name}: {euro(t.sum)}
                       </span>
                     ))}
@@ -2536,14 +2544,14 @@ function App() {
               </div>
 
               <div className="glass" style={{ padding: "20px" }}>
-                <h3 style={{ color: "#f093fb", marginBottom: "12px", fontSize: "15px" }}>🃏 Spiele dieser Session ({games.length})</h3>
+                <h3 style={{ color: "#b8bcc4", marginBottom: "12px", fontSize: "15px" }}>🃏 Spiele dieser Session ({games.length})</h3>
                 {games.map((g, gIdx) => {
                   const isDeleted = !!g.deleted;
                   return (
-                    <div key={g.id} style={{ padding: "12px", marginBottom: "10px", borderRadius: "10px", borderLeft: `5px solid ${isDeleted ? "#888" : "#00f2fe"}`, background: isDeleted ? "rgba(80,80,80,0.25)" : "rgba(0,0,0,0.35)", opacity: isDeleted ? 0.75 : 1 }}>
+                    <div key={g.id} style={{ padding: "12px", marginBottom: "10px", borderRadius: "10px", borderLeft: `5px solid ${isDeleted ? "#888" : "#d4af37"}`, background: isDeleted ? "rgba(80,80,80,0.25)" : "rgba(0,0,0,0.35)", opacity: isDeleted ? 0.75 : 1 }}>
                       <div style={{ fontSize: "12px", color: "#888", marginBottom: "6px" }}>
                         Spiel {gIdx + 1} · {g.date}
-                        {isDeleted && <span style={{ marginLeft: "8px", color: "#ff4e50", border: "1px solid #ff4e50", borderRadius: "5px", padding: "1px 6px", fontSize: "10px" }}>🗑️ GELÖSCHT</span>}
+                        {isDeleted && <span style={{ marginLeft: "8px", color: "#a3383c", border: "1px solid #a3383c", borderRadius: "5px", padding: "1px 6px", fontSize: "10px" }}>🗑️ GELÖSCHT</span>}
                       </div>
                       {g.players.map((p, i) => {
                         const regPlayer = registry.find(rp => rp.id === p.id);
@@ -2552,7 +2560,7 @@ function App() {
                         return (
                           <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: "1px solid rgba(255,255,255,0.06)", fontSize: "13px" }}>
                             <span>{isWinner ? "🏆 " : ""}{p.name}</span>
-                            <span style={{ fontWeight: "bold", color: isDeleted ? "#888" : ((specificGame?.moneyDelta || 0) >= 0 ? "#43e97b" : "#ff4e50"), textDecoration: isDeleted ? "line-through" : "none" }}>
+                            <span style={{ fontWeight: "bold", color: isDeleted ? "#888" : ((specificGame?.moneyDelta || 0) >= 0 ? "#4e8b5c" : "#a3383c"), textDecoration: isDeleted ? "line-through" : "none" }}>
                               {regPlayer ? euro(specificGame?.moneyDelta || 0) : "—"}
                             </span>
                           </div>
@@ -2588,9 +2596,9 @@ function App() {
                 ← Zurück
               </button>
               <div className="glass" style={{ padding: "20px" }}>
-                <h3 style={{ color: "#f9d423", marginBottom: "15px", fontSize: "20px" }}>📊 Session-Statistiken</h3>
+                <h3 style={{ color: "#c9a83e", marginBottom: "15px", fontSize: "20px" }}>📊 Session-Statistiken</h3>
 
-                <h4 style={{ color: "#43e97b", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px" }}>💰 Geld</h4>
+                <h4 style={{ color: "#4e8b5c", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px" }}>💰 Geld</h4>
 
                 <StatCard label="💰 Gewinner" value={stats.winner ? stats.winner.name : "—"}
                   description="Der Spieler, der in dieser Session insgesamt das meiste Geld gewonnen hat."
@@ -2602,7 +2610,7 @@ function App() {
                   formula="argmin_Spieler (Σ moneyDelta), über alle Spiele dieser Session."
                   onDetails={() => openDetail("moneyTotal", "Verlierer – Geldbilanz pro Spieler", v => euro(v))} />
 
-                <h4 style={{ color: "#f7971e", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>🎭 Verhalten</h4>
+                <h4 style={{ color: "#c98a3e", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>🎭 Verhalten</h4>
 
                 <StatCard label="🏃 Sprinter" value={stats.sprinter ? stats.sprinter.name : "—"}
                   description="Wer in dieser Session am häufigsten (mitgespielt) nach oben gelaufen ist."
@@ -2624,7 +2632,7 @@ function App() {
                   formula="argmax_Spieler n_freiwillig-mit, gezählt für Runden mit Status 'mit', in denen der Spieler NICHT zum Mitgehen gezwungen war."
                   onDetails={() => openDetail("macherCount", "Macher – freiwillig mitgespielt", v => `${v}×`)} />
 
-                <h4 style={{ color: "#00f2fe", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>🔢 Punktestand</h4>
+                <h4 style={{ color: "#d4af37", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>🔢 Punktestand</h4>
 
                 <StatCard label="🔢 Einstellig" value={stats.einstellig ? stats.einstellig.name : "—"}
                   description="Wer am häufigsten mit einer einstelligen Punktzahl (1-9) in eine Runde gestartet ist."
@@ -2636,7 +2644,7 @@ function App() {
                   formula="argmax_Spieler n_>50, mit n_>50 = Anzahl Runden mit Punktestand > 50 zu Rundenbeginn."
                   onDetails={() => openDetail("over50Count", "Herz Blind – Rundenstart mit über 50 Punkten", v => `${v}×`)} />
 
-                <h4 style={{ color: "#ff4e50", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>🎮 Spiele</h4>
+                <h4 style={{ color: "#a3383c", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>🎮 Spiele</h4>
 
                 <StatCard label="🏆 Größter Winner" value={stats.biggestWinner ? stats.biggestWinner.name : "—"}
                   description="Wer in dieser Session die meisten Spiele gewonnen hat (Betrag egal, nur Anzahl)."
@@ -2648,7 +2656,7 @@ function App() {
                   formula="argmax_Spieler n_Niederlagen, über alle Spiele dieser Session."
                   onDetails={() => openDetail("gamesLost", "Größter Looser – verlorene Spiele", v => `${v}×`)} />
 
-                <h4 style={{ color: "#f9d423", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>📣 Ansage</h4>
+                <h4 style={{ color: "#c9a83e", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>📣 Ansage</h4>
 
                 <StatCard label="🤑 Gierigster Bastard" value={stats.greedyBastard ? stats.greedyBastard.name : "—"}
                   description="Wer in dieser Session insgesamt die meisten Stiche angesagt hat (Summe, nicht Durchschnitt)."
@@ -2680,7 +2688,7 @@ function App() {
                   formula="{ Spieler : bidSixCount > 0 }, mit bidSixCount = Anzahl Runden als Ansager mit Ansage = 6."
                   onDetails={() => openDetail("bidSixCount", "Macht er eh net – Ansage von genau 6 Stichen", v => `${v}×`)} />
 
-                <h4 style={{ color: "#7b1fa2", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>🎉 Spaß</h4>
+                <h4 style={{ color: "#5c616c", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>🎉 Spaß</h4>
 
                 <StatCard label="😂 Adi bei Herz gelaufen" value={`${stats.adiHerzRuns.count}×`}
                   description="Wie oft Stammspieler Adi in dieser Session bei Herz nach oben gelaufen ist. War Adi nicht dabei, ist der Wert 0."
@@ -2706,7 +2714,7 @@ function App() {
                 ← Zurück zu den Session-Statistiken
               </button>
               <div className="glass" style={{ padding: "20px" }}>
-                <h3 style={{ color: "#f9d423", marginBottom: "12px", fontSize: "16px" }}>{sessionStatDetailConfig.label}</h3>
+                <h3 style={{ color: "#c9a83e", marginBottom: "12px", fontSize: "16px" }}>{sessionStatDetailConfig.label}</h3>
                 <PlayerMetricBarChart data={data} formatValue={sessionStatDetailConfig.formatValue} />
               </div>
             </div>
@@ -2716,7 +2724,7 @@ function App() {
         {/* HISTORIE SCREEN (ALTE SPIELE) */}
         {screen === "history" && (
           <div>
-            <h2 style={{ color: "#f9d423", marginBottom: "20px" }}>🕰️ Spielhistorie</h2>
+            <h2 style={{ color: "#c9a83e", marginBottom: "20px" }}>🕰️ Spielhistorie</h2>
             {(() => {
               const allSessions = getUniqueSessions();
               // Gruppiere Sessions (bzw. Legacy-Einzelspiele) nach Zeit-Reiter
@@ -2744,7 +2752,7 @@ function App() {
                         background: isOpen ? "rgba(0,242,254,0.08)" : "transparent",
                       }}
                     >
-                      <span style={{ fontWeight: "bold", fontSize: "15px", color: "#f9d423" }}>{bucket.label}</span>
+                      <span style={{ fontWeight: "bold", fontSize: "15px", color: "#c9a83e" }}>{bucket.label}</span>
                       <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                         <span style={{ fontSize: "12px", color: "#aaa", background: "rgba(255,255,255,0.08)", padding: "3px 10px", borderRadius: "20px" }}>
                           {itemsInBucket.length} {itemsInBucket.length === 1 ? "Session" : "Sessions"}
@@ -2804,7 +2812,7 @@ function App() {
             <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "6px" }}>
               <span>{streak.length}</span>
               {streak.links.map(link => (
-                <span key={link.key} onClick={(e) => { e.stopPropagation(); openSessionOrGameLink(link); }} style={{ fontSize: "11px", color: "#00f2fe", textDecoration: "underline", cursor: "pointer" }}>
+                <span key={link.key} onClick={(e) => { e.stopPropagation(); openSessionOrGameLink(link); }} style={{ fontSize: "11px", color: "#d4af37", textDecoration: "underline", cursor: "pointer" }}>
                   {link.label}
                 </span>
               ))}
@@ -2816,16 +2824,16 @@ function App() {
                 <button onClick={() => setScreen("home")} style={{ ...btnStyle, padding: "8px 15px", fontSize: "13px", background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)" }}>
                   ← Zurück
                 </button>
-                <button onClick={() => setScreen("playerAwards")} style={{ ...btnStyle, padding: "8px 15px", fontSize: "13px", background: "linear-gradient(45deg, #f9d423, #ff8c00)", color: "#000" }}>
+                <button onClick={() => setScreen("playerAwards")} style={{ ...btnStyle, padding: "8px 15px", fontSize: "13px", background: "linear-gradient(45deg, #c9a83e, #b5732a)", color: "#000" }}>
                   🏅 Auszeichnungen
                 </button>
               </div>
               <div className="glass" style={{ padding: "20px" }}>
-                <h3 style={{ color: "#f9d423", marginBottom: "4px", fontSize: "20px" }}>📊 {p.name}</h3>
+                <h3 style={{ color: "#c9a83e", marginBottom: "4px", fontSize: "20px" }}>📊 {p.name}</h3>
                 {!isStammSpieler(p) && <div style={{ fontSize: "12px", color: "#aaa", marginBottom: "15px" }}>Gast</div>}
                 {isStammSpieler(p) && <div style={{ marginBottom: "15px" }} />}
 
-                <h4 style={{ color: "#00f2fe", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "4px" }}>🔎 Übersicht</h4>
+                <h4 style={{ color: "#d4af37", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "4px" }}>🔎 Übersicht</h4>
 
                 <StatCard label="🎮 Spiele gesamt" value={stats.gamesPlayed}
                   description="Anzahl aller beendeten Spiele, an denen dieser Spieler teilgenommen hat."
@@ -2835,7 +2843,7 @@ function App() {
                   description="Anzahl der Spiele, die dieser Spieler gewonnen hat (geteilter Sieg = Sieg)."
                   formula="n_Spiele mit won = true" />
 
-                <h4 style={{ color: "#f7971e", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>📈 Quoten</h4>
+                <h4 style={{ color: "#c98a3e", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>📈 Quoten</h4>
 
                 <StatCard label="📊 Siegquote" value={`${de1(stats.winRate)}%`}
                   description="Anteil der gespielten Spiele, die gewonnen wurden."
@@ -2852,7 +2860,7 @@ function App() {
                   formula="Rausquote = (n_raus / n_Runden) × 100, mit n_Runden = n_mit + n_raus."
                   onDetails={() => openStatDetail({ kind: "timeline", label: "Rausquote", metricKey: "rausquote", formatValue: v => `${de1(v)}%` })} />
 
-                <h4 style={{ color: "#43e97b", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>📐 Durchschnitt</h4>
+                <h4 style={{ color: "#4e8b5c", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>📐 Durchschnitt</h4>
 
                 <StatCard label="📣 Ø angesagte Stiche" value={stats.avgBidTricks !== null ? de2(stats.avgBidTricks) : "—"}
                   description="Durchschnittliche Anzahl Stiche, die dieser Spieler angesagt hat, wenn er Ansager war."
@@ -2869,7 +2877,7 @@ function App() {
                   formula="⌀Endpunkte = (Σ Endpunkte_i) / n_Spiele, für alle i ∈ Spiele."
                   onDetails={() => openStatDetail({ kind: "timeline", label: "Ø Endpunkte", metricKey: "avgFinalScore", formatValue: v => de2(v) })} />
 
-                <h4 style={{ color: "#ff4e50", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>🃏 Trumpf</h4>
+                <h4 style={{ color: "#a3383c", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>🃏 Trumpf</h4>
 
                 <StatCard label="❤️ Lieblingstrumpf" value={stats.favoriteTrump ? `${stats.favoriteTrump.emoji} ${stats.favoriteTrump.label} (${stats.favoriteTrumpCount}×)` : "—"}
                   description="Der Trumpf, den dieser Spieler als Ansager am häufigsten gewählt hat."
@@ -2886,7 +2894,7 @@ function App() {
                   formula="argmax_Trumpf n_Trumpf↑, wobei n_Trumpf↑ = Anzahl Runden als Ansager mit diesem Trumpf und Δ > 0."
                   onDetails={() => openStatDetail({ kind: "trumpBar", label: "Schlechtester Trumpf – Häufigkeit nach oben gelaufen als Ansager", counts: stats.trumpFailureCounts })} />
 
-                <h4 style={{ color: "#f9d423", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>🏆 Höchststände & Serien</h4>
+                <h4 style={{ color: "#c9a83e", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>🏆 Höchststände & Serien</h4>
 
                 <StatCard label="💵 Höchster Gewinn (Spiel)" value={stats.bestGame ? (
                     <span>{euro(stats.bestGame.moneyDelta)} <span style={{ fontSize: "12px", color: "#888" }}>({stats.bestGame.date})</span></span>
@@ -2926,7 +2934,7 @@ function App() {
               </div>
 
               <div className="glass" style={{ padding: "20px" }}>
-                <h3 style={{ color: "#f093fb", marginBottom: "12px", fontSize: "15px" }}>📈 Kontostand-Verlauf</h3>
+                <h3 style={{ color: "#b8bcc4", marginBottom: "12px", fontSize: "15px" }}>📈 Kontostand-Verlauf</h3>
                 <BalanceChart timeline={timeline} />
               </div>
             </div>
@@ -2953,7 +2961,7 @@ function App() {
                 ← Zurück zu den Statistiken
               </button>
               <div className="glass" style={{ padding: "20px" }}>
-                <h3 style={{ color: "#f9d423", marginBottom: "4px", fontSize: "20px" }}>🏅 Auszeichnungen von {p.name}</h3>
+                <h3 style={{ color: "#c9a83e", marginBottom: "4px", fontSize: "20px" }}>🏅 Auszeichnungen von {p.name}</h3>
                 <p style={{ fontSize: "12px", color: "#aaa", marginBottom: "15px" }}>
                   Wie oft {p.name} in einer Session die jeweilige Auszeichnung geholt hat.
                 </p>
@@ -2977,7 +2985,7 @@ function App() {
                 ← Zurück zu den Statistiken
               </button>
               <div className="glass" style={{ padding: "20px" }}>
-                <h3 style={{ color: "#f9d423", marginBottom: "12px", fontSize: "16px" }}>{statDetailConfig.label}</h3>
+                <h3 style={{ color: "#c9a83e", marginBottom: "12px", fontSize: "16px" }}>{statDetailConfig.label}</h3>
                 {statDetailConfig.kind === "timeline" ? (
                   <MetricTimelineChart
                     points={computePlayerStatTimeline(p, statDetailConfig.metricKey)}
@@ -2994,7 +3002,7 @@ function App() {
         {/* SPIELER SCREEN */}
         {screen === "players" && (
           <div className="glass" style={{ padding: "25px" }}>
-            <h3 style={{ marginBottom: "20px", color: "#f093fb" }}>👤 Spieler verwalten</h3>
+            <h3 style={{ marginBottom: "20px", color: "#b8bcc4" }}>👤 Spieler verwalten</h3>
 
             {/* Stammspieler */}
             <div style={{ marginBottom: "20px" }}>
@@ -3003,7 +3011,7 @@ function App() {
                 <div key={p.id} style={{ padding: "12px 15px", background: "rgba(0,0,0,0.4)", marginBottom: "8px", borderRadius: "12px", display: "flex", justifyContent: "space-between", alignItems: "center", border: "1px solid rgba(249,212,35,0.15)" }}>
                   <span style={{ fontSize: "16px", fontWeight: "bold" }}>{p.name}</span>
                   <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                    <span style={{ color: (p.session?.balance || 0) >= 0 ? "#43e97b" : "#ff4e50", fontWeight: "bold" }}>{euro(p.session?.balance || 0)}</span>
+                    <span style={{ color: (p.session?.balance || 0) >= 0 ? "#4e8b5c" : "#a3383c", fontWeight: "bold" }}>{euro(p.session?.balance || 0)}</span>
                     <button onClick={() => { setStatsPlayerId(p.id); setScreen("playerStats"); }} title="Statistiken" style={{ background: "none", border: "none", cursor: "pointer", fontSize: "18px" }}>📊</button>
                   </div>
                 </div>
@@ -3013,8 +3021,8 @@ function App() {
             {/* Gäste */}
             <div style={{ fontSize: "12px", color: "#aaa", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px" }}>👤 Gäste</div>
             <div style={{ display: "flex", gap: "10px", marginBottom: "12px" }}>
-              <input value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === "Enter" && addPlayer()} style={{ flex: 1, padding: "12px", borderRadius: "12px", border: "1px solid #f093fb", background: "rgba(0,0,0,0.3)", color: "#fff", fontSize: "16px" }} placeholder="Gastname..." />
-              <button onClick={() => addPlayer(false)} style={{ ...btnStyle, background: "linear-gradient(45deg, #f093fb, #f5576c)", padding: "0 20px", fontSize: "20px" }}>+</button>
+              <input value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === "Enter" && addPlayer()} style={{ flex: 1, padding: "12px", borderRadius: "12px", border: "1px solid #b8bcc4", background: "rgba(0,0,0,0.3)", color: "#fff", fontSize: "16px" }} placeholder="Gastname..." />
+              <button onClick={() => addPlayer(false)} style={{ ...btnStyle, background: "linear-gradient(45deg, #b8bcc4, #4a4d57)", padding: "0 20px", fontSize: "20px" }}>+</button>
             </div>
             <div>
               {registry.filter(p => !isStammSpieler(p)).length === 0 && (
@@ -3024,7 +3032,7 @@ function App() {
                 <div key={p.id} style={{ padding: "12px 15px", background: "rgba(0,0,0,0.4)", marginBottom: "8px", borderRadius: "12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <span style={{ fontSize: "16px", fontWeight: "bold" }}>{p.name}</span>
                   <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
-                    <span style={{ color: (p.session?.balance || 0) >= 0 ? "#43e97b" : "#ff4e50", fontWeight: "bold" }}>{euro(p.session?.balance || 0)}</span>
+                    <span style={{ color: (p.session?.balance || 0) >= 0 ? "#4e8b5c" : "#a3383c", fontWeight: "bold" }}>{euro(p.session?.balance || 0)}</span>
                     <button onClick={() => { setStatsPlayerId(p.id); setScreen("playerStats"); }} title="Statistiken" style={{ background: "none", border: "none", cursor: "pointer", fontSize: "18px" }}>📊</button>
                     <button onClick={() => deletePlayer(p.id)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "18px" }}>🗑️</button>
                   </div>
@@ -3033,9 +3041,9 @@ function App() {
             </div>
 
             {/* Danger Zone: kompletter Reset (nur zum Testen) */}
-            <div style={{ marginTop: "30px", paddingTop: "20px", borderTop: "1px dashed #ff4e50" }}>
-              <div style={{ fontSize: "12px", color: "#ff4e50", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px" }}>⚠️ Danger Zone</div>
-              <button onClick={resetEverything} style={{ ...btnStyle, width: "100%", background: "linear-gradient(45deg, #ff4e50, #8b0000)" }}>
+            <div style={{ marginTop: "30px", paddingTop: "20px", borderTop: "1px dashed #a3383c" }}>
+              <div style={{ fontSize: "12px", color: "#a3383c", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px" }}>⚠️ Danger Zone</div>
+              <button onClick={resetEverything} style={{ ...btnStyle, width: "100%", background: "linear-gradient(45deg, #a3383c, #8b0000)" }}>
                 🧨 Alles zurücksetzen (Statistiken &amp; Geld)
               </button>
             </div>
@@ -3055,24 +3063,24 @@ function App() {
                    onClick={() => { if (conflict) { alert(`${p.name} spielt gerade in einer anderen laufenden Session mit und kann nicht gleichzeitig hier mitspielen.`); return; } setSelectedIds(prev => prev.includes(p.id) ? prev.filter(id => id !== p.id) : [...prev, p.id]); }}
                    style={{ padding: "13px", textAlign: "center", fontWeight: "bold", background: conflict ? "rgba(255,255,255,0.03)" : (selected ? activeGradient : "rgba(0,0,0,0.4)"), border: conflict ? "1px dashed #666" : (selected ? "none" : `1px solid ${activeBorderColor}`), borderRadius: "12px", cursor: conflict ? "not-allowed" : "pointer", opacity: conflict ? 0.5 : 1 }}>
                 {p.name}
-                {conflict && <div style={{ fontSize: "10px", color: "#ff8c5a", marginTop: "3px" }}>in anderer Session</div>}
+                {conflict && <div style={{ fontSize: "10px", color: "#b5732a", marginTop: "3px" }}>in anderer Session</div>}
               </div>
             );
           };
           return (
           <div className="glass" style={{ padding: "25px" }}>
-            <h3 style={{ marginBottom: "20px", color: "#00f2fe" }}>🎴 Wer spielt mit?</h3>
+            <h3 style={{ marginBottom: "20px", color: "#d4af37" }}>🎴 Wer spielt mit?</h3>
 
             <div style={{ fontSize: "12px", color: "#aaa", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px" }}>⭐ Stammspieler</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "18px" }}>
-              {registry.filter(p => isStammSpieler(p)).map(p => renderPlayerTile(p, "linear-gradient(45deg, #f9d423, #ff8c00)", "rgba(249,212,35,0.2)"))}
+              {registry.filter(p => isStammSpieler(p)).map(p => renderPlayerTile(p, "linear-gradient(45deg, #c9a83e, #b5732a)", "rgba(249,212,35,0.2)"))}
             </div>
 
             {registry.filter(p => !isStammSpieler(p)).length > 0 && (
               <>
                 <div style={{ fontSize: "12px", color: "#aaa", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px" }}>👤 Gäste</div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "18px" }}>
-                  {registry.filter(p => !isStammSpieler(p)).map(p => renderPlayerTile(p, "linear-gradient(45deg, #00f2fe, #4facfe)", "rgba(255,255,255,0.15)"))}
+                  {registry.filter(p => !isStammSpieler(p)).map(p => renderPlayerTile(p, "linear-gradient(45deg, #d4af37, #c9a83e)", "rgba(255,255,255,0.15)"))}
                 </div>
               </>
             )}
@@ -3080,11 +3088,11 @@ function App() {
             {/* Neuen Gast direkt hier anlegen (z.B. wenn während der Session jemand Neues dazustößt) */}
             <div style={{ fontSize: "12px", color: "#aaa", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px" }}>➕ Neuer Gast</div>
             <div style={{ display: "flex", gap: "10px", marginBottom: "18px" }}>
-              <input value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === "Enter" && addPlayer(true)} style={{ flex: 1, padding: "12px", borderRadius: "12px", border: "1px solid #f093fb", background: "rgba(0,0,0,0.3)", color: "#fff", fontSize: "16px" }} placeholder="Gastname..." />
-              <button onClick={() => addPlayer(true)} style={{ ...btnStyle, background: "linear-gradient(45deg, #f093fb, #f5576c)", padding: "0 20px", fontSize: "20px" }}>+</button>
+              <input value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === "Enter" && addPlayer(true)} style={{ flex: 1, padding: "12px", borderRadius: "12px", border: "1px solid #b8bcc4", background: "rgba(0,0,0,0.3)", color: "#fff", fontSize: "16px" }} placeholder="Gastname..." />
+              <button onClick={() => addPlayer(true)} style={{ ...btnStyle, background: "linear-gradient(45deg, #b8bcc4, #4a4d57)", padding: "0 20px", fontSize: "20px" }}>+</button>
             </div>
 
-            <button onClick={() => startGame(undefined, selectSessionContext)} className="pulse-btn" style={{ ...btnStyle, background: "linear-gradient(45deg, #f9d423, #ff4e50)", width: "100%", marginTop: "5px", opacity: selectedIds.length < 2 ? 0.4 : 1 }} disabled={selectedIds.length < 2}>
+            <button onClick={() => startGame(undefined, selectSessionContext)} className="pulse-btn" style={{ ...btnStyle, background: "linear-gradient(45deg, #c9a83e, #a3383c)", width: "100%", marginTop: "5px", opacity: selectedIds.length < 2 ? 0.4 : 1 }} disabled={selectedIds.length < 2}>
               🚀 SPIEL STARTEN
             </button>
           </div>
@@ -3126,13 +3134,13 @@ function SessionCard({ sessionEntry, registry, onOpenStats, onOpenGameDetail }) 
     <div style={{ marginTop: "12px", borderRadius: "12px", overflow: "hidden", border: `1px solid ${allDeleted ? "#888" : "rgba(0,242,254,0.3)"}`, opacity: allDeleted ? 0.7 : 1 }}>
       <div onClick={() => setOpen(o => !o)} style={{ padding: "14px 16px", cursor: "pointer", background: open ? "rgba(0,242,254,0.06)" : "rgba(0,0,0,0.3)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-          <span style={{ fontWeight: "bold", fontSize: "13px", color: "#00f2fe" }}>
+          <span style={{ fontWeight: "bold", fontSize: "13px", color: "#d4af37" }}>
             {type === "session" ? "📦" : "🃏"} {headerLabel}
-            {allDeleted && <span style={{ marginLeft: "8px", color: "#ff4e50", fontWeight: "bold", border: "1px solid #ff4e50", borderRadius: "5px", padding: "1px 6px", fontSize: "10px" }}>🗑️ GELÖSCHT</span>}
+            {allDeleted && <span style={{ marginLeft: "8px", color: "#a3383c", fontWeight: "bold", border: "1px solid #a3383c", borderRadius: "5px", padding: "1px 6px", fontSize: "10px" }}>🗑️ GELÖSCHT</span>}
           </span>
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             {type === "session" && (
-              <button onClick={(e) => { e.stopPropagation(); onOpenStats(sessionEntry.sessionId); }} style={{ background: "none", border: "none", color: "#7b1fa2", cursor: "pointer", fontSize: "14px" }} title="Session-Statistiken">📊</button>
+              <button onClick={(e) => { e.stopPropagation(); onOpenStats(sessionEntry.sessionId); }} style={{ background: "none", border: "none", color: "#5c616c", cursor: "pointer", fontSize: "14px" }} title="Session-Statistiken">📊</button>
             )}
             <span style={{ fontSize: "18px", transform: open ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>▾</span>
           </div>
@@ -3143,7 +3151,7 @@ function SessionCard({ sessionEntry, registry, onOpenStats, onOpenGameDetail }) 
         {!allDeleted && totalsList.length > 0 && (
           <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
             {totalsList.map(t => (
-              <span key={t.name} style={{ fontSize: "12px", padding: "3px 9px", borderRadius: "20px", background: "rgba(255,255,255,0.06)", color: t.sum >= 0 ? "#43e97b" : "#ff4e50", fontWeight: "bold" }}>
+              <span key={t.name} style={{ fontSize: "12px", padding: "3px 9px", borderRadius: "20px", background: "rgba(255,255,255,0.06)", color: t.sum >= 0 ? "#4e8b5c" : "#a3383c", fontWeight: "bold" }}>
                 {t.name}: {euro(t.sum)}
               </span>
             ))}
@@ -3156,14 +3164,14 @@ function SessionCard({ sessionEntry, registry, onOpenStats, onOpenGameDetail }) 
           {games.map((g, gIdx) => {
             const isDeleted = !!g.deleted;
             return (
-              <div key={g.id} style={{ padding: "15px", marginTop: "10px", borderRadius: "12px", borderLeft: `5px solid ${isDeleted ? "#888" : "#00f2fe"}`, background: isDeleted ? "rgba(80,80,80,0.25)" : "rgba(0,0,0,0.4)", opacity: isDeleted ? 0.75 : 1 }}>
+              <div key={g.id} style={{ padding: "15px", marginTop: "10px", borderRadius: "12px", borderLeft: `5px solid ${isDeleted ? "#888" : "#d4af37"}`, background: isDeleted ? "rgba(80,80,80,0.25)" : "rgba(0,0,0,0.4)", opacity: isDeleted ? 0.75 : 1 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px", fontSize: "13px", color: "#aaa" }}>
                   <span>
-                    {type === "session" && <strong style={{ color: "#00f2fe", marginRight: "8px" }}>Spiel {gIdx + 1}</strong>}
+                    {type === "session" && <strong style={{ color: "#d4af37", marginRight: "8px" }}>Spiel {gIdx + 1}</strong>}
                     {g.date}
-                    {isDeleted && <span style={{ marginLeft: "10px", color: "#ff4e50", fontWeight: "bold", border: "1px solid #ff4e50", borderRadius: "5px", padding: "2px 8px", fontSize: "11px" }}>🗑️ GELÖSCHT</span>}
+                    {isDeleted && <span style={{ marginLeft: "10px", color: "#a3383c", fontWeight: "bold", border: "1px solid #a3383c", borderRadius: "5px", padding: "2px 8px", fontSize: "11px" }}>🗑️ GELÖSCHT</span>}
                   </span>
-                  <button onClick={(e) => { e.stopPropagation(); onOpenGameDetail(g.id); }} style={{ background: "none", border: "none", color: "#00f2fe", cursor: "pointer", fontSize: "13px" }} title="Rundendetails ansehen">🔍 Runden</button>
+                  <button onClick={(e) => { e.stopPropagation(); onOpenGameDetail(g.id); }} style={{ background: "none", border: "none", color: "#d4af37", cursor: "pointer", fontSize: "13px" }} title="Rundendetails ansehen">🔍 Runden</button>
                 </div>
 
                 <div>
@@ -3176,10 +3184,10 @@ function SessionCard({ sessionEntry, registry, onOpenStats, onOpenGameDetail }) 
                           <span>
                             {(g.winnerIndices ? g.winnerIndices.includes(i) : g.winnerIdx === i) ? "🏆" : ""} {p.name}
                             {!playerExists && (
-                              <span style={{ marginLeft: "8px", fontSize: "11px", color: "#ff8c5a", fontStyle: "italic" }}>(Spieler existiert nicht mehr)</span>
+                              <span style={{ marginLeft: "8px", fontSize: "11px", color: "#b5732a", fontStyle: "italic" }}>(Spieler existiert nicht mehr)</span>
                             )}
                           </span>
-                          <span style={{ color: isDeleted ? "#888" : ((specificGame?.moneyDelta || 0) >= 0 ? "#43e97b" : "#ff4e50"), fontWeight: "bold", textDecoration: isDeleted ? "line-through" : "none" }}>
+                          <span style={{ color: isDeleted ? "#888" : ((specificGame?.moneyDelta || 0) >= 0 ? "#4e8b5c" : "#a3383c"), fontWeight: "bold", textDecoration: isDeleted ? "line-through" : "none" }}>
                             {playerExists ? euro(specificGame?.moneyDelta || 0) : "—"}
                           </span>
                         </div>
@@ -3189,7 +3197,7 @@ function SessionCard({ sessionEntry, registry, onOpenStats, onOpenGameDetail }) 
                     {/* Änderungsprotokoll, falls dieses Spiel jemals korrigiert wurde */}
                     {g.editHistory && g.editHistory.length > 0 && (
                       <div style={{ marginTop: "10px", paddingTop: "10px", borderTop: "1px dashed rgba(255,255,255,0.15)" }}>
-                        <div style={{ fontSize: "11px", color: "#f9d423", fontWeight: "bold", marginBottom: "6px" }}>📝 Änderungsverlauf:</div>
+                        <div style={{ fontSize: "11px", color: "#c9a83e", fontWeight: "bold", marginBottom: "6px" }}>📝 Änderungsverlauf:</div>
                         {g.editHistory.map((edit, ei) => (
                           <div key={ei} style={{ fontSize: "11px", color: "#bbb", marginBottom: "4px", lineHeight: "1.5" }}>
                             {new Date(edit.timestamp).toLocaleString("de-DE")}:{" "}
@@ -3197,7 +3205,7 @@ function SessionCard({ sessionEntry, registry, onOpenStats, onOpenGameDetail }) 
                               if (edit.oldScores[pi] === edit.newScores[pi]) return null;
                               return (
                                 <span key={pi} style={{ marginRight: "10px" }}>
-                                  {pname}: <span style={{ color: "#ff8c5a" }}>{edit.oldScores[pi]}</span> → <span style={{ color: "#43e97b" }}>{edit.newScores[pi]}</span> Pkt
+                                  {pname}: <span style={{ color: "#b5732a" }}>{edit.oldScores[pi]}</span> → <span style={{ color: "#4e8b5c" }}>{edit.newScores[pi]}</span> Pkt
                                 </span>
                               );
                             })}
@@ -3231,11 +3239,11 @@ function RoundInlineEditor({ gamePlayers, roundData, onSave, onCancel }) {
   return (
     <div style={{ background: "rgba(255,255,255,0.05)", padding: "10px", borderRadius: "8px", marginTop: "5px" }}>
       {ansagerName && (
-        <div style={{ fontSize: "12px", color: "#f9d423", marginBottom: "8px" }}>
+        <div style={{ fontSize: "12px", color: "#c9a83e", marginBottom: "8px" }}>
           📣 Ansager: <strong>{ansagerName}</strong> (Ansage: {roundData.bidTricks} Stiche — Ansager selbst nicht änderbar, nur Status/Stiche)
         </div>
       )}
-      <div style={{ textAlign: "right", fontSize: "12px", marginBottom: "10px", color: total === 6 ? "#43e97b" : "#ff4e50" }}>
+      <div style={{ textAlign: "right", fontSize: "12px", marginBottom: "10px", color: total === 6 ? "#4e8b5c" : "#a3383c" }}>
         Stiche: {total} / 6
       </div>
       {gamePlayers.map(p => {
@@ -3262,7 +3270,7 @@ function RoundInlineEditor({ gamePlayers, roundData, onSave, onCancel }) {
       })}
       <div style={{ display: "flex", gap: "6px", marginTop: "10px" }}>
         <button onClick={onCancel} style={{ padding: "4px 8px", background: "#888", border: "none", color: "#fff", borderRadius: "4px", cursor: "pointer" }}>Abbrechen</button>
-        <button onClick={() => onSave(status, tricks)} style={{ padding: "4px 8px", background: "#43e97b", border: "none", color: "#000", fontWeight: "bold", borderRadius: "4px", cursor: "pointer" }}>Übernehmen</button>
+        <button onClick={() => onSave(status, tricks)} style={{ padding: "4px 8px", background: "#4e8b5c", border: "none", color: "#000", fontWeight: "bold", borderRadius: "4px", cursor: "pointer" }}>Übernehmen</button>
       </div>
     </div>
   );
@@ -3277,7 +3285,7 @@ function StatCard({ label, value, description, formula, onDetails }) {
       <div onClick={() => setOpen(o => !o)} style={{ padding: "14px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <div style={{ fontSize: "11px", color: "#888", letterSpacing: "0.5px", textTransform: "uppercase", marginBottom: "4px" }}>{label}</div>
-          <div style={{ fontSize: "18px", fontWeight: "bold", color: "#00f2fe" }}>{value}</div>
+          <div style={{ fontSize: "18px", fontWeight: "bold", color: "#d4af37" }}>{value}</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           {onDetails && (
@@ -3288,8 +3296,8 @@ function StatCard({ label, value, description, formula, onDetails }) {
       </div>
       {open && (
         <div style={{ padding: "0 14px 14px", fontSize: "12px", color: "#ccc", lineHeight: "1.5" }}>
-          <div style={{ marginBottom: "6px" }}><strong style={{ color: "#f9d423" }}>Beschreibung:</strong> {description}</div>
-          <div><strong style={{ color: "#f9d423" }}>Formel:</strong> {formula}</div>
+          <div style={{ marginBottom: "6px" }}><strong style={{ color: "#c9a83e" }}>Beschreibung:</strong> {description}</div>
+          <div><strong style={{ color: "#c9a83e" }}>Formel:</strong> {formula}</div>
         </div>
       )}
     </div>
@@ -3354,7 +3362,7 @@ function BalanceChart({ timeline }) {
         {yTicks.map((v, i) => (
           <g key={i}>
             <line x1={padLeft - 3} y1={yFor(v)} x2={width - padRight} y2={yFor(v)} stroke="rgba(255,255,255,0.08)" />
-            <text x={padLeft - 6} y={yFor(v) + 3} fontSize="8" fill={v > 0 ? "#43e97b" : v < 0 ? "#ff4e50" : "#888"} textAnchor="end">{euro(v)}</text>
+            <text x={padLeft - 6} y={yFor(v) + 3} fontSize="8" fill={v > 0 ? "#4e8b5c" : v < 0 ? "#a3383c" : "#888"} textAnchor="end">{euro(v)}</text>
           </g>
         ))}
 
@@ -3366,11 +3374,11 @@ function BalanceChart({ timeline }) {
           </text>
         ))}
 
-        <path d={pathD} fill="none" stroke="#00f2fe" strokeWidth="2" />
+        <path d={pathD} fill="none" stroke="#d4af37" strokeWidth="2" />
         {points.map((p, i) => (
           <g key={i} onClick={() => setSelectedIdx(i)} style={{ cursor: "pointer" }}>
             <circle cx={p.x} cy={p.y} r="10" fill="transparent" />
-            <circle cx={p.x} cy={p.y} r={selectedIdx === i ? 6 : 4} fill={p.cumulative >= 0 ? "#43e97b" : "#ff4e50"} stroke="#fff" strokeWidth={selectedIdx === i ? 2 : 1} />
+            <circle cx={p.x} cy={p.y} r={selectedIdx === i ? 6 : 4} fill={p.cumulative >= 0 ? "#4e8b5c" : "#a3383c"} stroke="#fff" strokeWidth={selectedIdx === i ? 2 : 1} />
           </g>
         ))}
       </svg>
@@ -3381,7 +3389,7 @@ function BalanceChart({ timeline }) {
             {new Date(selected.timestamp).toLocaleDateString("de-DE")}
           </div>
           <div>
-            Kontostand: <strong style={{ color: selected.cumulative >= 0 ? "#43e97b" : "#ff4e50" }}>{euro(selected.cumulative)}</strong>
+            Kontostand: <strong style={{ color: selected.cumulative >= 0 ? "#4e8b5c" : "#a3383c" }}>{euro(selected.cumulative)}</strong>
             <span style={{ marginLeft: "10px", color: "#888" }}>(diese Session: {euro(selected.sessionDelta)})</span>
           </div>
         </div>
@@ -3444,11 +3452,11 @@ function MetricTimelineChart({ points, formatValue }) {
           </text>
         ))}
 
-        <path d={pathD} fill="none" stroke="#00f2fe" strokeWidth="2" />
+        <path d={pathD} fill="none" stroke="#d4af37" strokeWidth="2" />
         {plotted.map((p, i) => (
           <g key={i} onClick={() => setSelectedIdx(i)} style={{ cursor: "pointer" }}>
             <circle cx={p.x} cy={p.y} r="10" fill="transparent" />
-            <circle cx={p.x} cy={p.y} r={selectedIdx === i ? 6 : 4} fill="#00f2fe" stroke="#fff" strokeWidth={selectedIdx === i ? 2 : 1} />
+            <circle cx={p.x} cy={p.y} r={selectedIdx === i ? 6 : 4} fill="#d4af37" stroke="#fff" strokeWidth={selectedIdx === i ? 2 : 1} />
           </g>
         ))}
       </svg>
@@ -3458,7 +3466,7 @@ function MetricTimelineChart({ points, formatValue }) {
           <div style={{ color: "#aaa", fontSize: "11px", marginBottom: "3px" }}>
             {new Date(selected.timestamp).toLocaleDateString("de-DE")}
           </div>
-          <div>Stand zu diesem Zeitpunkt: <strong style={{ color: "#00f2fe" }}>{formatValue(selected.value)}</strong></div>
+          <div>Stand zu diesem Zeitpunkt: <strong style={{ color: "#d4af37" }}>{formatValue(selected.value)}</strong></div>
         </div>
       )}
     </div>
@@ -3510,7 +3518,7 @@ function GameRoundsTable({ players, rounds }) {
               <React.Fragment key={rIdx}>
                 {/* Schmale Zwischenzeile: Trumpf dieser Runde + Veränderung je Spieler */}
                 <tr style={{ borderTop: isLastRound ? undefined : "1px solid rgba(255,255,255,0.05)" }}>
-                  <td style={{ padding: "4px 8px 0", color: "#00f2fe", whiteSpace: "nowrap", verticalAlign: "top", ...deltaCellFrame(true, false) }}>{r.roundNum} {r.trump.emoji}</td>
+                  <td style={{ padding: "4px 8px 0", color: "#d4af37", whiteSpace: "nowrap", verticalAlign: "top", ...deltaCellFrame(true, false) }}>{r.roundNum} {r.trump.emoji}</td>
                   {players.map((p, pIdx) => {
                     const isLastCol = pIdx === players.length - 1;
                     const status = r.playerStatus?.[p.id] || "mit";
@@ -3519,11 +3527,11 @@ function GameRoundsTable({ players, rounds }) {
                     }
                     const isAnsager = r.ansagerId === p.id;
                     const { delta } = changes[p.id];
-                    const color = delta < 0 ? "#43e97b" : delta > 0 ? "#ff4e50" : "#aaa";
+                    const color = delta < 0 ? "#4e8b5c" : delta > 0 ? "#a3383c" : "#aaa";
                     const sign = delta < 0 ? "-" : delta > 0 ? "+" : "";
                     return (
                       <td key={p.id} style={{ textAlign: "right", padding: "0 8px", fontSize: "10px", ...deltaCellFrame(false, isLastCol) }}>
-                        {isAnsager && <span><span style={{ color: "#f9d423" }}>📣</span><span style={{ color: "#888" }}>({r.bidTricks})</span> </span>}
+                        {isAnsager && <span><span style={{ color: "#c9a83e" }}>📣</span><span style={{ color: "#888" }}>({r.bidTricks})</span> </span>}
                         <span style={{ color, fontWeight: "bold" }}>{sign}{Math.abs(delta)}</span>
                       </td>
                     );
@@ -3561,10 +3569,10 @@ function TrumpBarChart({ counts }) {
           <div key={t.id} style={{ marginBottom: "12px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: "13px", marginBottom: "4px" }}>
               <span>{t.emoji} {t.label}</span>
-              <span style={{ fontWeight: "bold", color: "#00f2fe" }}>{count}×</span>
+              <span style={{ fontWeight: "bold", color: "#d4af37" }}>{count}×</span>
             </div>
             <div style={{ background: "rgba(255,255,255,0.08)", borderRadius: "6px", height: "14px", overflow: "hidden" }}>
-              <div style={{ width: `${pct}%`, height: "100%", background: `linear-gradient(90deg, ${t.color}, #00f2fe)`, borderRadius: "6px" }} />
+              <div style={{ width: `${pct}%`, height: "100%", background: `linear-gradient(90deg, ${t.color}, #d4af37)`, borderRadius: "6px" }} />
             </div>
           </div>
         );
@@ -3585,7 +3593,7 @@ function PlayerMetricBarChart({ data, formatValue }) {
     <div>
       {sorted.map(d => {
         const pct = (Math.abs(d.value) / maxAbs) * 100;
-        const color = d.value > 0 ? "#43e97b" : d.value < 0 ? "#ff4e50" : "#888";
+        const color = d.value > 0 ? "#4e8b5c" : d.value < 0 ? "#a3383c" : "#888";
         return (
           <div key={d.id} style={{ marginBottom: "12px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: "13px", marginBottom: "4px" }}>
