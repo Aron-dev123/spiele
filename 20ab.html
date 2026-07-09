@@ -1833,7 +1833,7 @@ function App() {
       <div style={{ position: "relative", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
         <BackgroundEffects />
         <div style={{ position: "relative", zIndex: 10, textAlign: "center" }}>
-          <div className="neon-text" style={{ fontSize: "2rem" }}>🃏 20 AB</div>
+          <div className="neon-text" style={{ fontSize: "2rem", display: "flex", alignItems: "center", justifyContent: "center", gap: "10px" }}><img src="assets/ace_hearts.png" alt="" style={{ height: "1.4em", width: "auto" }} /> 20 AB</div>
           <div style={{ marginTop: "15px", color: "#aaa", fontSize: "14px" }}>Lade gemeinsamen Spielstand…</div>
         </div>
       </div>
@@ -1845,12 +1845,12 @@ function App() {
       <BackgroundEffects />
       <div style={{ padding: "15px", maxWidth: "600px", margin: "0 auto", position: "relative", zIndex: 10 }}>
         
-        <h1 className="neon-text" onClick={() => setScreen("home")} style={{ cursor: "pointer", margin: "15px 0 5px 0" }}>🃏 20 AB</h1>
-        <div style={{ textAlign: "center", marginBottom: "20px", fontSize: "11px", color: syncState === "error" ? "#a3383c" : "#4e8b5c", letterSpacing: "1px" }}>
-          {syncState === "error"
-            ? `⚠️ Sync-Fehler${firebaseInitError ? " — " + firebaseInitError : " — Änderung evtl. nicht gespeichert"}`
-            : "● Live verbunden (Firebase)"}
-        </div>
+        <h1 className="neon-text" onClick={() => setScreen("home")} style={{ cursor: "pointer", margin: "15px 0 5px 0", display: "flex", alignItems: "center", justifyContent: "center", gap: "10px" }}><img src="assets/ace_hearts.png" alt="" style={{ height: "1.4em", width: "auto" }} /> 20 AB</h1>
+        {syncState === "error" && (
+          <div style={{ textAlign: "center", marginBottom: "20px", fontSize: "11px", color: "#a3383c", letterSpacing: "1px" }}>
+            ⚠️ Sync-Fehler{firebaseInitError ? " — " + firebaseInitError : " — Änderung evtl. nicht gespeichert"}
+          </div>
+        )}
 
         {screen !== "home" && (
           <button style={{ ...btnStyle, padding: "8px 15px", fontSize: "13px", background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", marginBottom: "15px" }} onClick={() => setScreen("home")}>
