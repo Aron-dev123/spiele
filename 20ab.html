@@ -829,9 +829,10 @@ function App() {
   // null = es wird eine KOMPLETT NEUE Session gestartet.
   const [selectSessionContext, setSelectSessionContext] = useState(null);
 
-  // In-App-Passwort-Dialog für das Starten neuer Sessions mit Stammspielern (ersetzt
-  // window.prompt, siehe Kommentar bei startGame()).
-  const [pendingPassword, setPendingPassword] = useState(null); // { ids, sessionIdOverride } oder null
+  // In-App-Passwort-Dialog für das Starten neuer Sessions mit Stammspielern sowie für die
+  // Host-Übernahme einer laufenden Session mit Stammspielern (ersetzt window.prompt, siehe
+  // Kommentar bei startGame()).
+  const [pendingPassword, setPendingPassword] = useState(null); // { type: "startGame", ids, sessionIdOverride } | { type: "takeover", session } | null
   const [passwordInput, setPasswordInput] = useState("");
   const [passwordError, setPasswordError] = useState("");
 
@@ -1122,7 +1123,7 @@ function App() {
         return p && isStammSpieler(p);
       });
       if (hasStamm) {
-        setPendingPassword({ ids, sessionIdOverride });
+        setPendingPassword({ type: "startGame", ids, sessionIdOverride });
         setPasswordInput("");
         setPasswordError("");
         return;
@@ -1183,6 +1184,12 @@ function App() {
       setPasswordError("Falsches Passwort.");
       return;
     }
+    if (pendingPassword.type === "takeover") {
+      const { session } = pendingPassword;
+      setPendingPassword(null);
+      setActiveSessions(activeSessions.map(s => s.id === session.id ? { ...s, hostDeviceId: deviceId, hostActive: false } : s));
+      return;
+    }
     const { ids, sessionIdOverride } = pendingPassword;
     const targetSession = sessionIdOverride ? activeSessions.find(s => s.id === sessionIdOverride) : null;
     setPendingPassword(null);
@@ -1227,6 +1234,21 @@ function App() {
   // es ändert sich nur, wer sie steuern darf.
   function takeoverHost(session) {
     if (!window.confirm("Host-Rolle für diese Session übernehmen? Punktestand und Verlauf bleiben erhalten.")) return;
+
+    // Genau wie beim Start einer neuen Session: sobald ein Stammspieler beteiligt ist, muss
+    // vor der Host-Übernahme das Passwort bestätigt werden (verhindert, dass Fremde/Gäste
+    // unbemerkt die Kontrolle über die Punktestände von Stammspielern übernehmen).
+    const hasStamm = (session.playerIds || []).some(id => {
+      const p = registry.find(pl => pl.id === id);
+      return p && isStammSpieler(p);
+    });
+    if (hasStamm) {
+      setPendingPassword({ type: "takeover", session });
+      setPasswordInput("");
+      setPasswordError("");
+      return;
+    }
+
     setActiveSessions(activeSessions.map(s => s.id === session.id ? { ...s, hostDeviceId: deviceId, hostActive: false } : s));
   }
 

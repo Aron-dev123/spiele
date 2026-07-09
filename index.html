@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Schäfer Games</title>
+  <title>Unterhaltungselektronik</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -139,22 +139,26 @@
 
     .thumb-icon {
       font-size: 48px;
-      opacity: 0.15;
+      opacity: 1;
       position: relative;
       z-index: 1;
       user-select: none;
     }
 
-    .thumb-label {
-      position: absolute;
-      bottom: 10px;
-      right: 12px;
-      font-size: 10px;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      color: rgba(255,255,255,0.2);
-      font-weight: 500;
+    .shrug-icon {
+      display: inline-block;
+      font-size: 110px;
     }
+    .shrug-num {
+      position: absolute;
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 40px;
+      color: #c084fc;
+      opacity: 1;
+      top: 30px;
+    }
+    .shrug-num-left { left: 2px; }
+    .shrug-num-right { right: 2px; }
 
     .card-mieze .thumb {
       background: linear-gradient(135deg, #1a1020 0%, #2a1540 100%);
@@ -178,6 +182,17 @@
       background: linear-gradient(to top, rgba(200,255,0,0.18), transparent);
     }
 
+    .card-busfahrer .thumb {
+      background: linear-gradient(135deg, #1a1508 0%, #2a2010 100%);
+    }
+    .card-busfahrer .thumb::after {
+      content: '';
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      height: 80px;
+      background: linear-gradient(to top, rgba(212,175,55,0.25), transparent);
+    }
+
     .card-body { padding: 20px 22px 22px; }
 
     .card-number {
@@ -199,6 +214,7 @@
 
     .card-mieze .card-title { color: #c084fc; }
     .card-20ab  .card-title { color: var(--accent); }
+    .card-busfahrer .card-title { color: #d4af37; }
 
     .card-cta {
       display: inline-flex;
@@ -234,9 +250,7 @@
 <body>
 
   <header>
-    <p class="eyebrow">&#9679; Indie Games</p>
-    <h1>Schäfer<br><span>Games</span></h1>
-    <p class="tagline">Zwei Spiele. Kein Bullshit.</p>
+    <h1>Unterhaltungs<br><span>elektronik</span></h1>
   </header>
 
   <div class="divider"></div>
@@ -245,8 +259,11 @@
 
     <a class="game-card card-mieze" href="MiezeGame.html">
       <div class="thumb">
-        <div class="thumb-icon">🐱</div>
-        <span class="thumb-label">Screenshot folgt</span>
+        <div class="thumb-icon shrug-icon">
+          <span class="shrug-num shrug-num-left">1</span>
+          <span class="shrug-num shrug-num-right">2</span>
+          🤷‍♂️
+        </div>
       </div>
       <div class="card-body">
         <p class="card-number">Spiel 01</p>
@@ -262,8 +279,7 @@
 
     <a class="game-card card-20ab" href="20ab.html">
       <div class="thumb">
-        <div class="thumb-icon">🎯</div>
-        <span class="thumb-label">Screenshot folgt</span>
+        <img class="thumb-icon" src="assets/ace_hearts.png" alt="" style="width: 140px; height: auto; opacity: 1;">
       </div>
       <div class="card-body">
         <p class="card-number">Spiel 02</p>
@@ -277,9 +293,25 @@
       </div>
     </a>
 
+    <a class="game-card card-busfahrer" href="busfahrer.html">
+      <div class="thumb">
+        <div class="thumb-icon" style="font-size: 90px;">🚌</div>
+      </div>
+      <div class="card-body">
+        <p class="card-number">Spiel 03</p>
+        <h2 class="card-title">Busfahrer</h2>
+        <span class="card-cta">
+          Jetzt spielen
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+      </div>
+    </a>
+
   </main>
 
-  <footer>© Schäfer Games</footer>
+  <footer>© Unterhaltungselektronik</footer>
 
 </body>
 </html>
