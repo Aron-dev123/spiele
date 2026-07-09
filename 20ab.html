@@ -1571,6 +1571,21 @@ function App() {
     setScreen("home");
   }
 
+  // ── Kompletter Reset (nur zum Testen!) ──
+  // Setzt alle Spieler (inkl. Stammspieler) auf 0 € / keine Spiele zurück und löscht
+  // sämtliche laufenden/alten Sessions sowie Live-Rundenstände. Spieler selbst (Namen/IDs)
+  // bleiben erhalten, nur ihre Statistiken/Geldbeträge werden geleert.
+  function resetEverything() {
+    if (!window.confirm("WIRKLICH ALLES ZURÜCKSETZEN?\n\nAlle Statistiken und Geldbeträge aller Spieler (inkl. Stammspieler) werden gelöscht, alle Sessions (aktiv + alt) verschwinden. Das kann nicht rückgängig gemacht werden!")) return;
+    if (!window.confirm("Bist du dir WIRKLICH sicher? Letzte Warnung!")) return;
+    setRegistry(registry.map(p => ({ ...p, games: [], session: { balance: 0 } })));
+    setActiveSessions([]);
+    setLastSessionMovement({});
+    if (liveGamesRef) liveGamesRef.set(null).catch(() => {});
+    setCurrentSessionId(null);
+    setScreen("home");
+  }
+
   // ── Runde/Session abbrechen ──
   // Beide Aktionen fragen vorher per window.confirm() nach Bestätigung und verwerfen dann
   // das aktuell laufende (noch nicht beendete) Spiel SPURLOS - kein manueller Score-Editor
@@ -3015,6 +3030,14 @@ function App() {
                   </div>
                 </div>
               ))}
+            </div>
+
+            {/* Danger Zone: kompletter Reset (nur zum Testen) */}
+            <div style={{ marginTop: "30px", paddingTop: "20px", borderTop: "1px dashed #ff4e50" }}>
+              <div style={{ fontSize: "12px", color: "#ff4e50", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px" }}>⚠️ Danger Zone</div>
+              <button onClick={resetEverything} style={{ ...btnStyle, width: "100%", background: "linear-gradient(45deg, #ff4e50, #8b0000)" }}>
+                🧨 Alles zurücksetzen (Statistiken &amp; Geld)
+              </button>
             </div>
           </div>
         )}
