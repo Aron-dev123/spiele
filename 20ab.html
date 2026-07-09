@@ -140,6 +140,7 @@ const SUITS = [
 const MAX_POINTS = 20;
 const CENT_PER_POINT = 0.10;
 const SESSION_PASSWORD = "$$$";
+const MAX_SESSION_PLAYERS = 5; // Kartenlegen geht nicht mehr auf, wenn mehr als 5 Leute mitspielen
 
 const STAMMSPIELER_NAMES = ["Adi", "Rob", "Kusi", "Basti", "Aron", "Cedi", "J", "Joel", "Cengiz"];
 
@@ -253,6 +254,11 @@ function calculateScoresFromRounds(players, rounds) {
     const multiplier = r.trump.multiplier ?? (r.trump.double ? 2 : 1); // Fallback für alte gespeicherte Runden ohne multiplier-Feld
     const isAnsagerRound = r.trump.id !== "herzblind" && !!r.ansagerId;
     players.forEach((p, idx) => {
+      // Bei 5 Spielern setzt in jeder Runde der Geber aus (rotiert automatisch mit der
+      // Geber-Rotation durch). Diese Runde zählt für ihn NICHT mit: kein Punktestand-Effekt,
+      // keine Veränderung/Reset seiner Raus-Serie, keine Pflicht-Regeln - er nimmt schlicht
+      // nicht teil.
+      if (r.sittingOutId && r.sittingOutId === p.id) return;
       const forcedByTrump = r.trump.id === "eichel";
       const forcedByAnsager = isAnsagerRound && r.ansagerId === p.id; // Ansager kann nicht raus
       const forcedByPoints = currentScores[idx] <= 6;
@@ -280,6 +286,13 @@ function calculateScoresFromRounds(players, rounds) {
     });
   });
   return { scores: currentScores, consecutiveRaus: currentRaus };
+}
+
+// Bei genau 5 Spielern setzt in jeder Runde der aktuelle Geber aus (rotiert automatisch
+// mit der Geber-Rotation durch, sodass immer nur 4 Leute tatsächlich mitspielen). Bei
+// anderen Spielerzahlen gibt es kein Aussetzen.
+function getSittingOutId(playersList, dealerIndex) {
+  return playersList.length === 5 ? playersList[dealerIndex]?.id ?? null : null;
 }
 
 // Berechnet pro Spieler, wie sich sein Punktestand GENAU in einer einzelnen Runde
@@ -337,6 +350,7 @@ function computePlayerStats(player, gamesOverride) {
   games.forEach(g => {
     const rounds = g.rounds || [];
     rounds.forEach((r, rIdx) => {
+      if (r.sittingOutId === player.id) return; // Aussetz-Runde zählt für ihn nicht mit
       totalRounds++;
       const status = r.playerStatus?.[player.id] || "mit";
       if (status === "raus") {
@@ -577,6 +591,7 @@ function computeSessionStats(games, registry) {
       const { scores: scoresBefore, consecutiveRaus: rausBefore } = calculateScoresFromRounds(g.players, rounds.slice(0, rIdx));
 
       g.players.forEach((p, idx) => {
+        if (r.sittingOutId === p.id) return; // Aussetz-Runde zählt für ihn nicht mit
         const entry = ensureEntry(p.id, p.name);
         const status = r.playerStatus?.[p.id] || "mit";
         const scoreBefore = scoresBefore[idx];
@@ -612,7 +627,7 @@ function computeSessionStats(games, registry) {
         const ansagerDelta = deltas[r.ansagerId] || 0;
         if (ansagerDelta > 0) {
           g.players.forEach(p => {
-            if (p.id === r.ansagerId) return;
+            if (p.id === r.ansagerId || p.id === r.sittingOutId) return;
             const status = r.playerStatus?.[p.id] || "mit";
             if (status === "mit") ensureEntry(p.id, p.name).tacticCount++;
           });
@@ -771,16 +786,26 @@ function refreshBalances(allPlayers) {
 function BackgroundEffects() {
   // Die 4 Binokel-Farben (deutsches Blatt): Eichel, Herz, Schellen/Bollen, Blatt/Laub -
   // dieselben Symbole, die auch im Spiel selbst als Trumpf-Farben verwendet werden (siehe SUITS).
-  const icons = SUITS.filter(s => s.id !== "herzblind").map(s => s.icon);
+  // WICHTIG: die Zufallswerte (Position/Größe/Timing) werden nur EINMAL beim ersten Rendern
+  // berechnet (useState-Initializer) und danach nicht mehr neu gewürfelt. Sonst würde die App
+  // bei jedem Re-Render (was durch die Live-Firebase-Anbindung sehr häufig passiert) allen
+  // Karten neue Positionen zuweisen und ihre CSS-Animation neu starten - das sah wie ein
+  // ständiges "Glitchen" des Hintergrunds aus.
+  const [items] = useState(() => {
+    const icons = SUITS.filter(s => s.id !== "herzblind").map(s => s.icon);
+    return Array.from({ length: 16 }).map(() => ({
+      icon: icons[Math.floor(Math.random() * icons.length)],
+      size: 2 + Math.random() * 3,
+      left: Math.random() * 100,
+      duration: 10 + Math.random() * 10,
+      delay: Math.random() * 12,
+    }));
+  });
   return (
     <div className="suit-container">
-      {Array.from({ length: 16 }).map((_, i) => {
-        const icon = icons[Math.floor(Math.random() * icons.length)];
-        const size = 2 + Math.random() * 3;
-        return (
-          <img key={i} src={icon} className="floating-suit" style={{ left: `${Math.random() * 100}%`, animationDuration: `${10 + Math.random() * 10}s`, animationDelay: `-${Math.random() * 12}s`, width: `${size}rem`, height: "auto" }} />
-        );
-      })}
+      {items.map((item, i) => (
+        <img key={i} src={item.icon} className="floating-suit" style={{ left: `${item.left}%`, animationDuration: `${item.duration}s`, animationDelay: `-${item.delay}s`, width: `${item.size}rem`, height: "auto" }} />
+      ))}
     </div>
   );
 }
@@ -1044,6 +1069,12 @@ function App() {
   // Berechne aktuelle Spielstände basierend auf aktiver Historie
   const { scores: currentScores, consecutiveRaus } = calculateScoresFromRounds(gamePlayers, gameRounds);
 
+  // Bei genau 5 Spielern setzt in jeder Runde der aktuelle Geber aus (rotiert automatisch
+  // mit der Geber-Rotation durch) - so gehen immer nur 4 Leute tatsächlich mit. Das
+  // Aussetzen zählt NICHT zum "2× raus"-Limit und ist auch bei Punktestand > 6 zulässig
+  // (siehe calculateScoresFromRounds/r.sittingOutId).
+  const sittingOutId = getSittingOutId(gamePlayers, dealerIdx);
+
   // Aktueller Geldstand der laufenden Session je Spieler (Summe aller bereits
   // abgeschlossenen Spiele dieser Session) - wird in der Punkte-Tafel neben dem Namen
   // sowie auf der eigenen "Spiele dieser Session"-Seite angezeigt.
@@ -1073,10 +1104,26 @@ function App() {
       alert(`Ein Spieler namens "${trimmed}" existiert bereits!`);
       return;
     }
+    if (autoSelect && selectedIds.length >= MAX_SESSION_PLAYERS) {
+      alert(`Maximal ${MAX_SESSION_PLAYERS} Spieler pro Session (sonst geht das Kartenlegen nicht mehr auf).`);
+      return;
+    }
     const newId = uid();
     setRegistry([...registry, { id: newId, name: trimmed, stammSpieler: false, games: [], session: { balance: 0 } }]);
     setNewName("");
     if (autoSelect) setSelectedIds(prev => [...prev, newId]);
+  }
+
+  // Vertauscht zwei benachbarte Einträge in selectedIds (Sitzordnung/Reihenfolge der
+  // Spieler) - dir: -1 (nach oben) oder +1 (nach unten).
+  function moveSelectedPlayer(idx, dir) {
+    setSelectedIds(prev => {
+      const j = idx + dir;
+      if (j < 0 || j >= prev.length) return prev;
+      const next = [...prev];
+      [next[idx], next[j]] = [next[j], next[idx]];
+      return next;
+    });
   }
 
   function deletePlayer(id) {
@@ -1095,6 +1142,10 @@ function App() {
   function startGame(idsOverride, sessionIdOverride) {
     const ids = idsOverride || selectedIds;
     if (ids.length < 2) return;
+    if (ids.length > MAX_SESSION_PLAYERS) {
+      alert(`Maximal ${MAX_SESSION_PLAYERS} Spieler pro Session (sonst geht das Kartenlegen nicht mehr auf).`);
+      return;
+    }
 
     // Ein Spieler darf nie gleichzeitig Mitglied von mehr als einer aktiven Session sein.
     const conflictId = ids.find(id => activeSessions.some(s => s.id !== sessionIdOverride && (s.playerIds || []).includes(id)));
@@ -1140,13 +1191,13 @@ function App() {
     if (!targetSession) {
       targetSession = { id: uid(), startedAt: new Date().toISOString(), playerIds: ids.slice(), hostDeviceId: deviceId, hostActive: true };
       setActiveSessions([...activeSessions, targetSession]);
-    } else {
-      const merged = Array.from(new Set([...(targetSession.playerIds || []), ...ids]));
-      if (merged.length !== (targetSession.playerIds || []).length) {
-        const updatedSession = { ...targetSession, playerIds: merged };
-        setActiveSessions(activeSessions.map(s => s.id === targetSession.id ? updatedSession : s));
-        targetSession = updatedSession;
-      }
+    } else if ((targetSession.playerIds || []).join(",") !== ids.join(",")) {
+      // "ids" ist immer die komplette, gerade im Select-Screen bestätigte Spielerliste
+      // (inkl. eventuell geänderter Reihenfolge/Sitzordnung) - wird 1:1 übernommen, damit
+      // Umsortieren auch dauerhaft (session-/geräteübergreifend) erhalten bleibt.
+      const updatedSession = { ...targetSession, playerIds: ids.slice() };
+      setActiveSessions(activeSessions.map(s => s.id === targetSession.id ? updatedSession : s));
+      targetSession = updatedSession;
     }
 
     setCurrentSessionId(targetSession.id);
@@ -1171,7 +1222,7 @@ function App() {
       setGameRounds([]);
       setDealerIdx(0);
       setSelectedTrump(SUITS[0]);
-      initRound(gp, SUITS[0]);
+      initRound(gp, SUITS[0], 0);
     }
 
     setScreen("game");
@@ -1252,13 +1303,15 @@ function App() {
     setActiveSessions(activeSessions.map(s => s.id === session.id ? { ...s, hostDeviceId: deviceId, hostActive: false } : s));
   }
 
-  function initRound(playersList, trump) {
+  function initRound(playersList, trump, dealerIndexForRound = 0) {
     setRoundPhase("setup");
+    const sittingOut = getSittingOutId(playersList, dealerIndexForRound);
     const initialStatus = {};
     const initialTricks = {};
     playersList.forEach(p => {
+      if (p.id === sittingOut) return;
       initialTricks[p.id] = 0;
-      initialStatus[p.id] = "mit"; 
+      initialStatus[p.id] = "mit";
     });
     setPlayerStatus(initialStatus);
     setPlayerTricks(initialTricks);
@@ -1280,7 +1333,7 @@ function App() {
     setSelectedTrump(trump);
     if (trump.id === "eichel") {
       const updatedStatus = { ...playerStatus };
-      gamePlayers.forEach(p => { updatedStatus[p.id] = "mit"; });
+      gamePlayers.forEach(p => { if (p.id !== sittingOutId) updatedStatus[p.id] = "mit"; });
       setPlayerStatus(updatedStatus);
     }
     // Herz Blind hat keinen Ansager -> beim Wechsel dorthin Auswahl zurücksetzen
@@ -1305,6 +1358,7 @@ function App() {
 
     let updatedStatus = { ...playerStatus };
     gamePlayers.forEach((p, idx) => {
+      if (p.id === sittingOutId) return;
       if (getForcedReason(p, idx, selectedTrump)) {
         updatedStatus[p.id] = "mit";
       }
@@ -1351,6 +1405,7 @@ function App() {
       playerStatus: { ...playerStatus },
       playerTricks: { ...playerTricks },
       dealerIdx: dealerIdx,
+      sittingOutId: sittingOutId,
       ansagerId: selectedTrump.id === "herzblind" ? null : ansagerId,
       bidTricks: selectedTrump.id === "herzblind" ? null : bidTricks,
     };
@@ -1370,13 +1425,16 @@ function App() {
       const clampedScores = nextScores.map(s => s < 0 ? 0 : s);
       saveGameResult(clampedScores, winnerIndices, updatedRounds);
     } else {
-      setDealerIdx(d => (d + 1) % gamePlayers.length);
+      const nextDealerIdx = (dealerIdx + 1) % gamePlayers.length;
+      const nextSittingOut = getSittingOutId(gamePlayers, nextDealerIdx);
+      setDealerIdx(nextDealerIdx);
       setSelectedTrump(SUITS[0]);
       setRoundPhase("setup");
-      
+
       const freshStatus = {};
       const freshTricks = {};
       gamePlayers.forEach(p => {
+        if (p.id === nextSittingOut) return;
         freshStatus[p.id] = "mit";
         freshTricks[p.id] = 0;
       });
@@ -1405,30 +1463,35 @@ function App() {
       if (curScores.some(s => s <= 0)) break;
       if (rounds.length > 500) break; // Sicherheitsnetz gegen Endlosschleifen
 
+      const roundDealerIdx = rounds.length % gamePlayers.length;
+      const roundSittingOut = getSittingOutId(gamePlayers, roundDealerIdx);
+      const activePlayers = gamePlayers.filter(p => p.id !== roundSittingOut);
+
       const trump = nonHerzBlindSuits[Math.floor(Math.random() * nonHerzBlindSuits.length)];
-      const ansagerId = gamePlayers[Math.floor(Math.random() * gamePlayers.length)].id;
+      const ansagerId = activePlayers[Math.floor(Math.random() * activePlayers.length)].id;
       const bidTricks = 1 + Math.floor(Math.random() * 6);
 
       const playerStatus = {};
       gamePlayers.forEach((p, idx) => {
+        if (p.id === roundSittingOut) return;
         const forced = getForcedReason(p, idx, trump, ansagerId, curScores, curRaus);
         playerStatus[p.id] = forced ? "mit" : (Math.random() < 0.7 ? "mit" : "raus");
       });
       playerStatus[ansagerId] = "mit"; // Ansager kann nicht raus gehen
 
       const playerTricks = {};
-      gamePlayers.forEach(p => { playerTricks[p.id] = 0; });
+      gamePlayers.forEach(p => { if (p.id !== roundSittingOut) playerTricks[p.id] = 0; });
 
       if (rounds.length >= FORCE_WINNER_AFTER) {
-        if (!forcedWinnerId) {
+        if (!forcedWinnerId || forcedWinnerId === roundSittingOut) {
           let minIdx = 0;
-          curScores.forEach((s, i) => { if (s < curScores[minIdx]) minIdx = i; });
+          curScores.forEach((s, i) => { if (gamePlayers[i].id !== roundSittingOut && s < curScores[minIdx]) minIdx = i; });
           forcedWinnerId = gamePlayers[minIdx].id;
         }
         playerStatus[forcedWinnerId] = "mit";
         playerTricks[forcedWinnerId] = 6;
       } else {
-        const mitIds = gamePlayers.filter(p => playerStatus[p.id] === "mit").map(p => p.id);
+        const mitIds = activePlayers.filter(p => playerStatus[p.id] === "mit").map(p => p.id);
         for (let i = 0; i < 6; i++) {
           const pickId = mitIds[Math.floor(Math.random() * mitIds.length)];
           playerTricks[pickId] += 1;
@@ -1440,7 +1503,8 @@ function App() {
         trump,
         playerStatus,
         playerTricks,
-        dealerIdx: rounds.length % gamePlayers.length,
+        dealerIdx: roundDealerIdx,
+        sittingOutId: roundSittingOut,
         ansagerId,
         bidTricks,
       });
@@ -1644,9 +1708,11 @@ function App() {
     setRoundPhase("setup");
     setAnsagerId(null);
     setBidTricks(2);
+    const sittingOut = getSittingOutId(gamePlayers, 0);
     const freshStatus = {};
     const freshTricks = {};
     gamePlayers.forEach(p => {
+      if (p.id === sittingOut) return;
       freshStatus[p.id] = "mit";
       freshTricks[p.id] = 0;
     });
@@ -1666,14 +1732,15 @@ function App() {
 
 
   function saveEditedRound(rIdx, editedStatus, editedTricks) {
-    const total = gamePlayers.reduce((sum, p) => sum + (editedStatus[p.id] === "mit" ? (editedTricks[p.id] || 0) : 0), 0);
+    const round = gameRounds[rIdx];
+    const editablePlayers = gamePlayers.filter(p => p.id !== round.sittingOutId);
+    const total = editablePlayers.reduce((sum, p) => sum + (editedStatus[p.id] === "mit" ? (editedTricks[p.id] || 0) : 0), 0);
     if (total !== 6) {
       alert(`Fehler: Eine Runde muss immer genau 6 Stiche haben! (Aktuell: ${total})`);
       return;
     }
 
-    const round = gameRounds[rIdx];
-    const mitCount = Object.values(editedStatus).filter(s => s === "mit").length;
+    const mitCount = editablePlayers.filter(p => editedStatus[p.id] === "mit").length;
     if (round.trump.id !== "herzblind" && round.ansagerId) {
       if (mitCount < 2) {
         alert("Außer dem Ansager muss mindestens ein weiterer Spieler mitgehen!");
@@ -2092,6 +2159,7 @@ function App() {
                   <div key={p.id} style={{ padding: "12px", background: "rgba(0,0,0,0.4)", borderRadius: "10px", textAlign: "center", border: i === dealerIdx ? "1px solid #c9a83e" : "1px solid rgba(255,255,255,0.05)" }}>
                     <div style={{ fontSize: "14px", color: "#aaa" }}>
                       {p.name} {currentScores[i] <= 3 && <span style={{ color: "#a3383c" }}>🚫🔄</span>}
+                      {p.id === sittingOutId && <span style={{ marginLeft: "6px", fontSize: "10px", color: "#888", border: "1px solid #666", borderRadius: "4px", padding: "1px 5px" }}>🪑 setzt aus</span>}
                       {currentSessionId && (
                         <span style={{ marginLeft: "6px", fontSize: "11px", fontWeight: "bold", color: (sessionMoneyScores[p.id] || 0) >= 0 ? "#4e8b5c" : "#a3383c" }}>
                           {euro(sessionMoneyScores[p.id] || 0)}
@@ -2168,7 +2236,7 @@ function App() {
                     <div style={{ marginBottom: "20px" }}>
                       <h3 style={{ color: "#c9a83e", marginBottom: "10px", fontSize: "15px" }}>2. Ansager & Ansage:</h3>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "10px" }}>
-                        {gamePlayers.map(p => (
+                        {gamePlayers.filter(p => p.id !== sittingOutId).map(p => (
                           <button key={p.id} onClick={() => handleAnsagerChange(p.id)} style={{
                             ...btnStyle, padding: "8px 14px", fontSize: "13px",
                             background: ansagerId === p.id ? "linear-gradient(45deg, #c9a83e, #a15c2a)" : "rgba(0,0,0,0.4)",
@@ -2197,7 +2265,11 @@ function App() {
                   )}
 
                   <h3 style={{ color: "#c9a83e", marginBottom: "10px", fontSize: "15px" }}>{selectedTrump.id !== "herzblind" ? "3." : "2."} Wer geht mit?</h3>
+                  {sittingOutId && (
+                    <div style={{ fontSize: "12px", color: "#888", marginBottom: "8px" }}>🪑 {gamePlayers.find(p => p.id === sittingOutId)?.name} setzt diese Runde als Geber aus.</div>
+                  )}
                   {gamePlayers.map((p, idx) => {
+                    if (p.id === sittingOutId) return null;
                     const forcedReason = getForcedReason(p, idx, selectedTrump);
                     const isForced = forcedReason !== null;
                     const currentStatus = isForced ? "mit" : (playerStatus[p.id] || "mit");
@@ -2223,13 +2295,14 @@ function App() {
               {roundPhase === "tricks" && (
                 <div>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "15px" }}>
-                    <h3 style={{ color: "#c9a83e", fontSize: "16px" }}>Stiche ({selectedTrump.emoji}):</h3>
+                    <h3 style={{ color: "#c9a83e", fontSize: "16px", display: "flex", alignItems: "center", gap: "6px" }}>Stiche (<img src={selectedTrump.icon} alt={selectedTrump.label} style={{ height: "18px", width: "auto", verticalAlign: "middle" }} />):</h3>
                     <span style={{ fontWeight: "900", color: getTotalTricksEntered(playerTricks, playerStatus) === 6 ? "#4e8b5c" : "#a3383c" }}>
                       Verteilt: {getTotalTricksEntered(playerTricks, playerStatus)} / 6
                     </span>
                   </div>
                   
                   {gamePlayers.map((p, idx) => {
+                    if (p.id === sittingOutId) return null;
                     const forced = getForcedReason(p, idx, selectedTrump);
                     const status = forced ? "mit" : playerStatus[p.id];
 
@@ -3085,15 +3158,22 @@ function App() {
           // Ein Spieler gilt als "gesperrt", wenn er bereits Mitglied einer ANDEREN aktiven
           // Session ist (die eigene Session, die man ggf. gerade weiterführt/ändert, zählt nicht).
           const conflictSessionOf = (id) => activeSessions.find(s => s.id !== selectSessionContext && (s.playerIds || []).includes(id));
+          const atMaxPlayers = selectedIds.length >= MAX_SESSION_PLAYERS;
           const renderPlayerTile = (p, activeGradient, activeBorderColor) => {
             const conflict = conflictSessionOf(p.id);
             const selected = selectedIds.includes(p.id);
+            const disabled = conflict || (!selected && atMaxPlayers);
             return (
               <div key={p.id}
-                   onClick={() => { if (conflict) { alert(`${p.name} spielt gerade in einer anderen laufenden Session mit und kann nicht gleichzeitig hier mitspielen.`); return; } setSelectedIds(prev => prev.includes(p.id) ? prev.filter(id => id !== p.id) : [...prev, p.id]); }}
-                   style={{ padding: "13px", textAlign: "center", fontWeight: "bold", background: conflict ? "rgba(255,255,255,0.03)" : (selected ? activeGradient : "rgba(0,0,0,0.4)"), border: conflict ? "1px dashed #666" : (selected ? "none" : `1px solid ${activeBorderColor}`), borderRadius: "12px", cursor: conflict ? "not-allowed" : "pointer", opacity: conflict ? 0.5 : 1 }}>
+                   onClick={() => {
+                     if (conflict) { alert(`${p.name} spielt gerade in einer anderen laufenden Session mit und kann nicht gleichzeitig hier mitspielen.`); return; }
+                     if (!selected && atMaxPlayers) { alert(`Maximal ${MAX_SESSION_PLAYERS} Spieler pro Session (sonst geht das Kartenlegen nicht mehr auf).`); return; }
+                     setSelectedIds(prev => prev.includes(p.id) ? prev.filter(id => id !== p.id) : [...prev, p.id]);
+                   }}
+                   style={{ padding: "13px", textAlign: "center", fontWeight: "bold", background: conflict ? "rgba(255,255,255,0.03)" : (selected ? activeGradient : "rgba(0,0,0,0.4)"), border: conflict ? "1px dashed #666" : (selected ? "none" : `1px solid ${activeBorderColor}`), borderRadius: "12px", cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.5 : 1 }}>
                 {p.name}
                 {conflict && <div style={{ fontSize: "10px", color: "#b5732a", marginTop: "3px" }}>in anderer Session</div>}
+                {!conflict && !selected && atMaxPlayers && <div style={{ fontSize: "10px", color: "#b5732a", marginTop: "3px" }}>Session voll (max. {MAX_SESSION_PLAYERS})</div>}
               </div>
             );
           };
@@ -3115,6 +3195,27 @@ function App() {
               </>
             )}
 
+            {/* Reihenfolge/Sitzordnung der ausgewählten Spieler - bestimmt die Spalten-/Sitzreihenfolge
+                im ganzen Spiel (Punkte-Tafel, Runden-Tabelle, Geber-Rotation usw.) */}
+            {selectedIds.length > 0 && (
+              <div style={{ marginBottom: "18px" }}>
+                <div style={{ fontSize: "12px", color: "#aaa", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px" }}>🔀 Reihenfolge (Sitzordnung)</div>
+                {selectedIds.map((id, idx) => {
+                  const p = registry.find(r => r.id === id);
+                  if (!p) return null;
+                  return (
+                    <div key={id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(0,0,0,0.3)", borderRadius: "8px", padding: "8px 12px", marginBottom: "6px" }}>
+                      <span style={{ fontSize: "14px" }}><span style={{ color: "#888", marginRight: "6px" }}>{idx + 1}.</span>{p.name}</span>
+                      <div style={{ display: "flex", gap: "4px" }}>
+                        <button onClick={() => moveSelectedPlayer(idx, -1)} disabled={idx === 0} style={{ width: "28px", height: "28px", borderRadius: "6px", border: "none", background: "rgba(255,255,255,0.1)", color: "#fff", cursor: idx === 0 ? "default" : "pointer", opacity: idx === 0 ? 0.3 : 1 }}>▲</button>
+                        <button onClick={() => moveSelectedPlayer(idx, 1)} disabled={idx === selectedIds.length - 1} style={{ width: "28px", height: "28px", borderRadius: "6px", border: "none", background: "rgba(255,255,255,0.1)", color: "#fff", cursor: idx === selectedIds.length - 1 ? "default" : "pointer", opacity: idx === selectedIds.length - 1 ? 0.3 : 1 }}>▼</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             {/* Neuen Gast direkt hier anlegen (z.B. wenn während der Session jemand Neues dazustößt) */}
             <div style={{ fontSize: "12px", color: "#aaa", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px" }}>➕ Neuer Gast</div>
             <div style={{ display: "flex", gap: "10px", marginBottom: "18px" }}>
@@ -3122,7 +3223,7 @@ function App() {
               <button onClick={() => addPlayer(true)} style={{ ...btnStyle, background: "linear-gradient(45deg, #b8bcc4, #4a4d57)", padding: "0 20px", fontSize: "20px" }}>+</button>
             </div>
 
-            <button onClick={() => startGame(undefined, selectSessionContext)} className="pulse-btn" style={{ ...btnStyle, background: "linear-gradient(45deg, #c9a83e, #a3383c)", width: "100%", marginTop: "5px", opacity: selectedIds.length < 2 ? 0.4 : 1 }} disabled={selectedIds.length < 2}>
+            <button onClick={() => startGame(undefined, selectSessionContext)} className="pulse-btn" style={{ ...btnStyle, background: "linear-gradient(45deg, #c9a83e, #a3383c)", width: "100%", marginTop: "5px", opacity: (selectedIds.length < 2 || selectedIds.length > MAX_SESSION_PLAYERS) ? 0.4 : 1 }} disabled={selectedIds.length < 2 || selectedIds.length > MAX_SESSION_PLAYERS}>
               🚀 SPIEL STARTEN
             </button>
           </div>
@@ -3263,8 +3364,11 @@ function RoundInlineEditor({ gamePlayers, roundData, onSave, onCancel }) {
   const [status, setStatus] = useState({ ...roundData.playerStatus });
   const [tricks, setTricks] = useState({ ...roundData.playerTricks });
 
-  const total = gamePlayers.reduce((sum, p) => sum + (status[p.id] === "mit" ? (tricks[p.id] || 0) : 0), 0);
+  const sittingOutId = roundData.sittingOutId || null;
+  const editablePlayers = gamePlayers.filter(p => p.id !== sittingOutId);
+  const total = editablePlayers.reduce((sum, p) => sum + (status[p.id] === "mit" ? (tricks[p.id] || 0) : 0), 0);
   const ansagerName = roundData.ansagerId ? gamePlayers.find(p => p.id === roundData.ansagerId)?.name : null;
+  const sittingOutName = sittingOutId ? gamePlayers.find(p => p.id === sittingOutId)?.name : null;
 
   return (
     <div style={{ background: "rgba(255,255,255,0.05)", padding: "10px", borderRadius: "8px", marginTop: "5px" }}>
@@ -3273,10 +3377,13 @@ function RoundInlineEditor({ gamePlayers, roundData, onSave, onCancel }) {
           📣 Ansager: <strong>{ansagerName}</strong> (Ansage: {roundData.bidTricks} Stiche — Ansager selbst nicht änderbar, nur Status/Stiche)
         </div>
       )}
+      {sittingOutName && (
+        <div style={{ fontSize: "12px", color: "#888", marginBottom: "8px" }}>🪑 {sittingOutName} hat als Geber ausgesetzt (nicht änderbar).</div>
+      )}
       <div style={{ textAlign: "right", fontSize: "12px", marginBottom: "10px", color: total === 6 ? "#4e8b5c" : "#a3383c" }}>
         Stiche: {total} / 6
       </div>
-      {gamePlayers.map(p => {
+      {editablePlayers.map(p => {
         const isAnsager = roundData.ansagerId === p.id;
         return (
         <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px", borderBottom: "1px solid rgba(255,255,255,0.05)", paddingBottom: "5px" }}>
@@ -3514,9 +3621,9 @@ function GameRoundsTable({ players, rounds }) {
       <table style={{ borderCollapse: "collapse", fontSize: "13px", width: "100%" }}>
         <thead>
           <tr>
-            <th style={{ textAlign: "left", padding: "4px 8px" }}></th>
+            <th style={{ textAlign: "left", padding: "4px 3px" }}></th>
             {players.map(p => (
-              <th key={p.id} style={{ textAlign: "right", padding: "4px 8px", color: "#ccc", fontSize: "12px", whiteSpace: "nowrap" }}>{p.name}</th>
+              <th key={p.id} style={{ textAlign: "right", padding: "4px 3px", color: "#ccc", fontSize: "12px", whiteSpace: "nowrap" }}>{p.name}</th>
             ))}
           </tr>
         </thead>
@@ -3524,7 +3631,7 @@ function GameRoundsTable({ players, rounds }) {
           <tr>
             <td></td>
             {players.map(p => (
-              <td key={p.id} style={{ textAlign: "right", padding: "4px 8px", color: "#eee", fontWeight: "bold" }}>{MAX_POINTS}</td>
+              <td key={p.id} style={{ textAlign: "right", padding: "4px 3px", color: "#eee", fontWeight: "bold" }}>{MAX_POINTS}</td>
             ))}
           </tr>
           {rounds.map((r, rIdx) => {
@@ -3548,19 +3655,24 @@ function GameRoundsTable({ players, rounds }) {
               <React.Fragment key={rIdx}>
                 {/* Schmale Zwischenzeile: Trumpf dieser Runde + Veränderung je Spieler */}
                 <tr style={{ borderTop: isLastRound ? undefined : "1px solid rgba(255,255,255,0.05)" }}>
-                  <td style={{ padding: "4px 8px 0", color: "#d4af37", whiteSpace: "nowrap", verticalAlign: "top", ...deltaCellFrame(true, false) }}>{r.roundNum} {r.trump.emoji}</td>
+                  <td style={{ padding: "4px 3px 0", color: "#d4af37", whiteSpace: "nowrap", verticalAlign: "top", ...deltaCellFrame(true, false) }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: "3px" }}>{r.roundNum} <img src={r.trump.icon} alt={r.trump.label} style={{ height: "13px", width: "auto" }} /></span>
+                  </td>
                   {players.map((p, pIdx) => {
                     const isLastCol = pIdx === players.length - 1;
+                    if (r.sittingOutId === p.id) {
+                      return <td key={p.id} title="Setzt aus (Geber)" style={{ textAlign: "right", padding: "0 3px", color: "#666", fontSize: "10px", ...deltaCellFrame(false, isLastCol) }}>🪑</td>;
+                    }
                     const status = r.playerStatus?.[p.id] || "mit";
                     if (status === "raus") {
-                      return <td key={p.id} style={{ textAlign: "right", padding: "0 8px", color: "#666", fontSize: "10px", ...deltaCellFrame(false, isLastCol) }}>–</td>;
+                      return <td key={p.id} style={{ textAlign: "right", padding: "0 3px", color: "#666", fontSize: "10px", ...deltaCellFrame(false, isLastCol) }}>–</td>;
                     }
                     const isAnsager = r.ansagerId === p.id;
                     const { delta } = changes[p.id];
                     const color = delta < 0 ? "#4e8b5c" : delta > 0 ? "#a3383c" : "#aaa";
                     const sign = delta < 0 ? "-" : delta > 0 ? "+" : "";
                     return (
-                      <td key={p.id} style={{ textAlign: "right", padding: "0 8px", fontSize: "10px", ...deltaCellFrame(false, isLastCol) }}>
+                      <td key={p.id} style={{ textAlign: "right", padding: "0 3px", fontSize: "10px", ...deltaCellFrame(false, isLastCol) }}>
                         {isAnsager && <span><span style={{ color: "#c9a83e" }}>📣</span><span style={{ color: "#888" }}>({r.bidTricks})</span> </span>}
                         <span style={{ color, fontWeight: "bold" }}>{sign}{Math.abs(delta)}</span>
                       </td>
@@ -3572,7 +3684,7 @@ function GameRoundsTable({ players, rounds }) {
                 <tr>
                   <td style={scoreCellFrame(true, false)}></td>
                   {players.map((p, pIdx) => (
-                    <td key={p.id} style={{ textAlign: "right", padding: "4px 8px", color: "#eee", fontWeight: "bold", ...scoreCellFrame(false, pIdx === players.length - 1) }}>{changes[p.id].after}</td>
+                    <td key={p.id} style={{ textAlign: "right", padding: "4px 3px", color: "#eee", fontWeight: "bold", ...scoreCellFrame(false, pIdx === players.length - 1) }}>{changes[p.id].after}</td>
                   ))}
                 </tr>
               </React.Fragment>
