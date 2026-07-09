@@ -22,8 +22,15 @@
   * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
   h1, h2, h3, h4 { font-family: 'Cinzel', 'Segoe UI', serif; letter-spacing: 1px; }
   body {
-    background: linear-gradient(160deg, #0d3b2e 0%, #0a2e24 45%, #06201a 100%);
-    color: #eef5f0;
+    background-color: #5a3620;
+    background-image:
+      repeating-linear-gradient(93deg, rgba(0,0,0,0.09) 0px, rgba(0,0,0,0.09) 1px, transparent 2px, transparent 17px),
+      repeating-linear-gradient(93deg, rgba(255,214,170,0.05) 0px, rgba(255,214,170,0.05) 1px, transparent 1px, transparent 8px),
+      radial-gradient(ellipse 260px 90px at 15% 22%, rgba(0,0,0,0.22), transparent 70%),
+      radial-gradient(ellipse 220px 80px at 82% 68%, rgba(0,0,0,0.2), transparent 70%),
+      radial-gradient(ellipse 200px 70px at 55% 90%, rgba(0,0,0,0.16), transparent 70%),
+      linear-gradient(160deg, #6d4527 0%, #5a3620 45%, #402813 100%);
+    color: #f5e9d6;
     -webkit-tap-highlight-color: transparent;
     min-height: 100vh;
     background-attachment: fixed;
@@ -2124,11 +2131,12 @@ function App() {
                     const active = selectedTrump.id === "herzblind";
                     return (
                       <button onClick={() => handleTrumpChange(herzBlind)} style={{
-                        ...btnStyle, padding: "10px 5px", fontSize: "13px", marginBottom: "20px",
+                        ...btnStyle, display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", padding: "8px 5px", fontSize: "13px", marginBottom: "20px",
                         background: active ? `linear-gradient(45deg, ${herzBlind.color}, #7a3b5c)` : herzBlind.color,
                         border: active ? "2px solid #fff" : "none",
                       }}>
-                        {herzBlind.emoji} {herzBlind.label} (×4)
+                        <img src={herzBlind.icon} alt={herzBlind.label} style={{ height: "24px", width: "auto" }} />
+                        🃏 {herzBlind.label} (×4)
                       </button>
                     );
                   })()}
