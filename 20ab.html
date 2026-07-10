@@ -1152,11 +1152,19 @@ function App() {
       return;
     }
 
-    if (!targetSession) {
-      // Passwort nur bei einer KOMPLETT NEUEN Session und wenn mind. ein Stammspieler dabei ist.
-      // WICHTIG: kein window.prompt() hier - manche Browser/PWAs blockieren native Dialoge
-      // (z.B. nach "weitere Dialoge dieser Seite verhindern") komplett und lautlos, ohne
-      // sichtbaren Fehler. Stattdessen ein eigenes In-App-Dialogfenster (siehe pendingPassword).
+    // Passwort erforderlich, sobald durch DIESE Aktion zum ERSTEN MAL ein Stammspieler Teil
+    // der Session wird - egal ob beim kompletten Neustart einer Session ODER beim nachträglichen
+    // Hinzufügen eines Stammspielers zu einer bereits laufenden Session, die bisher nur Gäste
+    // hatte. War bereits mind. ein Stammspieler in der Session, ist sie schon "freigeschaltet"
+    // und weitere Änderungen (auch weitere Stammspieler) brauchen kein erneutes Passwort.
+    // WICHTIG: kein window.prompt() hier - manche Browser/PWAs blockieren native Dialoge
+    // (z.B. nach "weitere Dialoge dieser Seite verhindern") komplett und lautlos, ohne
+    // sichtbaren Fehler. Stattdessen ein eigenes In-App-Dialogfenster (siehe pendingPassword).
+    const sessionAlreadyHasStamm = !!targetSession && (targetSession.playerIds || []).some(id => {
+      const p = registry.find(pl => pl.id === id);
+      return p && isStammSpieler(p);
+    });
+    if (!sessionAlreadyHasStamm) {
       const hasStamm = ids.some(id => {
         const p = registry.find(pl => pl.id === id);
         return p && isStammSpieler(p);
