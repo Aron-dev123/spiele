@@ -1114,18 +1114,6 @@ function App() {
     if (autoSelect) setSelectedIds(prev => [...prev, newId]);
   }
 
-  // Vertauscht zwei benachbarte Einträge in selectedIds (Sitzordnung/Reihenfolge der
-  // Spieler) - dir: -1 (nach oben) oder +1 (nach unten).
-  function moveSelectedPlayer(idx, dir) {
-    setSelectedIds(prev => {
-      const j = idx + dir;
-      if (j < 0 || j >= prev.length) return prev;
-      const next = [...prev];
-      [next[idx], next[j]] = [next[j], next[idx]];
-      return next;
-    });
-  }
-
   function deletePlayer(id) {
     const player = registry.find(p => p.id === id);
     if (!player || isStammSpieler(player)) return;
@@ -2177,7 +2165,7 @@ function App() {
                   <div key={p.id} style={{ padding: "12px", background: "rgba(0,0,0,0.4)", borderRadius: "10px", textAlign: "center", border: i === dealerIdx ? "1px solid #c9a83e" : "1px solid rgba(255,255,255,0.05)", position: "relative" }}>
                     <div style={{ fontSize: "14px", color: "#aaa" }}>
                       {p.name} {currentScores[i] <= 3 && <span style={{ color: "#a3383c" }}>🚫🔄</span>}
-                      {p.id === sittingOutId && <span style={{ marginLeft: "6px", fontSize: "10px", color: "#888", border: "1px solid #666", borderRadius: "4px", padding: "1px 5px" }}>🪑 setzt aus</span>}
+                      {p.id === sittingOutId && <span style={{ marginLeft: "6px", fontSize: "10px", color: "#888", border: "1px solid #666", borderRadius: "4px", padding: "1px 5px" }}>(–) setzt aus</span>}
                       {currentSessionId && (
                         <span style={{ marginLeft: "6px", fontSize: "11px", fontWeight: "bold", color: (sessionMoneyScores[p.id] || 0) >= 0 ? "#4e8b5c" : "#a3383c" }}>
                           {euro(sessionMoneyScores[p.id] || 0)}
@@ -3222,27 +3210,6 @@ function App() {
               </>
             )}
 
-            {/* Reihenfolge/Sitzordnung der ausgewählten Spieler - bestimmt die Spalten-/Sitzreihenfolge
-                im ganzen Spiel (Punkte-Tafel, Runden-Tabelle, Geber-Rotation usw.) */}
-            {selectedIds.length > 0 && (
-              <div style={{ marginBottom: "18px" }}>
-                <div style={{ fontSize: "12px", color: "#aaa", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px" }}>🔀 Reihenfolge (Sitzordnung)</div>
-                {selectedIds.map((id, idx) => {
-                  const p = registry.find(r => r.id === id);
-                  if (!p) return null;
-                  return (
-                    <div key={id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(0,0,0,0.3)", borderRadius: "8px", padding: "8px 12px", marginBottom: "6px" }}>
-                      <span style={{ fontSize: "14px" }}><span style={{ color: "#888", marginRight: "6px" }}>{idx + 1}.</span>{p.name}</span>
-                      <div style={{ display: "flex", gap: "4px" }}>
-                        <button onClick={() => moveSelectedPlayer(idx, -1)} disabled={idx === 0} style={{ width: "28px", height: "28px", borderRadius: "6px", border: "none", background: "rgba(255,255,255,0.1)", color: "#fff", cursor: idx === 0 ? "default" : "pointer", opacity: idx === 0 ? 0.3 : 1 }}>▲</button>
-                        <button onClick={() => moveSelectedPlayer(idx, 1)} disabled={idx === selectedIds.length - 1} style={{ width: "28px", height: "28px", borderRadius: "6px", border: "none", background: "rgba(255,255,255,0.1)", color: "#fff", cursor: idx === selectedIds.length - 1 ? "default" : "pointer", opacity: idx === selectedIds.length - 1 ? 0.3 : 1 }}>▼</button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
             {/* Neuen Gast direkt hier anlegen (z.B. wenn während der Session jemand Neues dazustößt) */}
             <div style={{ fontSize: "12px", color: "#aaa", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px" }}>➕ Neuer Gast</div>
             <div style={{ display: "flex", gap: "10px", marginBottom: "18px" }}>
@@ -3688,7 +3655,7 @@ function GameRoundsTable({ players, rounds }) {
                   {players.map((p, pIdx) => {
                     const isLastCol = pIdx === players.length - 1;
                     if (r.sittingOutId === p.id) {
-                      return <td key={p.id} title="Setzt aus (Geber)" style={{ textAlign: "right", padding: "0 3px", color: "#666", fontSize: "10px", ...deltaCellFrame(false, isLastCol) }}>🪑</td>;
+                      return <td key={p.id} title="Setzt aus (Geber)" style={{ textAlign: "right", padding: "0 3px", color: "#666", fontSize: "10px", ...deltaCellFrame(false, isLastCol) }}>(–)</td>;
                     }
                     const status = r.playerStatus?.[p.id] || "mit";
                     if (status === "raus") {
