@@ -346,6 +346,7 @@ function computePlayerStats(player, gamesOverride) {
   let rausRounds = 0;    // Runden, in denen der Spieler raus gegangen ist
   let laufRounds = 0;    // Runden, in denen der Spieler (mitgegangen) nach oben gelaufen ist
   let tricksMadeSum = 0; // Summe der gemachten Stiche über alle "mit"-Runden
+  const nemesisCounts = {}; // co-playerId -> { name, count }: wie oft dieser Mitspieler dabei war, wenn DER SPIELER nach oben gelaufen ist
 
   games.forEach(g => {
     const rounds = g.rounds || [];
@@ -360,7 +361,17 @@ function computePlayerStats(player, gamesOverride) {
       mitRounds++;
       tricksMadeSum += (r.playerTricks?.[player.id] || 0);
       const delta = computeRoundDelta(g.players, rounds, rIdx)[player.id] || 0;
-      if (delta > 0) laufRounds++;
+      if (delta > 0) {
+        laufRounds++;
+        // Nemesis: zählt jeden Mitspieler, der in dieser Runde ebenfalls dabei war (nicht
+        // selbst gerade aussetzte) - unabhängig davon, wie viel man verloren hat, nur DASS
+        // man gelaufen ist und wer dabei mit am Tisch saß.
+        g.players.forEach(co => {
+          if (co.id === player.id || co.id === r.sittingOutId) return;
+          if (!nemesisCounts[co.id]) nemesisCounts[co.id] = { name: co.name, count: 0 };
+          nemesisCounts[co.id].count++;
+        });
+      }
 
       if (r.ansagerId === player.id) {
         ansagerRoundsCount++;
@@ -384,6 +395,13 @@ function computePlayerStats(player, gamesOverride) {
       favoriteTrumpCount = count;
       favoriteTrump = SUITS.find(s => s.id === trumpId) || null;
     }
+  });
+
+  // Nemesis: der Mitspieler, der am häufigsten am Tisch saß, wenn DIESER Spieler nach oben
+  // gelaufen ist (unabhängig vom Betrag - reine Häufigkeit).
+  let nemesis = null;
+  Object.values(nemesisCounts).forEach(entry => {
+    if (!nemesis || entry.count > nemesis.count) nemesis = entry;
   });
 
   // Bester/schlechtester Trumpf als Ansager: die Farbe, mit der er am häufigsten Punkte
@@ -449,6 +467,7 @@ function computePlayerStats(player, gamesOverride) {
     laufquote, rausquote, avgTricksMade,
     avgFinalScore, bestGame, worstGame,
     bestSession, worstSession,
+    nemesis,
   };
 }
 
@@ -567,7 +586,7 @@ function computeSessionStats(games, registry) {
         sprinterCount: 0, luckerCount: 0, herzRunCount: 0,
         bidTricksTotal: 0, ansagerRoundsCount: 0, ansagerFailCount: 0, bigBallsCount: 0, bidSixCount: 0,
         tacticCount: 0, rausCount: 0, macherCount: 0,
-        einstelligCount: 0, over50Count: 0,
+        einstelligCount: 0, over50Count: 0, rankImprovement: 0,
       });
     }
     return totals.get(id);
@@ -636,6 +655,35 @@ function computeSessionStats(games, registry) {
     });
   });
 
+  // "Come Back Stronger": vergleicht für jeden Spieler, der von Anfang an (= im ersten
+  // Spiel dieser Session) dabei war, seinen GELD-RANG nach dem ersten Spiel mit seinem
+  // FINALEN Rang am Ende der Session. rankImprovement > 0 = er hat sich hochgearbeitet.
+  const chronologicalGames = [...finishedGames].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+  if (chronologicalGames.length >= 2) {
+    const firstGame = chronologicalGames[0];
+    const afterFirstBalances = {};
+    firstGame.players.forEach(p => {
+      const regPlayer = registry.find(rp => rp.id === p.id);
+      const specificGame = regPlayer?.games?.find(rg => rg.id === firstGame.id);
+      afterFirstBalances[p.id] = specificGame?.moneyDelta || 0;
+    });
+    const participantIds = Object.keys(afterFirstBalances);
+    const rankOf = (balances, ids) => {
+      const sorted = [...ids].sort((a, b) => (balances[b] || 0) - (balances[a] || 0));
+      const ranks = {};
+      sorted.forEach((id, i) => { ranks[id] = i + 1; });
+      return ranks;
+    };
+    const finalBalances = {};
+    totals.forEach((entry, id) => { finalBalances[id] = entry.moneyTotal; });
+    const startRanks = rankOf(afterFirstBalances, participantIds);
+    const finalRanks = rankOf(finalBalances, participantIds);
+    participantIds.forEach(id => {
+      const entry = totals.get(id);
+      if (entry) entry.rankImprovement = startRanks[id] - finalRanks[id];
+    });
+  }
+
   const list = Array.from(totals.values());
 
   function argmax(key, filterFn) {
@@ -674,6 +722,7 @@ function computeSessionStats(games, registry) {
     bigBalls: argmax("bigBallsCount", wasAnsager),
     sixBidders, // Liste aller Spieler, die je 6 Stiche angesagt haben (kann leer sein)
     staffellauf: argmax("herzRunCount"),
+    comebackStronger: argmax("rankImprovement", e => e.rankImprovement > 0),
   };
 }
 
@@ -732,6 +781,9 @@ const SESSION_AWARD_DEFS = [
   { key: "staffellauf", label: "Staffellauf", emoji: "🏅",
     description: "Wer in dieser Session am häufigsten bei Herz nach oben gelaufen ist (alle Spieler, nicht nur Adi).",
     formula: "argmax_Spieler n_↑Herz, mit n_↑Herz = Anzahl 'Mit'-Runden mit Trumpf = Herz und Δ > 0." },
+  { key: "comebackStronger", label: "Come Back Stronger", emoji: "🔥",
+    description: "Wer innerhalb dieser Session den größten Rangsprung hingelegt hat - vom Geld-Rang nach dem ersten Spiel bis zum finalen Rang am Ende der Session. Nur Spieler, die von Anfang an dabei waren, zählen mit; wird niemandem vergeben, wenn sich niemand verbessert hat.",
+    formula: "argmax_Spieler (Rang nach Spiel 1 − finaler Rang), nur für Spieler ab Spiel 1, nur falls positiv." },
 ];
 
 // Sammelt alle (nicht gelöschten) Spiele einer Session über die GESAMTE Registry hinweg
@@ -2824,6 +2876,11 @@ function App() {
                   description="Wer in dieser Session am häufigsten bei Herz nach oben gelaufen ist (alle Spieler, nicht nur Adi)."
                   formula="argmax_Spieler n_↑Herz, mit n_↑Herz = Anzahl 'Mit'-Runden mit Trumpf = Herz und Δ > 0."
                   onDetails={() => openDetail("herzRunCount", "Staffellauf – bei Herz nach oben gelaufen", v => `${v}×`)} />
+
+                <StatCard label="🔥 Come Back Stronger" value={stats.comebackStronger ? stats.comebackStronger.name : "—"}
+                  description="Wer innerhalb dieser Session den größten Rangsprung hingelegt hat - vom Geld-Rang nach dem ersten Spiel bis zum finalen Rang am Ende der Session. Nur Spieler, die von Anfang an dabei waren, zählen mit; wird niemandem vergeben, wenn sich niemand verbessert hat."
+                  formula="argmax_Spieler (Rang nach Spiel 1 − finaler Rang), nur für Spieler ab Spiel 1, nur falls positiv."
+                  onDetails={() => openDetail("rankImprovement", "Come Back Stronger – Rangsprung in der Session", v => `${v > 0 ? "+" : ""}${v}`)} />
               </div>
             </div>
           );
@@ -3019,6 +3076,12 @@ function App() {
                   description="Der Trumpf, mit dem dieser Spieler als Ansager am häufigsten nach oben gelaufen ist (Betrag egal, nur Häufigkeit zählt)."
                   formula="argmax_Trumpf n_Trumpf↑, wobei n_Trumpf↑ = Anzahl Runden als Ansager mit diesem Trumpf und Δ > 0."
                   onDetails={() => openStatDetail({ kind: "trumpBar", label: "Schlechtester Trumpf – Häufigkeit nach oben gelaufen als Ansager", counts: stats.trumpFailureCounts })} />
+
+                <h4 style={{ color: "#5c616c", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>🥊 Gegner</h4>
+
+                <StatCard label="😈 Nemesis" value={stats.nemesis ? `${stats.nemesis.name} (${stats.nemesis.count}×)` : "—"}
+                  description="Der Mitspieler, der am häufigsten mit am Tisch saß, wenn dieser Spieler nach oben gelaufen ist (Betrag egal, nur wie oft es zusammen vorkam)."
+                  formula="argmax_Mitspieler n_Mitspieler, wobei n_Mitspieler = Anzahl Runden mit Δ > 0 für diesen Spieler, in denen der Mitspieler ebenfalls am Tisch saß (nicht selbst aussetzte)." />
 
                 <h4 style={{ color: "#c9a83e", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>🏆 Höchststände & Serien</h4>
 
