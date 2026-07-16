@@ -788,7 +788,7 @@ const SESSION_AWARD_DEFS = [
     description: "Wer in dieser Session insgesamt die meisten Stiche angesagt hat (Summe, nicht Durchschnitt).",
     formula: "argmax_Spieler (Σ Ansage), über alle Runden als Ansager." },
   { key: "tacticalBastard", label: "Taktischer Bastard", emoji: "🧠",
-    description: "Wer am häufigsten mitgespielt hat, obwohl (bzw. gerade als) der Ansager in dieser Runde nach oben gelaufen ist.",
+    description: "Wer die meisten Runden mitgespielt hat, in denen der Ansager nach oben gelaufen ist.",
     formula: "argmax_Spieler n_Mit-bei-Ansager-Fail, gezählt für alle Nicht-Ansager-Spieler mit Status 'mit' in Runden, in denen der Ansager Δ > 0 hatte." },
   { key: "stillesMaeuschen", label: "Stilles Mäuschen", emoji: "🐭",
     description: "Der Spieler, der in dieser Session am seltensten Ansager war (also am wenigsten oft überhaupt angesagt hat).",
@@ -2869,7 +2869,7 @@ function App() {
                   onDetails={() => openDetail("bidTricksTotal", "Gierigster Bastard – Summe angesagter Stiche", v => `${v}`)} />
 
                 <StatCard label="🧠 Taktischer Bastard" value={stats.tacticalBastard ? stats.tacticalBastard.name : "—"}
-                  description="Wer am häufigsten mitgespielt hat, obwohl (bzw. gerade als) der Ansager in dieser Runde nach oben gelaufen ist."
+                  description="Wer die meisten Runden mitgespielt hat, in denen der Ansager nach oben gelaufen ist."
                   formula="argmax_Spieler n_Mit-bei-Ansager-Fail, gezählt für alle Nicht-Ansager-Spieler mit Status 'mit' in Runden, in denen der Ansager Δ > 0 hatte."
                   onDetails={() => openDetail("tacticCount", "Taktischer Bastard – Mitgespielt bei Ansager-Fail", v => `${v}×`)} />
 
