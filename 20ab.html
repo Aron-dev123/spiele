@@ -342,9 +342,9 @@ function computePlayerStats(player, gamesOverride) {
   const trumpFailureCounts = {}; // trump.id -> Anzahl, wie oft als Ansager damit nach oben gelaufen (Δ > 0)
 
   let totalRounds = 0;   // alle Runden über alle Spiele hinweg
-  let mitRounds = 0;     // Runden, in denen der Spieler mitgegangen ist
+  let mitRounds = 0;     // Runden, in denen der Spieler mitgespielt hat (egal ob freiwillig oder Pflicht)
   let rausRounds = 0;    // Runden, in denen der Spieler raus gegangen ist
-  let laufRounds = 0;    // Runden, in denen der Spieler (mitgegangen) nach oben gelaufen ist
+  let laufRounds = 0;    // Runden, in denen der Spieler (mitgespielt) nach oben gelaufen ist
   let tricksMadeSum = 0; // Summe der gemachten Stiche über alle "mit"-Runden
   const nemesisCounts = {}; // co-playerId -> { name, count }: wie oft dieser Mitspieler dabei war, wenn DER SPIELER nach oben gelaufen ist
   const lieblingsopferCounts = {}; // co-playerId -> { name, count }: wie oft dieser Mitspieler nach oben gelaufen ist, während DER SPIELER dabei war
@@ -357,9 +357,10 @@ function computePlayerStats(player, gamesOverride) {
       const status = r.playerStatus?.[player.id] || "mit";
       const deltas = computeRoundDelta(g.players, rounds, rIdx);
 
-      // Lieblingsopfer: zählt für JEDEN Mitspieler, der in dieser Runde nach oben gelaufen
-      // ist, während DER SPIELER dabei war (egal ob er selbst mit oder raus war) - unabhängig
-      // vom Betrag, nur die Häufigkeit zählt.
+      // Lieblingsopfer: zählt für JEDEN Mitspieler, der in dieser Runde (mitgespielt) nach
+      // oben gelaufen ist, während DER SPIELER dabei war (egal ob er selbst mitgespielt oder
+      // rausgegangen ist, nur nicht selbst ausgesetzt hat) - unabhängig vom Betrag, nur die
+      // Häufigkeit zählt.
       g.players.forEach(co => {
         if (co.id === player.id || co.id === r.sittingOutId) return;
         if ((deltas[co.id] || 0) > 0) {
@@ -378,8 +379,7 @@ function computePlayerStats(player, gamesOverride) {
       if (delta > 0) {
         laufRounds++;
         // Nemesis: zählt jeden Mitspieler, der in dieser Runde ebenfalls dabei war (nicht
-        // selbst gerade aussetzte) - unabhängig davon, wie viel man verloren hat, nur DASS
-        // man gelaufen ist und wer dabei mit am Tisch saß.
+        // selbst ausgesetzt hat) - unabhängig vom Betrag, nur die Häufigkeit zählt.
         g.players.forEach(co => {
           if (co.id === player.id || co.id === r.sittingOutId) return;
           if (!nemesisCounts[co.id]) nemesisCounts[co.id] = { name: co.name, count: 0 };
@@ -411,15 +411,17 @@ function computePlayerStats(player, gamesOverride) {
     }
   });
 
-  // Nemesis: der Mitspieler, der am häufigsten am Tisch saß, wenn DIESER Spieler nach oben
-  // gelaufen ist (unabhängig vom Betrag - reine Häufigkeit).
+  // Nemesis: der Mitspieler, der am häufigsten dabei war (nicht selbst ausgesetzt hat), wenn
+  // DIESER Spieler (mitgespielt) nach oben gelaufen ist (unabhängig vom Betrag - reine
+  // Häufigkeit).
   let nemesis = null;
   Object.values(nemesisCounts).forEach(entry => {
     if (!nemesis || entry.count > nemesis.count) nemesis = entry;
   });
 
-  // Lieblingsopfer: der Mitspieler, der am häufigsten nach oben gelaufen ist, während DIESER
-  // Spieler dabei war (unabhängig vom Betrag - reine Häufigkeit). Das Gegenstück zu Nemesis.
+  // Lieblingsopfer: der Mitspieler, der am häufigsten (mitgespielt) nach oben gelaufen ist,
+  // während DIESER Spieler dabei war (nicht selbst ausgesetzt hat) - unabhängig vom Betrag,
+  // reine Häufigkeit. Das Gegenstück zu Nemesis.
   let lieblingsopfer = null;
   Object.values(lieblingsopferCounts).forEach(entry => {
     if (!lieblingsopfer || entry.count > lieblingsopfer.count) lieblingsopfer = entry;
@@ -734,7 +736,8 @@ function computeSessionStats(games, registry) {
     greedyBastard: argmax("bidTricksTotal"),
     tacticalBastard: argmax("tacticCount"),
     adiHerzRuns: { name: "Adi", count: adiEntry ? adiEntry.herzRunCount : 0 },
-    stillesMaeuschen: argmin("bidTricksTotal", wasAnsager),
+    stillesMaeuschen: argmin("ansagerRoundsCount"),
+    feigerBastard: argmin("bidTricksTotal", wasAnsager),
     pussy: argmax("rausCount"),
     macher: argmax("macherCount"),
     einstellig: argmax("einstelligCount"),
@@ -764,10 +767,10 @@ const SESSION_AWARD_DEFS = [
     description: "Wer in dieser Session am häufigsten (mitgespielt) Punkte nach unten gemacht hat.",
     formula: "argmax_Spieler n_↓, mit n_↓ = Anzahl 'Mit'-Runden mit Punkteabbau (Δ < 0)." },
   { key: "pussy", label: "Pussy", emoji: "🙀",
-    description: "Wer in dieser Session am häufigsten raus gegangen ist (freiwillig oder unfreiwillig).",
+    description: "Wer in dieser Session am häufigsten raus gegangen ist.",
     formula: "argmax_Spieler n_raus, über alle Runden dieser Session." },
   { key: "macher", label: "Macher", emoji: "💪",
-    description: "Wer am häufigsten FREIWILLIG mitgespielt hat (also 'mit' war, obwohl er auch raus hätte gehen können - Pflicht-Runden zählen nicht).",
+    description: "Wer am häufigsten mitgegangen ist, obwohl er auch hätte raus gehen können (Pflicht-Runden zählen nicht).",
     formula: "argmax_Spieler n_freiwillig-mit, gezählt für Runden mit Status 'mit', in denen der Spieler NICHT zum Mitgehen gezwungen war." },
   { key: "einstellig", label: "Einstellig", emoji: "🔢",
     description: "Wer am häufigsten mit einer einstelligen Punktzahl (1-9) in eine Runde gestartet ist.",
@@ -788,6 +791,9 @@ const SESSION_AWARD_DEFS = [
     description: "Wer am häufigsten mitgespielt hat, obwohl (bzw. gerade als) der Ansager in dieser Runde nach oben gelaufen ist.",
     formula: "argmax_Spieler n_Mit-bei-Ansager-Fail, gezählt für alle Nicht-Ansager-Spieler mit Status 'mit' in Runden, in denen der Ansager Δ > 0 hatte." },
   { key: "stillesMaeuschen", label: "Stilles Mäuschen", emoji: "🐭",
+    description: "Der Spieler, der in dieser Session am seltensten Ansager war (also am wenigsten oft überhaupt angesagt hat).",
+    formula: "argmin_Spieler n_Ansager, über alle Spieler dieser Session, mit n_Ansager = Anzahl Runden als Ansager." },
+  { key: "feigerBastard", label: "Feiger Bastard", emoji: "🐔",
     description: "Der Spieler, der als Ansager insgesamt am wenigsten Stiche angesagt hat (Summe, nicht Durchschnitt). Nur Spieler, die mindestens einmal Ansager waren, zählen mit.",
     formula: "argmin_Spieler (Σ Ansage), über alle Runden als Ansager, nur für Spieler mit n_Ansager > 0." },
   { key: "dummkopf", label: "Dummkopf", emoji: "🤪",
@@ -2822,14 +2828,14 @@ function App() {
                   onDetails={() => openDetail("luckerCount", "Lucker – Anzahl Punkte gutgemacht", v => `${v}×`)} />
 
                 <StatCard label="🙀 Pussy" value={stats.pussy ? stats.pussy.name : "—"}
-                  description="Wer in dieser Session am häufigsten raus gegangen ist (freiwillig oder unfreiwillig)."
+                  description="Wer in dieser Session am häufigsten raus gegangen ist."
                   formula="argmax_Spieler n_raus, über alle Runden dieser Session."
                   onDetails={() => openDetail("rausCount", "Pussy – Anzahl raus gegangen", v => `${v}×`)} />
 
                 <StatCard label="💪 Macher" value={stats.macher ? stats.macher.name : "—"}
-                  description="Wer am häufigsten FREIWILLIG mitgespielt hat (also 'mit' war, obwohl er auch raus hätte gehen können - Pflicht-Runden zählen nicht)."
+                  description="Wer am häufigsten mitgegangen ist, obwohl er auch hätte raus gehen können (Pflicht-Runden zählen nicht)."
                   formula="argmax_Spieler n_freiwillig-mit, gezählt für Runden mit Status 'mit', in denen der Spieler NICHT zum Mitgehen gezwungen war."
-                  onDetails={() => openDetail("macherCount", "Macher – freiwillig mitgespielt", v => `${v}×`)} />
+                  onDetails={() => openDetail("macherCount", "Macher – freiwillig mitgegangen", v => `${v}×`)} />
 
                 <h4 style={{ color: "#d4af37", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>🔢 Punktestand</h4>
 
@@ -2868,9 +2874,14 @@ function App() {
                   onDetails={() => openDetail("tacticCount", "Taktischer Bastard – Mitgespielt bei Ansager-Fail", v => `${v}×`)} />
 
                 <StatCard label="🐭 Stilles Mäuschen" value={stats.stillesMaeuschen ? stats.stillesMaeuschen.name : "—"}
+                  description="Der Spieler, der in dieser Session am seltensten Ansager war (also am wenigsten oft überhaupt angesagt hat)."
+                  formula="argmin_Spieler n_Ansager, über alle Spieler dieser Session, mit n_Ansager = Anzahl Runden als Ansager."
+                  onDetails={() => openDetail("ansagerRoundsCount", "Stilles Mäuschen – Anzahl Runden als Ansager", v => `${v}×`)} />
+
+                <StatCard label="🐔 Feiger Bastard" value={stats.feigerBastard ? stats.feigerBastard.name : "—"}
                   description="Der Spieler, der als Ansager insgesamt am wenigsten Stiche angesagt hat (Summe, nicht Durchschnitt). Nur Spieler, die mindestens einmal Ansager waren, zählen mit."
                   formula="argmin_Spieler (Σ Ansage), über alle Runden als Ansager, nur für Spieler mit n_Ansager > 0."
-                  onDetails={() => openDetail("bidTricksTotal", "Stilles Mäuschen – Summe angesagter Stiche", v => `${v}`)} />
+                  onDetails={() => openDetail("bidTricksTotal", "Feiger Bastard – Summe angesagter Stiche", v => `${v}`)} />
 
                 <StatCard label="🤪 Dummkopf" value={stats.dummkopf ? stats.dummkopf.name : "—"}
                   description="Wer als Ansager am häufigsten sein eigenes Ansage-Ziel verfehlt hat (nach oben gelaufen ist)."
@@ -3040,110 +3051,125 @@ function App() {
                 <h4 style={{ color: "#d4af37", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "4px" }}>🔎 Übersicht</h4>
 
                 <StatCard label="🎮 Spiele gesamt" value={stats.gamesPlayed}
-                  description="Anzahl aller beendeten Spiele, an denen dieser Spieler teilgenommen hat."
+                  description={`Anzahl aller beendeten Spiele, an denen ${p.name} teilgenommen hat.`}
                   formula="n_Spiele" />
 
                 <StatCard label="🏆 Siege" value={stats.gamesWon}
-                  description="Anzahl der Spiele, die dieser Spieler gewonnen hat (geteilter Sieg = Sieg)."
+                  description={`Anzahl der Spiele, die ${p.name} gewonnen hat (geteilter Sieg = Sieg).`}
                   formula="n_Spiele mit won = true" />
 
                 <h4 style={{ color: "#c98a3e", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>📈 Quoten</h4>
 
                 <StatCard label="📊 Siegquote" value={`${de1(stats.winRate)}%`}
-                  description="Anteil der gespielten Spiele, die gewonnen wurden."
+                  description={`Anteil der von ${p.name} gespielten Spiele, die gewonnen wurden.`}
                   formula="Siegquote = (n_Sieg / n_Spiele) × 100, mit n_Sieg = Anzahl gewonnener Spiele, n_Spiele = Anzahl aller Spiele."
                   onDetails={() => openStatDetail({ kind: "timeline", label: "Siegquote", metricKey: "winRate", formatValue: v => `${de1(v)}%` })} />
 
                 <StatCard label="⬆️ Laufquote" value={`${de1(stats.laufquote)}%`}
-                  description="Anteil der mitgespielten Runden, bei denen der Spieler nach oben gelaufen ist (mehr Punkte bekommen hat). 'Raus'-Runden zählen nicht mit."
+                  description={`Anteil der mitgespielten Runden, bei denen ${p.name} nach oben gelaufen ist (mehr Punkte bekommen hat). 'Raus'-Runden zählen nicht mit.`}
                   formula="Laufquote = (n_↑ / n_mit) × 100, mit n_mit = Anzahl 'Mit'-Runden, n_↑ = Anzahl 'Mit'-Runden mit Punktezuwachs (Δ > 0)."
                   onDetails={() => openStatDetail({ kind: "timeline", label: "Laufquote", metricKey: "laufquote", formatValue: v => `${de1(v)}%` })} />
 
                 <StatCard label="🚪 Rausquote" value={`${de1(stats.rausquote)}%`}
-                  description="Anteil aller gespielten Runden, in denen der Spieler raus gegangen ist."
+                  description={`Anteil aller gespielten Runden, in denen ${p.name} raus gegangen ist.`}
                   formula="Rausquote = (n_raus / n_Runden) × 100, mit n_Runden = n_mit + n_raus."
                   onDetails={() => openStatDetail({ kind: "timeline", label: "Rausquote", metricKey: "rausquote", formatValue: v => `${de1(v)}%` })} />
 
                 <h4 style={{ color: "#4e8b5c", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>📐 Durchschnitt</h4>
 
                 <StatCard label="📣 Ø angesagte Stiche" value={stats.avgBidTricks !== null ? de2(stats.avgBidTricks) : "—"}
-                  description="Durchschnittliche Anzahl Stiche, die dieser Spieler angesagt hat, wenn er Ansager war."
+                  description={`Durchschnittliche Anzahl Stiche, die ${p.name} angesagt hat, wenn er Ansager war.`}
                   formula="⌀Ansage = (Σ Ansage_i) / n_Ansager, für alle i ∈ Runden als Ansager, mit n_Ansager = Anzahl dieser Runden."
                   onDetails={() => openStatDetail({ kind: "timeline", label: "Ø angesagte Stiche", metricKey: "avgBidTricks", formatValue: v => de2(v) })} />
 
                 <StatCard label="🃏 Ø gemachte Stiche" value={stats.avgTricksMade !== null ? de2(stats.avgTricksMade) : "—"}
-                  description="Durchschnittliche Anzahl Stiche, die der Spieler gemacht hat, wenn er mitgegangen ist."
+                  description={`Durchschnittliche Anzahl Stiche, die ${p.name} gemacht hat, wenn er mitgespielt hat.`}
                   formula="⌀Stiche = (Σ Stiche_i) / n_mit, für alle i ∈ 'Mit'-Runden, mit n_mit = Anzahl dieser Runden."
                   onDetails={() => openStatDetail({ kind: "timeline", label: "Ø gemachte Stiche", metricKey: "avgTricksMade", formatValue: v => de2(v) })} />
 
                 <StatCard label="🎯 Ø Endpunkte" value={stats.avgFinalScore !== null ? de2(stats.avgFinalScore) : "—"}
-                  description="Durchschnittliche Punktzahl, mit der dieser Spieler ein Spiel abgeschlossen hat."
+                  description={`Durchschnittliche Punktzahl, mit der ${p.name} ein Spiel abgeschlossen hat.`}
                   formula="⌀Endpunkte = (Σ Endpunkte_i) / n_Spiele, für alle i ∈ Spiele."
                   onDetails={() => openStatDetail({ kind: "timeline", label: "Ø Endpunkte", metricKey: "avgFinalScore", formatValue: v => de2(v) })} />
 
                 <h4 style={{ color: "#a3383c", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>🃏 Trumpf</h4>
 
-                <StatCard label="❤️ Lieblingstrumpf" value={stats.favoriteTrump ? `${stats.favoriteTrump.emoji} ${stats.favoriteTrump.label} (${stats.favoriteTrumpCount}×)` : "—"}
-                  description="Der Trumpf, den dieser Spieler als Ansager am häufigsten gewählt hat."
+                <StatCard label="❤️ Lieblingstrumpf" value={stats.favoriteTrump ? (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                      <img src={stats.favoriteTrump.icon} alt={stats.favoriteTrump.label} style={{ height: "20px", width: "auto" }} />
+                      {stats.favoriteTrump.label} ({stats.favoriteTrumpCount}×)
+                    </span>
+                  ) : "—"}
+                  description={`Der Trumpf, den ${p.name} als Ansager am häufigsten gewählt hat.`}
                   formula="argmax_Trumpf n_Trumpf, wobei n_Trumpf = Häufigkeit dieses Trumpfs über alle Runden als Ansager."
                   onDetails={() => openStatDetail({ kind: "trumpBar", label: "Lieblingstrumpf – Häufigkeit als Ansager gewählt", counts: stats.trumpCounts })} />
 
-                <StatCard label="✅ Bester Trumpf" value={stats.bestTrump ? `${stats.bestTrump.emoji} ${stats.bestTrump.label} (${stats.bestTrumpCount}×)` : "—"}
-                  description="Der Trumpf, mit dem dieser Spieler als Ansager am häufigsten Punkte gutgemacht hat (Betrag egal, nur Häufigkeit zählt)."
+                <StatCard label="✅ Bester Trumpf" value={stats.bestTrump ? (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                      <img src={stats.bestTrump.icon} alt={stats.bestTrump.label} style={{ height: "20px", width: "auto" }} />
+                      {stats.bestTrump.label} ({stats.bestTrumpCount}×)
+                    </span>
+                  ) : "—"}
+                  description={`Der Trumpf, mit dem ${p.name} als Ansager am häufigsten Punkte gutgemacht hat (Betrag egal, nur Häufigkeit zählt).`}
                   formula="argmax_Trumpf n_Trumpf↓, wobei n_Trumpf↓ = Anzahl Runden als Ansager mit diesem Trumpf und Δ < 0."
                   onDetails={() => openStatDetail({ kind: "trumpBar", label: "Bester Trumpf – Häufigkeit Punkte gutgemacht als Ansager", counts: stats.trumpSuccessCounts })} />
 
-                <StatCard label="❌ Schlechtester Trumpf" value={stats.worstTrump ? `${stats.worstTrump.emoji} ${stats.worstTrump.label} (${stats.worstTrumpCount}×)` : "—"}
-                  description="Der Trumpf, mit dem dieser Spieler als Ansager am häufigsten nach oben gelaufen ist (Betrag egal, nur Häufigkeit zählt)."
+                <StatCard label="❌ Schlechtester Trumpf" value={stats.worstTrump ? (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                      <img src={stats.worstTrump.icon} alt={stats.worstTrump.label} style={{ height: "20px", width: "auto" }} />
+                      {stats.worstTrump.label} ({stats.worstTrumpCount}×)
+                    </span>
+                  ) : "—"}
+                  description={`Der Trumpf, mit dem ${p.name} als Ansager am häufigsten nach oben gelaufen ist (Betrag egal, nur Häufigkeit zählt).`}
                   formula="argmax_Trumpf n_Trumpf↑, wobei n_Trumpf↑ = Anzahl Runden als Ansager mit diesem Trumpf und Δ > 0."
                   onDetails={() => openStatDetail({ kind: "trumpBar", label: "Schlechtester Trumpf – Häufigkeit nach oben gelaufen als Ansager", counts: stats.trumpFailureCounts })} />
 
                 <h4 style={{ color: "#5c616c", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>🥊 Gegner</h4>
 
                 <StatCard label="😈 Nemesis" value={stats.nemesis ? `${stats.nemesis.name} (${stats.nemesis.count}×)` : "—"}
-                  description="Der Mitspieler, der am häufigsten mit am Tisch saß, wenn dieser Spieler nach oben gelaufen ist (Betrag egal, nur wie oft es zusammen vorkam)."
-                  formula="argmax_Mitspieler n_Mitspieler, wobei n_Mitspieler = Anzahl Runden mit Δ > 0 für diesen Spieler, in denen der Mitspieler ebenfalls am Tisch saß (nicht selbst aussetzte)." />
+                  description={`Der Mitspieler, der am häufigsten dabei war (nicht selbst ausgesetzt hat), wenn ${p.name} (mitgespielt) nach oben gelaufen ist. Der Betrag ist egal, nur wie oft es vorkam.`}
+                  formula="argmax_Mitspieler n_Mitspieler, wobei n_Mitspieler = Anzahl Runden mit Δ > 0 für diesen Spieler, in denen der Mitspieler ebenfalls dabei war (nicht selbst ausgesetzt hat)." />
 
                 <StatCard label="😇 Lieblingsopfer" value={stats.lieblingsopfer ? `${stats.lieblingsopfer.name} (${stats.lieblingsopfer.count}×)` : "—"}
-                  description="Der Mitspieler, der am häufigsten nach oben gelaufen ist, während dieser Spieler dabei war (egal ob er selbst mit oder raus war; Betrag egal, nur wie oft es vorkam)."
-                  formula="argmax_Mitspieler n_Mitspieler, wobei n_Mitspieler = Anzahl Runden mit Δ > 0 für den Mitspieler, in denen dieser Spieler ebenfalls dabei war (nicht selbst aussetzte)." />
+                  description={`Der Mitspieler, der am häufigsten (mitgespielt) nach oben gelaufen ist, während ${p.name} dabei war (egal ob er selbst mitgespielt oder rausgegangen ist, nur nicht selbst ausgesetzt hat). Der Betrag ist egal, nur wie oft es vorkam.`}
+                  formula="argmax_Mitspieler n_Mitspieler, wobei n_Mitspieler = Anzahl Runden mit Δ > 0 für den Mitspieler, in denen dieser Spieler ebenfalls dabei war (nicht selbst ausgesetzt hat)." />
 
                 <h4 style={{ color: "#c9a83e", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>🏆 Höchststände & Serien</h4>
 
                 <StatCard label="💵 Höchster Gewinn (Spiel)" value={stats.bestGame ? (
                     <span>{euro(stats.bestGame.moneyDelta)} <span style={{ fontSize: "12px", color: "#888" }}>({stats.bestGame.date})</span></span>
                   ) : "—"}
-                  description="Das EINZELNE Spiel mit dem höchsten Geldgewinn dieses Spielers. Details öffnet die Ansicht dieses Spiels."
+                  description={`Das EINZELNE Spiel mit dem höchsten Geldgewinn von ${p.name}. Details öffnet die Ansicht dieses Spiels.`}
                   formula="argmax_Spiel moneyDelta_Spiel"
                   onDetails={stats.bestGame ? (() => { setGameDetailReturn("playerStats"); setDetailGameId(stats.bestGame.id); setScreen("gameDetail"); }) : undefined} />
 
                 <StatCard label="💸 Höchster Verlust (Spiel)" value={stats.worstGame ? (
                     <span>{euro(stats.worstGame.moneyDelta)} <span style={{ fontSize: "12px", color: "#888" }}>({stats.worstGame.date})</span></span>
                   ) : "—"}
-                  description="Das EINZELNE Spiel mit dem höchsten Geldverlust dieses Spielers. Details öffnet die Ansicht dieses Spiels."
+                  description={`Das EINZELNE Spiel mit dem höchsten Geldverlust von ${p.name}. Details öffnet die Ansicht dieses Spiels.`}
                   formula="argmin_Spiel moneyDelta_Spiel"
                   onDetails={stats.worstGame ? (() => { setGameDetailReturn("playerStats"); setDetailGameId(stats.worstGame.id); setScreen("gameDetail"); }) : undefined} />
 
                 <StatCard label="💰 Höchster Gewinn (Session)" value={stats.bestSession ? (
                     <span>{euro(stats.bestSession.sum)} <span style={{ fontSize: "12px", color: "#888" }}>({stats.bestSession.date})</span></span>
                   ) : "—"}
-                  description="Die GESAMTE Session (alle darin gespielten Spiele zusammengerechnet) mit dem höchsten Geldgewinn dieses Spielers. Details öffnet die Session-Übersicht."
+                  description={`Die GESAMTE Session (alle darin gespielten Spiele zusammengerechnet) mit dem höchsten Geldgewinn von ${p.name}. Details öffnet die Session-Übersicht.`}
                   formula="argmax_Session (Σ moneyDelta_Spiel), für alle Spiele i ∈ dieser Session."
                   onDetails={stats.bestSession ? (() => openSessionOrGameLink({ sessionId: stats.bestSession.sessionId, gameId: stats.bestSession.gameId })) : undefined} />
 
                 <StatCard label="📉 Höchster Verlust (Session)" value={stats.worstSession ? (
                     <span>{euro(stats.worstSession.sum)} <span style={{ fontSize: "12px", color: "#888" }}>({stats.worstSession.date})</span></span>
                   ) : "—"}
-                  description="Die GESAMTE Session (alle darin gespielten Spiele zusammengerechnet) mit dem höchsten Geldverlust dieses Spielers. Details öffnet die Session-Übersicht."
+                  description={`Die GESAMTE Session (alle darin gespielten Spiele zusammengerechnet) mit dem höchsten Geldverlust von ${p.name}. Details öffnet die Session-Übersicht.`}
                   formula="argmin_Session (Σ moneyDelta_Spiel), für alle Spiele i ∈ dieser Session."
                   onDetails={stats.worstSession ? (() => openSessionOrGameLink({ sessionId: stats.worstSession.sessionId, gameId: stats.worstSession.gameId })) : undefined} />
 
                 <StatCard label="🔥 Größte Siegesserie" value={streakLinksValue(streaks.bestWinStreak)}
-                  description="Die meisten am Stück gewonnenen Spiele (chronologisch). Erstreckt sich die Serie über mehrere Sessions, sind alle verlinkt."
+                  description={`Die meisten am Stück von ${p.name} gewonnenen Spiele (chronologisch). Erstreckt sich die Serie über mehrere Sessions, sind alle verlinkt.`}
                   formula="max Länge einer zusammenhängenden Folge von Spielen mit won = true." />
 
                 <StatCard label="❄️ Größte Verlustserie" value={streakLinksValue(streaks.bestLossStreak)}
-                  description="Die meisten am Stück verlorenen Spiele (chronologisch). Erstreckt sich die Serie über mehrere Sessions, sind alle verlinkt."
+                  description={`Die meisten am Stück von ${p.name} verlorenen Spiele (chronologisch). Erstreckt sich die Serie über mehrere Sessions, sind alle verlinkt.`}
                   formula="max Länge einer zusammenhängenden Folge von Spielen mit won = false." />
               </div>
 
@@ -3800,7 +3826,10 @@ function TrumpBarChart({ counts }) {
         return (
           <div key={t.id} style={{ marginBottom: "12px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: "13px", marginBottom: "4px" }}>
-              <span>{t.emoji} {t.label}</span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                <img src={t.icon} alt={t.label} style={{ height: "16px", width: "auto" }} />
+                {t.label}
+              </span>
               <span style={{ fontWeight: "bold", color: "#d4af37" }}>{count}×</span>
             </div>
             <div style={{ background: "rgba(255,255,255,0.08)", borderRadius: "6px", height: "14px", overflow: "hidden" }}>
