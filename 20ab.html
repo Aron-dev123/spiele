@@ -1022,11 +1022,16 @@ function App() {
   // Schreibt den aktuellen Rundenstand des laufenden Spiels laufend nach Firebase, solange
   // eine Session aktiv ist und der "game"-Screen offen ist - so kann jedes andere Gerät den
   // exakt gleichen Stand sehen. NUR der Host schreibt (Beobachter dürfen nichts verändern).
+  // WICHTIG: sobald das Spiel beendet ist (gameIsOver), wird NICHT mehr geschrieben - sonst
+  // würde dieser Effekt den gerade von saveGameResult() gelöschten Live-Stand mit den alten
+  // (bereits gewerteten) Rundendaten sofort wieder auferstehen lassen. Das hätte zur Folge,
+  // dass "Neues Spiel" fälschlich einen "noch laufenden" Stand vorfindet und ihn nur wieder
+  // herstellt, statt wirklich ein neues Spiel zu beginnen.
   useEffect(() => {
-    if (!liveGamesRef || !currentSessionId || screen !== "game" || isObserver) return;
+    if (!liveGamesRef || !currentSessionId || screen !== "game" || isObserver || gameIsOver) return;
     const payload = { gameRounds, dealerIdx, roundPhase, selectedTrump, playerStatus, playerTricks, ansagerId, bidTricks };
     liveGamesRef.child(currentSessionId).set(payload).catch(() => {});
-  }, [currentSessionId, screen, isObserver, gameRounds, dealerIdx, roundPhase, selectedTrump, playerStatus, playerTricks, ansagerId, bidTricks]);
+  }, [currentSessionId, screen, isObserver, gameRounds, dealerIdx, roundPhase, selectedTrump, playerStatus, playerTricks, ansagerId, bidTricks, gameIsOver]);
 
   // Beobachter: übernimmt laufend (rundenweise, nicht nur spielweise) den Live-Rundenstand
   // des Hosts, solange man im "game"-Screen zuschaut. Ohne dies sah man neue Runden erst,
@@ -1060,9 +1065,8 @@ function App() {
   }, [activeSessions, screen, currentSessionId]);
 
   // Pflegt "hostActive" für jede Session, die DIESES Gerät hostet: aktiv (=nicht
-  // übernehmbar), solange der Host im laufenden Spiel dieser Session ist (Screen "game"
-  // oder "sessionEnd"); inaktiv (=für andere übernehmbar), sobald der Host zurück ins
-  // Hauptmenü geht.
+  // übernehmbar), solange der Host im laufenden Spiel dieser Session ist (Screen "game");
+  // inaktiv (=für andere übernehmbar), sobald der Host zurück ins Hauptmenü geht.
   useEffect(() => {
     if (!activeSessions || activeSessions.length === 0) return;
     let changed = false;
@@ -1147,6 +1151,12 @@ function App() {
 
   // Berechne aktuelle Spielstände basierend auf aktiver Historie
   const { scores: currentScores, consecutiveRaus } = calculateScoresFromRounds(gamePlayers, gameRounds);
+
+  // Ein Spieler bei <= 0 Punkten bedeutet: das aktuelle Spiel ist beendet (schon gewertet/
+  // gespeichert über saveGameResult). Statt auf einen separaten Zwischenscreen zu wechseln,
+  // bleibt man im normalen Spiel-Screen - Trumpf/Ansager/Stiche-Eingabe wird dann nur noch
+  // ausgegraut angezeigt (siehe roundPhase-Wrapper weiter unten).
+  const gameIsOver = gameRounds.length > 0 && currentScores.some(s => s <= 0);
 
   // Bei genau 5 Spielern setzt in jeder Runde der aktuelle Geber aus (rotiert automatisch
   // mit der Geber-Rotation durch) - so gehen immer nur 4 Leute tatsächlich mit. Das
@@ -1544,6 +1554,7 @@ function App() {
   // in jeder weiteren Runde alle 6 Stiche, bis er gewinnt. Dient nur zum schnellen
   // Durchspielen für Test-/Statistikzwecke.
   function simulateRandomGame() {
+    if (gameIsOver) return; // Sicherheitsnetz: Spiel ist schon gewertet, nichts mehr zu simulieren
     if (!window.confirm("Dieses Spiel komplett zufällig durchspielen lassen, bis jemand gewinnt?")) return;
 
     let rounds = [...gameRounds];
@@ -1614,9 +1625,9 @@ function App() {
   // finalScores: Array der geclampten Endpunkte. winnerIndices: Array (meist 1 Element,
   // kann aber mehrere enthalten, falls mehrere Spieler GLEICHZEITIG auf 0 oder weniger
   // gefallen sind - dann teilen sie sich das Preisgeld gleichmäßig untereinander auf).
-  // options.skipSessionEndScreen: true -> springt NICHT auf den "sessionEnd"-Zwischenscreen
-  // (wird vom manuellen "Runde abbrechen & werten"-Flow genutzt, da dort direkt im
-  // Anschluss automatisch ein neues Spiel gestartet wird, statt den Nutzer zu fragen).
+  // options.skipSessionEndScreen: true -> zeigt eine andere Erfolgsmeldung, da hier direkt im
+  // Anschluss automatisch ein neues Spiel gestartet wird (manueller "Runde abbrechen &
+  // werten"-Flow), statt dass der Nutzer erst "Neues Spiel" anstoßen muss.
   function saveGameResult(finalScores, winnerIndices, finishedRounds, options = {}) {
     const gameId = uid();
     const timestamp = new Date().toISOString();
@@ -1663,11 +1674,13 @@ function App() {
 
     if (options.skipSessionEndScreen) {
       alert(`Spiel manuell gewertet! 🏆 ${winnerText} Neues Spiel startet direkt.`);
-      // Bewusst KEIN setScreen(...) hier - die aufrufende Stelle (applyManualRoundScore)
+      // Bewusst kein weiterer Hinweis hier - die aufrufende Stelle (applyManualRoundScore)
       // bleibt im "game"-Screen und startet im Anschluss direkt ein neues Spiel.
     } else {
       alert(`Spiel beendet! 🏆 ${winnerText}`);
-      setScreen("sessionEnd"); // Statt direkt ins Hauptmenü: Frage ob weiteres Spiel oder Session beenden
+      // Bewusst KEIN Screen-Wechsel: man bleibt im normalen "game"-Screen, dort werden
+      // Trumpf/Ansager/Stiche-Eingabe automatisch ausgegraut (siehe gameIsOver) und
+      // stattdessen "Neues Spiel"/"Session beenden" prominent angeboten.
     }
   }
 
@@ -2132,35 +2145,6 @@ function App() {
           </div>
         )}
 
-        {/* Zwischenscreen nach einem beendeten Spiel: nächstes Spiel der Session oder Session beenden */}
-        {screen === "sessionEnd" && (
-          <div className="glass" style={{ padding: "25px", textAlign: "center" }}>
-            <div style={{ fontSize: "40px", marginBottom: "10px" }}>🃏</div>
-            <h3 style={{ color: "#c9a83e", marginBottom: "8px" }}>Spiel beendet!</h3>
-            <p style={{ color: "#aaa", fontSize: "13px", marginBottom: "20px" }}>
-              Noch ein Spiel in dieser Session, oder jetzt abrechnen?
-            </p>
-            <div style={{ display: "flex", gap: "8px", marginBottom: "10px" }}>
-              <button onClick={() => {
-                const session = activeSessions.find(s => s.id === currentSessionId);
-                startGame(session ? session.playerIds : gamePlayers.map(p => p.id), currentSessionId);
-              }} style={{ ...btnStyle, flex: 1, background: "linear-gradient(45deg, #d4af37, #c9a83e)" }}>
-                ▶️ Weiteres Spiel starten
-              </button>
-              <button onClick={() => {
-                const session = activeSessions.find(s => s.id === currentSessionId);
-                setSelectSessionContext(currentSessionId);
-                setSelectedIds(session ? session.playerIds : gamePlayers.map(p => p.id));
-                setScreen("select");
-              }} title="Spieler ändern" style={{ ...btnStyle, padding: "0 16px", fontSize: "16px", background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.25)" }}>
-                👥
-              </button>
-            </div>
-            <button onClick={() => { if (window.confirm("Session wirklich beenden und abrechnen?")) endSession(currentSessionId); }} style={{ ...btnStyle, width: "100%", background: "linear-gradient(45deg, #a15c2a, #c9a83e)" }}>
-              🏁 Session beenden & abrechnen
-            </button>
-          </div>
-        )}
 
         {/* Passwort-Dialog für neue Sessions mit Stammspielern (In-App statt window.prompt) */}
         {pendingPassword && (
@@ -2284,27 +2268,64 @@ function App() {
                 </div>
               )}
 
-              {/* Abbruch-Buttons: nur für den Host, jederzeit während einer laufenden Partie verfügbar */}
+              {/* Hauptaktionen: "Neues Spiel" wird erst aktiv/grün, sobald das laufende Spiel
+                  beendet ist (jemand bei <= 0 Punkten) - siehe gameIsOver. "Session beenden"
+                  fragt je nach Zustand unterschiedlich nach (siehe onClick). "Spieler ändern"
+                  ist nur zwischen zwei Spielen erlaubt, nicht während eine Partie läuft. */}
               {!isObserver && (
-                <div style={{ display: "flex", gap: "8px", marginBottom: "25px" }}>
-                  <button onClick={restartCurrentGame} style={{ ...btnStyle, flex: 1, padding: "9px", fontSize: "12px", background: "linear-gradient(45deg, #c98a3e, #c9a83e)", color: "#000" }}>
-                    ⏹️ Spiel neu starten
+                <div style={{ display: "flex", gap: "8px", marginBottom: "8px" }}>
+                  <button
+                    onClick={() => {
+                      const session = activeSessions.find(s => s.id === currentSessionId);
+                      startGame(session ? session.playerIds : gamePlayers.map(p => p.id), currentSessionId);
+                    }}
+                    disabled={!gameIsOver}
+                    style={{ ...btnStyle, flex: 1, padding: "9px", fontSize: "12px", background: gameIsOver ? "linear-gradient(45deg, #4e8b5c, #6ea88a)" : "rgba(255,255,255,0.08)", color: gameIsOver ? "#000" : "#666", cursor: gameIsOver ? "pointer" : "default", opacity: gameIsOver ? 1 : 0.5 }}>
+                    ➕ Neues Spiel
                   </button>
-                  <button onClick={abortSessionDiscardGame} style={{ ...btnStyle, flex: 1, padding: "9px", fontSize: "12px", background: "linear-gradient(45deg, #a3383c, #6e1f28)" }}>
-                    🚫 Session beenden
+                  <button
+                    onClick={() => {
+                      if (gameIsOver) {
+                        if (window.confirm("Session wirklich beenden?")) endSession(currentSessionId);
+                      } else {
+                        abortSessionDiscardGame();
+                      }
+                    }}
+                    style={{ ...btnStyle, flex: 1, padding: "9px", fontSize: "12px", background: "linear-gradient(45deg, #a3383c, #6e1f28)" }}>
+                    🏁 Session beenden
+                  </button>
+                  <button
+                    onClick={() => {
+                      const session = activeSessions.find(s => s.id === currentSessionId);
+                      setSelectSessionContext(currentSessionId);
+                      setSelectedIds(session ? session.playerIds : gamePlayers.map(p => p.id));
+                      setScreen("select");
+                    }}
+                    disabled={!gameIsOver}
+                    title="Spieler ändern"
+                    style={{ ...btnStyle, padding: "0 14px", fontSize: "16px", background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.25)", cursor: gameIsOver ? "pointer" : "default", opacity: gameIsOver ? 1 : 0.4 }}>
+                    👥
                   </button>
                 </div>
               )}
 
-              {/* Test-Hilfsmittel: komplettes Spiel zufällig durchspielen lassen (nur Host) */}
               {!isObserver && (
+                <button onClick={restartCurrentGame} disabled={gameIsOver} style={{ ...btnStyle, width: "100%", padding: "9px", fontSize: "12px", marginBottom: "8px", background: gameIsOver ? "rgba(255,255,255,0.08)" : "linear-gradient(45deg, #c98a3e, #c9a83e)", color: gameIsOver ? "#666" : "#000", cursor: gameIsOver ? "default" : "pointer", opacity: gameIsOver ? 0.5 : 1 }}>
+                  🔄 Spiel neu starten
+                </button>
+              )}
+
+              {/* Test-Hilfsmittel: komplettes Spiel zufällig durchspielen lassen (nur Host) */}
+              {!isObserver && !gameIsOver && (
                 <button onClick={simulateRandomGame} style={{ ...btnStyle, width: "100%", padding: "9px", fontSize: "12px", background: "linear-gradient(45deg, #5c616c, #2c2e35)", marginBottom: "25px" }}>
                   🎲 Zufällig spielen (Test)
                 </button>
               )}
 
-              {/* PHASE 1 & 2: für Beobachter rein lesbar (pointer-events deaktiviert) */}
-              <div style={isObserver ? { pointerEvents: "none", opacity: 0.6 } : undefined}>
+              {/* PHASE 1 & 2: für Beobachter rein lesbar (pointer-events deaktiviert); genauso
+                  ausgegraut, sobald das Spiel beendet ist (gameIsOver) - dann gibt es hier
+                  nichts mehr einzugeben, bis ein neues Spiel gestartet wird. */}
+              <div style={(isObserver || gameIsOver) ? { pointerEvents: "none", opacity: 0.6 } : undefined}>
               {/* PHASE 1: TRUMPF & STATUS */}
               {roundPhase === "setup" && (
                 <div>
