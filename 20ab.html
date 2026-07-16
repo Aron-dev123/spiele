@@ -347,6 +347,7 @@ function computePlayerStats(player, gamesOverride) {
   let laufRounds = 0;    // Runden, in denen der Spieler (mitgegangen) nach oben gelaufen ist
   let tricksMadeSum = 0; // Summe der gemachten Stiche über alle "mit"-Runden
   const nemesisCounts = {}; // co-playerId -> { name, count }: wie oft dieser Mitspieler dabei war, wenn DER SPIELER nach oben gelaufen ist
+  const lieblingsopferCounts = {}; // co-playerId -> { name, count }: wie oft dieser Mitspieler nach oben gelaufen ist, während DER SPIELER dabei war
 
   games.forEach(g => {
     const rounds = g.rounds || [];
@@ -354,13 +355,26 @@ function computePlayerStats(player, gamesOverride) {
       if (r.sittingOutId === player.id) return; // Aussetz-Runde zählt für ihn nicht mit
       totalRounds++;
       const status = r.playerStatus?.[player.id] || "mit";
+      const deltas = computeRoundDelta(g.players, rounds, rIdx);
+
+      // Lieblingsopfer: zählt für JEDEN Mitspieler, der in dieser Runde nach oben gelaufen
+      // ist, während DER SPIELER dabei war (egal ob er selbst mit oder raus war) - unabhängig
+      // vom Betrag, nur die Häufigkeit zählt.
+      g.players.forEach(co => {
+        if (co.id === player.id || co.id === r.sittingOutId) return;
+        if ((deltas[co.id] || 0) > 0) {
+          if (!lieblingsopferCounts[co.id]) lieblingsopferCounts[co.id] = { name: co.name, count: 0 };
+          lieblingsopferCounts[co.id].count++;
+        }
+      });
+
       if (status === "raus") {
         rausRounds++;
         return;
       }
       mitRounds++;
       tricksMadeSum += (r.playerTricks?.[player.id] || 0);
-      const delta = computeRoundDelta(g.players, rounds, rIdx)[player.id] || 0;
+      const delta = deltas[player.id] || 0;
       if (delta > 0) {
         laufRounds++;
         // Nemesis: zählt jeden Mitspieler, der in dieser Runde ebenfalls dabei war (nicht
@@ -402,6 +416,13 @@ function computePlayerStats(player, gamesOverride) {
   let nemesis = null;
   Object.values(nemesisCounts).forEach(entry => {
     if (!nemesis || entry.count > nemesis.count) nemesis = entry;
+  });
+
+  // Lieblingsopfer: der Mitspieler, der am häufigsten nach oben gelaufen ist, während DIESER
+  // Spieler dabei war (unabhängig vom Betrag - reine Häufigkeit). Das Gegenstück zu Nemesis.
+  let lieblingsopfer = null;
+  Object.values(lieblingsopferCounts).forEach(entry => {
+    if (!lieblingsopfer || entry.count > lieblingsopfer.count) lieblingsopfer = entry;
   });
 
   // Bester/schlechtester Trumpf als Ansager: die Farbe, mit der er am häufigsten Punkte
@@ -467,7 +488,7 @@ function computePlayerStats(player, gamesOverride) {
     laufquote, rausquote, avgTricksMade,
     avgFinalScore, bestGame, worstGame,
     bestSession, worstSession,
-    nemesis,
+    nemesis, lieblingsopfer,
   };
 }
 
@@ -3082,6 +3103,10 @@ function App() {
                 <StatCard label="😈 Nemesis" value={stats.nemesis ? `${stats.nemesis.name} (${stats.nemesis.count}×)` : "—"}
                   description="Der Mitspieler, der am häufigsten mit am Tisch saß, wenn dieser Spieler nach oben gelaufen ist (Betrag egal, nur wie oft es zusammen vorkam)."
                   formula="argmax_Mitspieler n_Mitspieler, wobei n_Mitspieler = Anzahl Runden mit Δ > 0 für diesen Spieler, in denen der Mitspieler ebenfalls am Tisch saß (nicht selbst aussetzte)." />
+
+                <StatCard label="😇 Lieblingsopfer" value={stats.lieblingsopfer ? `${stats.lieblingsopfer.name} (${stats.lieblingsopfer.count}×)` : "—"}
+                  description="Der Mitspieler, der am häufigsten nach oben gelaufen ist, während dieser Spieler dabei war (egal ob er selbst mit oder raus war; Betrag egal, nur wie oft es vorkam)."
+                  formula="argmax_Mitspieler n_Mitspieler, wobei n_Mitspieler = Anzahl Runden mit Δ > 0 für den Mitspieler, in denen dieser Spieler ebenfalls dabei war (nicht selbst aussetzte)." />
 
                 <h4 style={{ color: "#c9a83e", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>🏆 Höchststände & Serien</h4>
 
