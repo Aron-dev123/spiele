@@ -3127,11 +3127,11 @@ function App() {
                 <h4 style={{ color: "#5c616c", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>🥊 Gegner</h4>
 
                 <StatCard label="😈 Nemesis" value={stats.nemesis ? `${stats.nemesis.name} (${stats.nemesis.count}×)` : "—"}
-                  description={`Der Mitspieler, der am häufigsten dabei war (nicht selbst ausgesetzt hat), wenn ${p.name} (mitgespielt) nach oben gelaufen ist. Der Betrag ist egal, nur wie oft es vorkam.`}
+                  description={`Der Mitspieler, der am häufigsten dabei war, wenn ${p.name} nach oben gelaufen ist. Der Betrag ist egal, nur wie oft es vorkam.`}
                   formula="argmax_Mitspieler n_Mitspieler, wobei n_Mitspieler = Anzahl Runden mit Δ > 0 für diesen Spieler, in denen der Mitspieler ebenfalls dabei war (nicht selbst ausgesetzt hat)." />
 
                 <StatCard label="😇 Lieblingsopfer" value={stats.lieblingsopfer ? `${stats.lieblingsopfer.name} (${stats.lieblingsopfer.count}×)` : "—"}
-                  description={`Der Mitspieler, der am häufigsten (mitgespielt) nach oben gelaufen ist, während ${p.name} dabei war (egal ob er selbst mitgespielt oder rausgegangen ist, nur nicht selbst ausgesetzt hat). Der Betrag ist egal, nur wie oft es vorkam.`}
+                  description={`Der Mitspieler, der am häufigsten nach oben gelaufen ist, während ${p.name} dabei war. Der Betrag ist egal, nur wie oft es vorkam.`}
                   formula="argmax_Mitspieler n_Mitspieler, wobei n_Mitspieler = Anzahl Runden mit Δ > 0 für den Mitspieler, in denen dieser Spieler ebenfalls dabei war (nicht selbst ausgesetzt hat)." />
 
                 <h4 style={{ color: "#c9a83e", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>🏆 Höchststände & Serien</h4>
