@@ -185,23 +185,6 @@ function ensureStammSpieler(registryData) {
   return { data: updated, changed };
 }
 
-// Vier fest angelegte Test-Gäste zum schnellen Ausprobieren von Sessions/Statistiken.
-// Ganz normale (löschbare) Gäste - werden nur genau einmal automatisch angelegt, falls
-// noch nicht vorhanden.
-const TEST_PLAYER_NAMES = ["Testspieler 1", "Testspieler 2", "Testspieler 3", "Testspieler 4"];
-
-function ensureTestPlayers(registryData) {
-  let updated = registryData ? [...registryData] : [];
-  let changed = false;
-  TEST_PLAYER_NAMES.forEach(name => {
-    if (!updated.some(p => p.name === name)) {
-      updated.push({ id: uid(), name, stammSpieler: false, games: [], session: { balance: 0 } });
-      changed = true;
-    }
-  });
-  return { data: updated, changed };
-}
-
 // Ordnet ein Spiel (anhand seines timestamp) einem von 5 Zeit-Reitern zu.
 const HISTORY_BUCKETS = [
   { id: "heute", label: "📅 Heute" },
@@ -709,15 +692,19 @@ function computeSessionStats(games, registry) {
 
   const list = Array.from(totals.values());
 
+  // Liefert ALLE Spieler, die sich den besten/schlechtesten Wert teilen (bei Gleichstand
+  // bekommen also mehrere Spieler gleichzeitig die Auszeichnung, statt nur einer davon).
   function argmax(key, filterFn) {
     const pool = filterFn ? list.filter(filterFn) : list;
-    if (pool.length === 0) return null;
-    return pool.reduce((best, e) => (!best || e[key] > best[key]) ? e : best, null);
+    if (pool.length === 0) return [];
+    const best = Math.max(...pool.map(e => e[key]));
+    return pool.filter(e => e[key] === best);
   }
   function argmin(key, filterFn) {
     const pool = filterFn ? list.filter(filterFn) : list;
-    if (pool.length === 0) return null;
-    return pool.reduce((best, e) => (!best || e[key] < best[key]) ? e : best, null);
+    if (pool.length === 0) return [];
+    const worst = Math.min(...pool.map(e => e[key]));
+    return pool.filter(e => e[key] === worst);
   }
 
   const wasAnsager = e => e.ansagerRoundsCount > 0;
@@ -751,8 +738,9 @@ function computeSessionStats(games, registry) {
 }
 
 // Definition aller "Auszeichnungen" (Session-Statistik-Kategorien), die ein Spieler über
-// eine Session gewinnen kann. isList=true -> mehrere Spieler können sie gleichzeitig
-// bekommen (statField wird statt eines Einzel-Gewinners geprüft).
+// eine Session gewinnen kann. Jede Auszeichnung liefert IMMER eine Liste (auch bei nur einem
+// Gewinner) - bei Gleichstand bekommen mehrere Spieler sie gleichzeitig. "statField" wird nur
+// gebraucht, wenn der Feldname in computeSessionStats vom "key" abweicht (z.B. machtErEhNet).
 const SESSION_AWARD_DEFS = [
   { key: "winner", label: "Gewinner", emoji: "💰",
     description: "Der Spieler, der in dieser Session insgesamt das meiste Geld gewonnen hat.",
@@ -802,7 +790,7 @@ const SESSION_AWARD_DEFS = [
   { key: "bigBalls", label: "Big Balls", emoji: "🎱",
     description: "Wer als Ansager am häufigsten 3 oder mehr Stiche angesagt hat.",
     formula: "argmax_Spieler n_≥3, mit n_≥3 = Anzahl Runden als Ansager mit Ansage ≥ 3." },
-  { key: "machtErEhNet", label: "Macht er eh net", emoji: "🙄", isList: true, statField: "sixBidders",
+  { key: "machtErEhNet", label: "Macht er eh net", emoji: "🙄", statField: "sixBidders",
     description: "Jeder Spieler, der in dieser Session mindestens einmal alle 6 Stiche als Ansager angesagt hat. Hat das niemand getan, steht hier 'Niemand'.",
     formula: "{ Spieler : bidSixCount > 0 }, mit bidSixCount = Anzahl Runden als Ansager mit Ansage = 6." },
   { key: "staffellauf", label: "Staffellauf", emoji: "🏅",
@@ -840,12 +828,12 @@ function computePlayerAwards(player, registry) {
     const sessionGames = g.sessionId ? getGamesBySessionId(g.sessionId, registry) : [g];
     const stats = computeSessionStats(sessionGames, registry);
 
+    // Alle Auszeichnungen liefern jetzt IMMER eine Liste (auch bei nur einem Gewinner) - bei
+    // Gleichstand bekommen mehrere Spieler gleichzeitig die Auszeichnung. "statField" wird nur
+    // gebraucht, wenn der Feldname in computeSessionStats vom "key" abweicht (z.B. machtErEhNet).
     SESSION_AWARD_DEFS.forEach(d => {
-      if (d.isList) {
-        if ((stats[d.statField] || []).some(e => e.id === player.id)) counts[d.key]++;
-      } else if (stats[d.key] && stats[d.key].id === player.id) {
-        counts[d.key]++;
-      }
+      const winners = stats[d.statField || d.key] || [];
+      if (winners.some(e => e.id === player.id)) counts[d.key]++;
     });
   });
 
@@ -1123,10 +1111,9 @@ function App() {
       const data = snapshot.val();
       const raw = data || [];
       const { data: withStamm, changed: stammChanged } = ensureStammSpieler(raw);
-      const { data: withTestPlayers, changed: testChanged } = ensureTestPlayers(withStamm);
-      const withBalances = refreshBalances(withTestPlayers);
+      const withBalances = refreshBalances(withStamm);
       setRegistryRaw(withBalances);
-      if ((stammChanged || testChanged) && registryRef) {
+      if (stammChanged && registryRef) {
         registryRef.set(withBalances).catch(() => {});
       }
       setSyncState("ready");
@@ -1313,6 +1300,73 @@ function App() {
     setScreen("game");
   }
 
+  // Aufgerufen, wenn man über "👥 Spieler ändern" die Spielerliste einer BESTEHENDEN Session
+  // anpasst (nur möglich, wenn das aktuelle Spiel schon beendet ist). Im Gegensatz zu
+  // startGame() wird dabei bewusst NICHT sofort ein neues Spiel gestartet - der gerade
+  // beendete Rundenstand bleibt unverändert sichtbar, und man muss danach noch explizit auf
+  // "Neues Spiel" drücken. Das macht den Ablauf nachvollziehbarer (erst Spieler anpassen,
+  // dann bewusst neues Spiel starten), statt dass beides in einem Schritt passiert.
+  function updateSessionRoster(idsOverride, sessionId) {
+    const ids = idsOverride || selectedIds;
+    if (ids.length < 2) return;
+    if (ids.length > MAX_SESSION_PLAYERS) {
+      alert(`Maximal ${MAX_SESSION_PLAYERS} Spieler pro Session (sonst geht das Kartenlegen nicht mehr auf).`);
+      return;
+    }
+
+    const conflictId = ids.find(id => activeSessions.some(s => s.id !== sessionId && (s.playerIds || []).includes(id)));
+    if (conflictId) {
+      const conflictPlayer = registry.find(p => p.id === conflictId);
+      alert(`${conflictPlayer ? conflictPlayer.name : "Ein Spieler"} ist bereits Teil einer anderen laufenden Session und kann nicht gleichzeitig hier mitspielen!`);
+      return;
+    }
+
+    const targetSession = activeSessions.find(s => s.id === sessionId);
+    if (!targetSession) { setScreen("game"); return; }
+
+    if (targetSession.hostDeviceId && targetSession.hostDeviceId !== deviceId) {
+      alert("Nur der Host dieser Session kann sie ändern.");
+      return;
+    }
+
+    // Gleiche Passwort-Regel wie beim Start: nur nötig, wenn dadurch zum ERSTEN MAL ein
+    // Stammspieler Teil der Session wird.
+    const sessionAlreadyHasStamm = (targetSession.playerIds || []).some(id => {
+      const p = registry.find(pl => pl.id === id);
+      return p && isStammSpieler(p);
+    });
+    if (!sessionAlreadyHasStamm) {
+      const hasStamm = ids.some(id => {
+        const p = registry.find(pl => pl.id === id);
+        return p && isStammSpieler(p);
+      });
+      if (hasStamm) {
+        setPendingPassword({ type: "updateRoster", ids, sessionIdOverride: sessionId });
+        setPasswordInput("");
+        setPasswordError("");
+        return;
+      }
+    }
+
+    finalizeUpdateSessionRoster(ids, sessionId);
+  }
+
+  function finalizeUpdateSessionRoster(ids, sessionId) {
+    const targetSession = activeSessions.find(s => s.id === sessionId);
+    if (targetSession && (targetSession.playerIds || []).join(",") !== ids.join(",")) {
+      setActiveSessions(activeSessions.map(s => s.id === sessionId ? { ...s, playerIds: ids.slice() } : s));
+    }
+    // Punkte-Tafel SOFORT auf die neue Spielerliste aktualisieren, damit sichtbar ist, dass die
+    // Änderung angekommen ist (sonst sieht es so aus, als hätte "Spieler übernehmen" nichts
+    // getan). Die eigentlichen Runden/Punkte (gameRounds) bleiben unverändert - erst "Neues
+    // Spiel" setzt die Punktestände wirklich zurück. dealerIdx wird sicherheitshalber auf 0
+    // gesetzt, falls sich durch Entfernen eines Spielers die Positionen verschoben haben.
+    const gp = ids.map(id => registry.find(p => p.id === id));
+    setGamePlayers(gp);
+    setDealerIdx(0);
+    setScreen("game");
+  }
+
   // Wird vom Passwort-Dialog aufgerufen, nachdem der Nutzer bestätigt hat.
   function confirmPendingPassword() {
     if (!pendingPassword) return;
@@ -1324,6 +1378,12 @@ function App() {
       const { session } = pendingPassword;
       setPendingPassword(null);
       setActiveSessions(activeSessions.map(s => s.id === session.id ? { ...s, hostDeviceId: deviceId, hostActive: false } : s));
+      return;
+    }
+    if (pendingPassword.type === "updateRoster") {
+      const { ids, sessionIdOverride } = pendingPassword;
+      setPendingPassword(null);
+      finalizeUpdateSessionRoster(ids, sessionIdOverride);
       return;
     }
     const { ids, sessionIdOverride } = pendingPassword;
@@ -1546,82 +1606,6 @@ function App() {
     }
   }
 
-  // ── TEST-HILFSMITTEL: Zufälliges Spiel simulieren ──
-  // Spielt das aktuell laufende Spiel komplett automatisch mit zufälligem Trumpf
-  // (nie Herz Blind), zufälligem Ansager/Ansage und zufällig verteilten Stichen durch, bis
-  // jemand gewinnt. Falls nach 15 Runden noch niemand in Reichweite ist, wird ein Spieler
-  // (der mit dem aktuell niedrigsten Punktestand) als Gewinner festgelegt und bekommt ab da
-  // in jeder weiteren Runde alle 6 Stiche, bis er gewinnt. Dient nur zum schnellen
-  // Durchspielen für Test-/Statistikzwecke.
-  function simulateRandomGame() {
-    if (gameIsOver) return; // Sicherheitsnetz: Spiel ist schon gewertet, nichts mehr zu simulieren
-    if (!window.confirm("Dieses Spiel komplett zufällig durchspielen lassen, bis jemand gewinnt?")) return;
-
-    let rounds = [...gameRounds];
-    const nonHerzBlindSuits = SUITS.filter(s => s.id !== "herzblind");
-    const FORCE_WINNER_AFTER = 15;
-    let forcedWinnerId = null;
-
-    while (true) {
-      const { scores: curScores, consecutiveRaus: curRaus } = calculateScoresFromRounds(gamePlayers, rounds);
-      if (curScores.some(s => s <= 0)) break;
-      if (rounds.length > 500) break; // Sicherheitsnetz gegen Endlosschleifen
-
-      const roundDealerIdx = rounds.length % gamePlayers.length;
-      const roundSittingOut = getSittingOutId(gamePlayers, roundDealerIdx);
-      const activePlayers = gamePlayers.filter(p => p.id !== roundSittingOut);
-
-      const trump = nonHerzBlindSuits[Math.floor(Math.random() * nonHerzBlindSuits.length)];
-      const ansagerId = activePlayers[Math.floor(Math.random() * activePlayers.length)].id;
-      const bidTricks = 1 + Math.floor(Math.random() * 6);
-
-      const playerStatus = {};
-      gamePlayers.forEach((p, idx) => {
-        if (p.id === roundSittingOut) return;
-        const forced = getForcedReason(p, idx, trump, ansagerId, curScores, curRaus);
-        playerStatus[p.id] = forced ? "mit" : (Math.random() < 0.7 ? "mit" : "raus");
-      });
-      playerStatus[ansagerId] = "mit"; // Ansager kann nicht raus gehen
-
-      const playerTricks = {};
-      gamePlayers.forEach(p => { if (p.id !== roundSittingOut) playerTricks[p.id] = 0; });
-
-      if (rounds.length >= FORCE_WINNER_AFTER) {
-        if (!forcedWinnerId || forcedWinnerId === roundSittingOut) {
-          let minIdx = 0;
-          curScores.forEach((s, i) => { if (gamePlayers[i].id !== roundSittingOut && s < curScores[minIdx]) minIdx = i; });
-          forcedWinnerId = gamePlayers[minIdx].id;
-        }
-        playerStatus[forcedWinnerId] = "mit";
-        playerTricks[forcedWinnerId] = 6;
-      } else {
-        const mitIds = activePlayers.filter(p => playerStatus[p.id] === "mit").map(p => p.id);
-        for (let i = 0; i < 6; i++) {
-          const pickId = mitIds[Math.floor(Math.random() * mitIds.length)];
-          playerTricks[pickId] += 1;
-        }
-      }
-
-      rounds.push({
-        roundNum: rounds.length + 1,
-        trump,
-        playerStatus,
-        playerTricks,
-        dealerIdx: roundDealerIdx,
-        sittingOutId: roundSittingOut,
-        ansagerId,
-        bidTricks,
-      });
-    }
-
-    const { scores: finalScoresRaw } = calculateScoresFromRounds(gamePlayers, rounds);
-    const winnerIndices = finalScoresRaw.map((s, idx) => s <= 0 ? idx : -1).filter(idx => idx !== -1);
-    const clampedScores = finalScoresRaw.map(s => s < 0 ? 0 : s);
-
-    setGameRounds(rounds);
-    saveGameResult(clampedScores, winnerIndices, rounds);
-  }
-
   // finalScores: Array der geclampten Endpunkte. winnerIndices: Array (meist 1 Element,
   // kann aber mehrere enthalten, falls mehrere Spieler GLEICHZEITIG auf 0 oder weniger
   // gefallen sind - dann teilen sie sich das Preisgeld gleichmäßig untereinander auf).
@@ -1774,21 +1758,6 @@ function App() {
     setActiveSessions(activeSessions.filter(s => s.id !== sessionId)); // Session ist damit beendet; ab jetzt zählt sie in "Alte Spiele"
     if (liveGamesRef) liveGamesRef.child(sessionId).remove().catch(() => {});
     if (currentSessionId === sessionId) setCurrentSessionId(null);
-    setScreen("home");
-  }
-
-  // ── Kompletter Reset (nur zum Testen!) ──
-  // Setzt alle Spieler (inkl. Stammspieler) auf 0 € / keine Spiele zurück und löscht
-  // sämtliche laufenden/alten Sessions sowie Live-Rundenstände. Spieler selbst (Namen/IDs)
-  // bleiben erhalten, nur ihre Statistiken/Geldbeträge werden geleert.
-  function resetEverything() {
-    if (!window.confirm("WIRKLICH ALLES ZURÜCKSETZEN?\n\nAlle Statistiken und Geldbeträge aller Spieler (inkl. Stammspieler) werden gelöscht, alle Sessions (aktiv + alt) verschwinden. Das kann nicht rückgängig gemacht werden!")) return;
-    if (!window.confirm("Bist du dir WIRKLICH sicher? Letzte Warnung!")) return;
-    setRegistry(registry.map(p => ({ ...p, games: [], session: { balance: 0 } })));
-    setActiveSessions([]);
-    setLastSessionMovement({});
-    if (liveGamesRef) liveGamesRef.set(null).catch(() => {});
-    setCurrentSessionId(null);
     setScreen("home");
   }
 
@@ -2309,19 +2278,6 @@ function App() {
                 </div>
               )}
 
-              {!isObserver && (
-                <button onClick={restartCurrentGame} disabled={gameIsOver} style={{ ...btnStyle, width: "100%", padding: "9px", fontSize: "12px", marginBottom: "8px", background: gameIsOver ? "rgba(255,255,255,0.08)" : "linear-gradient(45deg, #c98a3e, #c9a83e)", color: gameIsOver ? "#666" : "#000", cursor: gameIsOver ? "default" : "pointer", opacity: gameIsOver ? 0.5 : 1 }}>
-                  🔄 Spiel neu starten
-                </button>
-              )}
-
-              {/* Test-Hilfsmittel: komplettes Spiel zufällig durchspielen lassen (nur Host) */}
-              {!isObserver && !gameIsOver && (
-                <button onClick={simulateRandomGame} style={{ ...btnStyle, width: "100%", padding: "9px", fontSize: "12px", background: "linear-gradient(45deg, #5c616c, #2c2e35)", marginBottom: "25px" }}>
-                  🎲 Zufällig spielen (Test)
-                </button>
-              )}
-
               {/* PHASE 1 & 2: für Beobachter rein lesbar (pointer-events deaktiviert); genauso
                   ausgegraut, sobald das Spiel beendet ist (gameIsOver) - dann gibt es hier
                   nichts mehr einzugeben, bis ein neues Spiel gestartet wird. */}
@@ -2498,6 +2454,14 @@ function App() {
                   </div>
                 )}
               </div>
+            )}
+
+            {/* Ganz unten und bewusst weit von den anderen Buttons weg platziert, damit man
+                ihn nicht versehentlich statt "Neues Spiel"/"Session beenden" erwischt. */}
+            {!isObserver && (
+              <button onClick={restartCurrentGame} disabled={gameIsOver} style={{ ...btnStyle, width: "100%", padding: "9px", fontSize: "12px", marginTop: "15px", background: gameIsOver ? "rgba(255,255,255,0.08)" : "linear-gradient(45deg, #c98a3e, #c9a83e)", color: gameIsOver ? "#666" : "#000", cursor: gameIsOver ? "default" : "pointer", opacity: gameIsOver ? 0.5 : 1 }}>
+                🔄 Spiel neu starten
+              </button>
             )}
           </div>
         )}
@@ -2826,90 +2790,90 @@ function App() {
 
                 <h4 style={{ color: "#4e8b5c", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px" }}>💰 Geld</h4>
 
-                <StatCard label="💰 Gewinner" value={stats.winner ? stats.winner.name : "—"}
+                <StatCard label="💰 Gewinner" value={stats.winner.length > 0 ? stats.winner.map(e => e.name).join(", ") : "—"}
                   description="Der Spieler, der in dieser Session insgesamt das meiste Geld gewonnen hat."
                   formula="argmax_Spieler (Σ moneyDelta), über alle Spiele dieser Session."
                   onDetails={() => openDetail("moneyTotal", "Gewinner – Geldbilanz pro Spieler", v => euro(v))} />
 
-                <StatCard label="💸 Verlierer" value={stats.loser ? stats.loser.name : "—"}
+                <StatCard label="💸 Verlierer" value={stats.loser.length > 0 ? stats.loser.map(e => e.name).join(", ") : "—"}
                   description="Der Spieler, der in dieser Session insgesamt das meiste Geld verloren hat."
                   formula="argmin_Spieler (Σ moneyDelta), über alle Spiele dieser Session."
                   onDetails={() => openDetail("moneyTotal", "Verlierer – Geldbilanz pro Spieler", v => euro(v))} />
 
                 <h4 style={{ color: "#c98a3e", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>🎭 Verhalten</h4>
 
-                <StatCard label="🏃 Sprinter" value={stats.sprinter ? stats.sprinter.name : "—"}
+                <StatCard label="🏃 Sprinter" value={stats.sprinter.length > 0 ? stats.sprinter.map(e => e.name).join(", ") : "—"}
                   description="Wer in dieser Session am häufigsten (mitgespielt) nach oben gelaufen ist."
                   formula="argmax_Spieler n_↑, mit n_↑ = Anzahl 'Mit'-Runden mit Punktezuwachs (Δ > 0)."
                   onDetails={() => openDetail("sprinterCount", "Sprinter – Anzahl nach oben gelaufen", v => `${v}×`)} />
 
-                <StatCard label="🍀 Lucker" value={stats.lucker ? stats.lucker.name : "—"}
+                <StatCard label="🍀 Lucker" value={stats.lucker.length > 0 ? stats.lucker.map(e => e.name).join(", ") : "—"}
                   description="Wer in dieser Session am häufigsten (mitgespielt) Punkte nach unten gemacht hat."
                   formula="argmax_Spieler n_↓, mit n_↓ = Anzahl 'Mit'-Runden mit Punkteabbau (Δ < 0)."
                   onDetails={() => openDetail("luckerCount", "Lucker – Anzahl Punkte gutgemacht", v => `${v}×`)} />
 
-                <StatCard label="🙀 Pussy" value={stats.pussy ? stats.pussy.name : "—"}
+                <StatCard label="🙀 Pussy" value={stats.pussy.length > 0 ? stats.pussy.map(e => e.name).join(", ") : "—"}
                   description="Wer in dieser Session am häufigsten raus gegangen ist."
                   formula="argmax_Spieler n_raus, über alle Runden dieser Session."
                   onDetails={() => openDetail("rausCount", "Pussy – Anzahl raus gegangen", v => `${v}×`)} />
 
-                <StatCard label="💪 Macher" value={stats.macher ? stats.macher.name : "—"}
+                <StatCard label="💪 Macher" value={stats.macher.length > 0 ? stats.macher.map(e => e.name).join(", ") : "—"}
                   description="Wer am häufigsten mitgegangen ist, obwohl er auch hätte raus gehen können (Pflicht-Runden zählen nicht)."
                   formula="argmax_Spieler n_freiwillig-mit, gezählt für Runden mit Status 'mit', in denen der Spieler NICHT zum Mitgehen gezwungen war."
                   onDetails={() => openDetail("macherCount", "Macher – freiwillig mitgegangen", v => `${v}×`)} />
 
                 <h4 style={{ color: "#d4af37", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>🔢 Punktestand</h4>
 
-                <StatCard label="🔢 Einstellig" value={stats.einstellig ? stats.einstellig.name : "—"}
+                <StatCard label="🔢 Einstellig" value={stats.einstellig.length > 0 ? stats.einstellig.map(e => e.name).join(", ") : "—"}
                   description="Wer am häufigsten mit einer einstelligen Punktzahl (1-9) in eine Runde gestartet ist."
                   formula="argmax_Spieler n_einstellig, mit n_einstellig = Anzahl Runden mit Punktestand 1-9 zu Rundenbeginn."
                   onDetails={() => openDetail("einstelligCount", "Einstellig – Rundenstart mit 1-9 Punkten", v => `${v}×`)} />
 
-                <StatCard label="❤️‍🔥 Herz Blind" value={stats.herzBlindStat ? stats.herzBlindStat.name : "—"}
+                <StatCard label="❤️‍🔥 Herz Blind" value={stats.herzBlindStat.length > 0 ? stats.herzBlindStat.map(e => e.name).join(", ") : "—"}
                   description="Wer am häufigsten mit über 50 Punkten in eine Runde gestartet ist (analog zur echten Herz-Blind-Berechtigungsregel, die diese App sonst nicht prüft)."
                   formula="argmax_Spieler n_>50, mit n_>50 = Anzahl Runden mit Punktestand > 50 zu Rundenbeginn."
                   onDetails={() => openDetail("over50Count", "Herz Blind – Rundenstart mit über 50 Punkten", v => `${v}×`)} />
 
                 <h4 style={{ color: "#a3383c", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>🎮 Spiele</h4>
 
-                <StatCard label="🏆 Größter Winner" value={stats.biggestWinner ? stats.biggestWinner.name : "—"}
+                <StatCard label="🏆 Größter Winner" value={stats.biggestWinner.length > 0 ? stats.biggestWinner.map(e => e.name).join(", ") : "—"}
                   description="Wer in dieser Session die meisten Spiele gewonnen hat (Betrag egal, nur Anzahl)."
                   formula="argmax_Spieler n_Siege, über alle Spiele dieser Session."
                   onDetails={() => openDetail("gamesWon", "Größter Winner – gewonnene Spiele", v => `${v}×`)} />
 
-                <StatCard label="🤡 Größter Looser" value={stats.biggestLoser ? stats.biggestLoser.name : "—"}
+                <StatCard label="🤡 Größter Looser" value={stats.biggestLoser.length > 0 ? stats.biggestLoser.map(e => e.name).join(", ") : "—"}
                   description="Wer in dieser Session die meisten Spiele verloren hat (Betrag egal, nur Anzahl)."
                   formula="argmax_Spieler n_Niederlagen, über alle Spiele dieser Session."
                   onDetails={() => openDetail("gamesLost", "Größter Looser – verlorene Spiele", v => `${v}×`)} />
 
                 <h4 style={{ color: "#c9a83e", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px", marginTop: "16px" }}>📣 Ansage</h4>
 
-                <StatCard label="🤑 Gierigster Bastard" value={stats.greedyBastard ? stats.greedyBastard.name : "—"}
+                <StatCard label="🤑 Gierigster Bastard" value={stats.greedyBastard.length > 0 ? stats.greedyBastard.map(e => e.name).join(", ") : "—"}
                   description="Wer in dieser Session insgesamt die meisten Stiche angesagt hat (Summe, nicht Durchschnitt)."
                   formula="argmax_Spieler (Σ Ansage), über alle Runden als Ansager."
                   onDetails={() => openDetail("bidTricksTotal", "Gierigster Bastard – Summe angesagter Stiche", v => `${v}`)} />
 
-                <StatCard label="🧠 Taktischer Bastard" value={stats.tacticalBastard ? stats.tacticalBastard.name : "—"}
+                <StatCard label="🧠 Taktischer Bastard" value={stats.tacticalBastard.length > 0 ? stats.tacticalBastard.map(e => e.name).join(", ") : "—"}
                   description="Wer die meisten Runden mitgespielt hat, in denen der Ansager nach oben gelaufen ist."
                   formula="argmax_Spieler n_Mit-bei-Ansager-Fail, gezählt für alle Nicht-Ansager-Spieler mit Status 'mit' in Runden, in denen der Ansager Δ > 0 hatte."
                   onDetails={() => openDetail("tacticCount", "Taktischer Bastard – Mitgespielt bei Ansager-Fail", v => `${v}×`)} />
 
-                <StatCard label="🐭 Stilles Mäuschen" value={stats.stillesMaeuschen ? stats.stillesMaeuschen.name : "—"}
+                <StatCard label="🐭 Stilles Mäuschen" value={stats.stillesMaeuschen.length > 0 ? stats.stillesMaeuschen.map(e => e.name).join(", ") : "—"}
                   description="Der Spieler, der in dieser Session am seltensten Ansager war (also am wenigsten oft überhaupt angesagt hat)."
                   formula="argmin_Spieler n_Ansager, über alle Spieler dieser Session, mit n_Ansager = Anzahl Runden als Ansager."
                   onDetails={() => openDetail("ansagerRoundsCount", "Stilles Mäuschen – Anzahl Runden als Ansager", v => `${v}×`)} />
 
-                <StatCard label="🐔 Feiger Bastard" value={stats.feigerBastard ? stats.feigerBastard.name : "—"}
+                <StatCard label="🐔 Feiger Bastard" value={stats.feigerBastard.length > 0 ? stats.feigerBastard.map(e => e.name).join(", ") : "—"}
                   description="Der Spieler, der als Ansager insgesamt am wenigsten Stiche angesagt hat (Summe, nicht Durchschnitt). Nur Spieler, die mindestens einmal Ansager waren, zählen mit."
                   formula="argmin_Spieler (Σ Ansage), über alle Runden als Ansager, nur für Spieler mit n_Ansager > 0."
                   onDetails={() => openDetail("bidTricksTotal", "Feiger Bastard – Summe angesagter Stiche", v => `${v}`)} />
 
-                <StatCard label="🤪 Dummkopf" value={stats.dummkopf ? stats.dummkopf.name : "—"}
+                <StatCard label="🤪 Dummkopf" value={stats.dummkopf.length > 0 ? stats.dummkopf.map(e => e.name).join(", ") : "—"}
                   description="Wer als Ansager am häufigsten sein eigenes Ansage-Ziel verfehlt hat (nach oben gelaufen ist)."
                   formula="argmax_Spieler n_Ansager-Fail, mit n_Ansager-Fail = Anzahl Runden als Ansager mit Δ > 0."
                   onDetails={() => openDetail("ansagerFailCount", "Dummkopf – als Ansager gelaufen", v => `${v}×`)} />
 
-                <StatCard label="🎱 Big Balls" value={stats.bigBalls ? stats.bigBalls.name : "—"}
+                <StatCard label="🎱 Big Balls" value={stats.bigBalls.length > 0 ? stats.bigBalls.map(e => e.name).join(", ") : "—"}
                   description="Wer als Ansager am häufigsten 3 oder mehr Stiche angesagt hat."
                   formula="argmax_Spieler n_≥3, mit n_≥3 = Anzahl Runden als Ansager mit Ansage ≥ 3."
                   onDetails={() => openDetail("bigBallsCount", "Big Balls – Ansage ≥ 3 Stiche", v => `${v}×`)} />
@@ -2925,12 +2889,12 @@ function App() {
                   description="Wie oft Stammspieler Adi in dieser Session bei Herz nach oben gelaufen ist. War Adi nicht dabei, ist der Wert 0."
                   formula="n_↑ für Adi, mit Trumpf = Herz und Δ > 0 (nur 'Mit'-Runden)." />
 
-                <StatCard label="🏅 Staffellauf" value={stats.staffellauf ? stats.staffellauf.name : "—"}
+                <StatCard label="🏅 Staffellauf" value={stats.staffellauf.length > 0 ? stats.staffellauf.map(e => e.name).join(", ") : "—"}
                   description="Wer in dieser Session am häufigsten bei Herz nach oben gelaufen ist (alle Spieler, nicht nur Adi)."
                   formula="argmax_Spieler n_↑Herz, mit n_↑Herz = Anzahl 'Mit'-Runden mit Trumpf = Herz und Δ > 0."
                   onDetails={() => openDetail("herzRunCount", "Staffellauf – bei Herz nach oben gelaufen", v => `${v}×`)} />
 
-                <StatCard label="🔥 Come Back Stronger" value={stats.comebackStronger ? stats.comebackStronger.name : "—"}
+                <StatCard label="🔥 Come Back Stronger" value={stats.comebackStronger.length > 0 ? stats.comebackStronger.map(e => e.name).join(", ") : "—"}
                   description="Wer innerhalb dieser Session den größten Rangsprung hingelegt hat - vom Geld-Rang nach dem ersten Spiel bis zum finalen Rang am Ende der Session. Nur Spieler, die von Anfang an dabei waren, zählen mit; wird niemandem vergeben, wenn sich niemand verbessert hat."
                   formula="argmax_Spieler (Rang nach Spiel 1 − finaler Rang), nur für Spieler ab Spiel 1, nur falls positiv."
                   onDetails={() => openDetail("rankImprovement", "Come Back Stronger – Rangsprung in der Session", v => `${v > 0 ? "+" : ""}${v}`)} />
@@ -3300,14 +3264,6 @@ function App() {
                 </div>
               ))}
             </div>
-
-            {/* Danger Zone: kompletter Reset (nur zum Testen) */}
-            <div style={{ marginTop: "30px", paddingTop: "20px", borderTop: "1px dashed #a3383c" }}>
-              <div style={{ fontSize: "12px", color: "#a3383c", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px" }}>⚠️ Danger Zone</div>
-              <button onClick={resetEverything} style={{ ...btnStyle, width: "100%", background: "linear-gradient(45deg, #a3383c, #8b0000)" }}>
-                🧨 Alles zurücksetzen (Statistiken &amp; Geld)
-              </button>
-            </div>
           </div>
         )}
 
@@ -3360,8 +3316,16 @@ function App() {
               <button onClick={() => addPlayer(true)} style={{ ...btnStyle, background: "linear-gradient(45deg, #b8bcc4, #4a4d57)", padding: "0 20px", fontSize: "20px" }}>+</button>
             </div>
 
-            <button onClick={() => startGame(undefined, selectSessionContext)} className="pulse-btn" style={{ ...btnStyle, background: "linear-gradient(45deg, #c9a83e, #a3383c)", width: "100%", marginTop: "5px", opacity: (selectedIds.length < 2 || selectedIds.length > MAX_SESSION_PLAYERS) ? 0.4 : 1 }} disabled={selectedIds.length < 2 || selectedIds.length > MAX_SESSION_PLAYERS}>
-              🚀 SPIEL STARTEN
+            <button
+              onClick={() => {
+                if (selectSessionContext) {
+                  updateSessionRoster(selectedIds, selectSessionContext);
+                } else {
+                  startGame(undefined, selectSessionContext);
+                }
+              }}
+              className="pulse-btn" style={{ ...btnStyle, background: "linear-gradient(45deg, #c9a83e, #a3383c)", width: "100%", marginTop: "5px", opacity: (selectedIds.length < 2 || selectedIds.length > MAX_SESSION_PLAYERS) ? 0.4 : 1 }} disabled={selectedIds.length < 2 || selectedIds.length > MAX_SESSION_PLAYERS}>
+              {selectSessionContext ? "✅ Spieler übernehmen" : "🚀 SPIEL STARTEN"}
             </button>
           </div>
           );
