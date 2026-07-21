@@ -142,7 +142,7 @@ const CENT_PER_POINT = 0.10;
 const SESSION_PASSWORD = "$$$";
 const MAX_SESSION_PLAYERS = 5; // Kartenlegen geht nicht mehr auf, wenn mehr als 5 Leute mitspielen
 
-const STAMMSPIELER_NAMES = ["Adi", "Rob", "Kusi", "Basti", "Aron", "Cedi", "J", "Joel", "Cengiz"];
+const STAMMSPIELER_NAMES = ["Adi", "Rob", "Kusi", "Basti", "Aron", "Cedi", "J", "Joel", "Cengiz", "Kev"];
 
 function isStammSpieler(player) {
   return !!player.stammSpieler || STAMMSPIELER_NAMES.includes(player.name);
@@ -1513,22 +1513,34 @@ function App() {
     }
   }
 
-  function proceedToTricks() {
+  // Liefert für jeden aktiven Spieler den tatsächlich geltenden Status ("mit"/"raus"),
+  // inklusive erzwungener Fälle (Eichel, Ansager, Punktestand, 3. Mal Pflicht) - unabhängig
+  // davon, ob playerStatus das schon "eingerastet" hat. Wird sowohl fürs Rendering als auch
+  // für die Auswertung benutzt, da Stiche jetzt direkt (ohne Zwischenschritt) angezeigt werden.
+  function getEffectiveStatus() {
+    const eff = {};
+    gamePlayers.forEach((p, idx) => {
+      if (p.id === sittingOutId) return;
+      const forced = getForcedReason(p, idx, selectedTrump);
+      eff[p.id] = forced ? "mit" : (playerStatus[p.id] || "mit");
+    });
+    return eff;
+  }
+
+  function getTotalTricksEntered(tricksObj, statusObj) {
+    return gamePlayers.reduce((sum, p) => {
+      return sum + (statusObj[p.id] === "mit" ? (tricksObj[p.id] || 0) : 0);
+    }, 0);
+  }
+
+  function evaluateRound() {
     if (selectedTrump.id !== "herzblind" && !ansagerId) {
       alert("Bitte zuerst einen Ansager auswählen!");
       return;
     }
 
-    let updatedStatus = { ...playerStatus };
-    gamePlayers.forEach((p, idx) => {
-      if (p.id === sittingOutId) return;
-      if (getForcedReason(p, idx, selectedTrump)) {
-        updatedStatus[p.id] = "mit";
-      }
-    });
-    setPlayerStatus(updatedStatus);
-
-    const mitCount = Object.values(updatedStatus).filter(s => s === "mit").length;
+    const effStatus = getEffectiveStatus();
+    const mitCount = Object.values(effStatus).filter(s => s === "mit").length;
     // Bei einem Ansager (nicht Herz Blind) reicht es nicht, wenn NUR der Ansager mitgeht -
     // mindestens ein weiterer Spieler muss zwingend dabei sein.
     if (selectedTrump.id !== "herzblind" && ansagerId) {
@@ -1541,22 +1553,7 @@ function App() {
       return;
     }
 
-    const updatedTricks = { ...playerTricks };
-    gamePlayers.forEach(p => {
-      if (updatedStatus[p.id] === "raus") updatedTricks[p.id] = 0;
-    });
-    setPlayerTricks(updatedTricks);
-    setRoundPhase("tricks");
-  }
-
-  function getTotalTricksEntered(tricksObj, statusObj) {
-    return gamePlayers.reduce((sum, p) => {
-      return sum + (statusObj[p.id] === "mit" ? (tricksObj[p.id] || 0) : 0);
-    }, 0);
-  }
-
-  function evaluateRound() {
-    const total = getTotalTricksEntered(playerTricks, playerStatus);
+    const total = getTotalTricksEntered(playerTricks, effStatus);
     if (total !== 6) {
       alert(`Es müssen genau 6 Stiche verteilt werden! Aktuell verteilt: ${total}`);
       return;
@@ -1565,7 +1562,7 @@ function App() {
     const newRoundData = {
       roundNum: gameRounds.length + 1,
       trump: selectedTrump,
-      playerStatus: { ...playerStatus },
+      playerStatus: { ...effStatus },
       playerTricks: { ...playerTricks },
       dealerIdx: dealerIdx,
       sittingOutId: sittingOutId,
@@ -2283,8 +2280,7 @@ function App() {
                   nichts mehr einzugeben, bis ein neues Spiel gestartet wird. */}
               <div style={(isObserver || gameIsOver) ? { pointerEvents: "none", opacity: 0.6 } : undefined}>
               {/* PHASE 1: TRUMPF & STATUS */}
-              {roundPhase === "setup" && (
-                <div>
+              <div>
                   <h3 style={{ color: "#c9a83e", marginBottom: "10px", fontSize: "15px" }}>1. Trumpf auswählen:</h3>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "8px", marginBottom: "10px" }}>
                     {SUITS.filter(s => s.id !== "herzblind").map(s => (
@@ -2366,24 +2362,19 @@ function App() {
                       </div>
                     );
                   })}
-                  <button onClick={proceedToTricks} style={{ ...btnStyle, background: "linear-gradient(45deg, #d4af37, #c9a83e)", width: "100%", marginTop: "15px" }}>Stiche eintragen →</button>
-                </div>
-              )}
 
-              {/* PHASE 2: STICHE EINTRAGEN */}
-              {roundPhase === "tricks" && (
-                <div>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "15px" }}>
-                    <h3 style={{ color: "#c9a83e", fontSize: "16px", display: "flex", alignItems: "center", gap: "6px" }}>Stiche (<img src={selectedTrump.icon} alt={selectedTrump.label} style={{ height: "18px", width: "auto", verticalAlign: "middle" }} />):</h3>
-                    <span style={{ fontWeight: "900", color: getTotalTricksEntered(playerTricks, playerStatus) === 6 ? "#4e8b5c" : "#a3383c" }}>
-                      Verteilt: {getTotalTricksEntered(playerTricks, playerStatus)} / 6
+                  {/* Stiche werden direkt hier eingetragen, ohne extra "Stiche eintragen"-Klick -
+                      sobald ein Spieler "Mit" ist, taucht sein Stiche-Zähler sofort mit auf. */}
+                  <h3 style={{ color: "#c9a83e", marginTop: "20px", marginBottom: "10px", fontSize: "15px", display: "flex", alignItems: "center", gap: "6px", justifyContent: "space-between" }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>4. Stiche (<img src={selectedTrump.icon} alt={selectedTrump.label} style={{ height: "18px", width: "auto", verticalAlign: "middle" }} />):</span>
+                    <span style={{ fontWeight: "900", fontSize: "13px", color: getTotalTricksEntered(playerTricks, getEffectiveStatus()) === 6 ? "#4e8b5c" : "#a3383c" }}>
+                      Verteilt: {getTotalTricksEntered(playerTricks, getEffectiveStatus())} / 6
                     </span>
-                  </div>
-                  
+                  </h3>
                   {gamePlayers.map((p, idx) => {
                     if (p.id === sittingOutId) return null;
                     const forced = getForcedReason(p, idx, selectedTrump);
-                    const status = forced ? "mit" : playerStatus[p.id];
+                    const status = forced ? "mit" : (playerStatus[p.id] || "mit");
 
                     if (status === "raus") {
                       return (
@@ -2399,7 +2390,7 @@ function App() {
                           <button onClick={() => setPlayerTricks({ ...playerTricks, [p.id]: Math.max(0, (playerTricks[p.id] || 0) - 1) })} style={{ width: "32px", height: "32px", borderRadius: "5px", border: "none", background: "#fff", fontWeight: "bold" }}>-</button>
                           <span style={{ fontSize: "20px", fontWeight: "900", minWidth: "25px", textAlign: "center" }}>{playerTricks[p.id] || 0}</span>
                           <button onClick={() => {
-                            if(getTotalTricksEntered(playerTricks, playerStatus) < 6) {
+                            if(getTotalTricksEntered(playerTricks, getEffectiveStatus()) < 6) {
                               setPlayerTricks({ ...playerTricks, [p.id]: (playerTricks[p.id] || 0) + 1 });
                             }
                           }} style={{ width: "32px", height: "32px", borderRadius: "5px", border: "none", background: "#fff", fontWeight: "bold" }}>+</button>
@@ -2407,13 +2398,8 @@ function App() {
                       </div>
                     );
                   })}
-                  <div style={{ display: "flex", gap: "10px", marginTop: "20px" }}>
-                    <button onClick={() => setRoundPhase("setup")} style={{ ...btnStyle, background: "rgba(255,255,255,0.1)", flex: 1 }}>Zurück</button>
-                    <button onClick={evaluateRound} style={{ ...btnStyle, background: "linear-gradient(45deg, #4e8b5c, #6ea88a)", color: "#000", flex: 2 }}>Runde auswerten ✓</button>
-                  </div>
+                  <button onClick={evaluateRound} style={{ ...btnStyle, background: "linear-gradient(45deg, #4e8b5c, #6ea88a)", color: "#000", width: "100%", marginTop: "15px" }}>Runde auswerten ✓</button>
                 </div>
-              )}
-              </div>
 
               {/* Link zur eigenen Seite mit den bisherigen Spielen dieser Session */}
               {currentSessionId && (
