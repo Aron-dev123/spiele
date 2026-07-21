@@ -91,6 +91,8 @@ function App() {
   const [wheelPhase, setWheelPhase] = useState("hidden"); // "hidden"|"showing"
   const [wheelLoser, setWheelLoser] = useState(null);     // {name,emoji,color}
   const [wheelStage, setWheelStage] = useState("punishment"); // "punishment"|"companion"
+  const [elimPause,  setElimPause]  = useState(null);     // {name,emoji,color} während der Wahl nach einem Ausscheiden
+  const elimContinueRef = useRef(null);
 
   const gameEndedRef     = useRef(false);
   const gaierRoundsRef   = useRef(0);
@@ -159,10 +161,13 @@ function App() {
             const sorted = [...alive].sort((a,b)=>b.balance-a.balance);
             setWinner(sorted[0]||null); setTimedOut(true); setScreen("winner");
           } else {
-            let next = (idx+1) % upd.length;
-            while (upd[next].balance <= 0) next = (next+1) % upd.length;
-            setTurnTimer(7);
-            setCurIdx(next); setBet(prev=>Math.min(parseFloat(prev.toFixed(2)),upd[next].balance)); setPhase("betting");
+            elimContinueRef.current = () => {
+              let next = (idx+1) % upd.length;
+              while (upd[next].balance <= 0) next = (next+1) % upd.length;
+              setTurnTimer(7);
+              setCurIdx(next); setBet(prev=>Math.min(parseFloat(prev.toFixed(2)),upd[next].balance)); setPhase("betting");
+            };
+            setElimPause({ name: curP.name, emoji: curP.emoji, color: curP.color });
           }
         };
         triggerWheel(curP.name, curP.emoji, curP.color, afterWheel);
@@ -261,10 +266,13 @@ function App() {
             const sorted = [...alive].sort((a,b)=>b.balance-a.balance);
             setWinner(sorted[0]||null); setTimedOut(true); setScreen("winner");
           } else {
-            let next = (curIdx+1) % upd.length;
-            while (upd[next].balance <= 0) next = (next+1) % upd.length;
-            setTurnTimer(7);
-            setCurIdx(next); setBet(prev=>Math.min(parseFloat(prev.toFixed(2)),upd[next].balance)); setPhase("betting");
+            elimContinueRef.current = () => {
+              let next = (curIdx+1) % upd.length;
+              while (upd[next].balance <= 0) next = (next+1) % upd.length;
+              setTurnTimer(7);
+              setCurIdx(next); setBet(prev=>Math.min(parseFloat(prev.toFixed(2)),upd[next].balance)); setPhase("betting");
+            };
+            setElimPause({ name: cur.name, emoji: cur.emoji, color: cur.color });
           }
         };
         triggerWheel(cur.name, cur.emoji, cur.color, afterWheel);
@@ -359,6 +367,14 @@ function App() {
             onClose={() => { setWheelPhase("hidden"); setWheelStage("punishment"); wheelCbRef.current?.(); }}
           />
         )}
+        {elimPause && (
+          <ElimPauseModal
+            eliminated={elimPause}
+            onContinue={() => { const fn = elimContinueRef.current; elimContinueRef.current = null; setElimPause(null); fn?.(); }}
+            onNewRound={() => { elimContinueRef.current = null; setElimPause(null); revanche(); }}
+            onMenu={() => { elimContinueRef.current = null; setElimPause(null); restart(); }}
+          />
+        )}
       </div>
     </>
   );
@@ -449,11 +465,18 @@ function Setup({ players, nameIn, setNameIn, addPlayer, removePlayer, startGame,
         <div style={{ color:"#ffffff35", fontSize:"0.58rem", letterSpacing:"0.3em", textAlign:"center", marginBottom:"12px" }}>
           🎡 GLÜCKSRAD — STRAFEN EINTRAGEN
         </div>
-        <button onClick={() => setWheelItems(["Halb exen", "Exen", "Runde zahlen", "Leicht am Getränk nippen", "Nichts (Glück gehabt)", PISTOLE_ITEM])} style={{
-          display:"block", margin:"0 auto 12px", background:"rgba(255,45,107,0.12)",
-          border:"1px solid #ff2d6b50", borderRadius:"20px", color:"#ff9abc",
-          fontSize:"0.75rem", fontFamily:F1, padding:"7px 18px", cursor:"pointer",
-        }}>🍺 Suff Edition</button>
+        <div style={{ display:"flex", gap:"8px", justifyContent:"center", marginBottom:"12px" }}>
+          <button onClick={() => setWheelItems(["Halb exen", "Exen", "Runde zahlen", "Leicht am Getränk nippen", "Nichts (Glück gehabt)", PISTOLE_ITEM])} style={{
+            background:"rgba(255,45,107,0.12)",
+            border:"1px solid #ff2d6b50", borderRadius:"20px", color:"#ff9abc",
+            fontSize:"0.75rem", fontFamily:F1, padding:"7px 18px", cursor:"pointer",
+          }}>🍺 Suff Edition</button>
+          <button onClick={() => setWheelItems(["","","","","",""])} style={{
+            background:"rgba(255,255,255,0.05)",
+            border:"1px solid #ffffff20", borderRadius:"20px", color:"#ffffff80",
+            fontSize:"0.75rem", fontFamily:F1, padding:"7px 18px", cursor:"pointer",
+          }}>Normale Edition</button>
+        </div>
         <div style={{ display:"flex", flexDirection:"column", gap:"7px" }}>
           {wheelItems.map((item, i) => (
             <div key={i} style={{ display:"flex", alignItems:"center", gap:"8px" }}>
@@ -1029,6 +1052,49 @@ function WheelModal({ items, loser, onClose, subtitle = "🎡 WAS KOMMT AUF DICH
   );
 }
 
+/* ═══════════════════════════ ELIM PAUSE MODAL ═══════════════════════ */
+function ElimPauseModal({ eliminated, onContinue, onNewRound, onMenu }) {
+  return (
+    <div style={{
+      position:"fixed", inset:0, zIndex:500,
+      background:"rgba(0,0,0,0.88)",
+      backdropFilter:"blur(8px)",
+      display:"flex", flexDirection:"column",
+      alignItems:"center", justifyContent:"center",
+      padding:"20px",
+    }}>
+      <div className="bigPop" style={{ textAlign:"center", marginBottom:"30px" }}>
+        <div style={{ fontSize:"3rem", marginBottom:"8px" }}>{eliminated.emoji}💀</div>
+        <div style={{
+          fontFamily:F2, fontSize:"clamp(1.4rem,6vw,2rem)", fontWeight:700,
+          color:eliminated.color, textShadow:`0 0 30px ${eliminated.color}`,
+        }}>{eliminated.name} ist raus!</div>
+        <div style={{ color:"#ffffff35", fontSize:"0.58rem", letterSpacing:"0.25em", marginTop:"6px" }}>
+          WIE GEHT'S WEITER?
+        </div>
+      </div>
+      <div style={{ display:"flex", flexDirection:"column", gap:"12px", width:"100%", maxWidth:"320px" }}>
+        <button onClick={onContinue} style={{
+          background:"linear-gradient(135deg,#00ff88,#00d4ff)", border:"none", borderRadius:"14px",
+          color:"#07000f", fontSize:"1rem", fontFamily:F1, fontWeight:700,
+          padding:"14px 20px", cursor:"pointer", letterSpacing:"0.06em",
+          boxShadow:"0 0 30px #00ff8850",
+        }}>▶️ Weiterspielen</button>
+        <button onClick={onNewRound} style={{
+          background:"linear-gradient(135deg,#a855f7,#c084fc)", border:"none", borderRadius:"14px",
+          color:"white", fontSize:"1rem", fontFamily:F1, fontWeight:700,
+          padding:"14px 20px", cursor:"pointer", letterSpacing:"0.06em",
+          boxShadow:"0 0 30px #a855f750",
+        }}>🔄 Neue Runde starten</button>
+        <button onClick={onMenu} style={{
+          background:"transparent", border:"1px solid #ffffff25", borderRadius:"14px",
+          color:"#ffffff70", fontSize:"1rem", fontFamily:F1, fontWeight:700,
+          padding:"14px 20px", cursor:"pointer", letterSpacing:"0.06em",
+        }}>🏠 Zum Hauptmenü</button>
+      </div>
+    </div>
+  );
+}
 
 function SmBtn({ children, onClick }) {
   return (
