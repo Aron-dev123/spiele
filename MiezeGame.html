@@ -1002,7 +1002,13 @@ function WheelModal({ items, loser, onClose, subtitle = "🎡 WAS KOMMT AUF DICH
             const label = item.length > 11 ? item.slice(0,10)+"…" : item;
             return (
               <g key={i}>
-                <path d={arcPath(cx,cy,R,s,e)} fill={col} stroke="#07000f" strokeWidth="2"/>
+                {/* Ein Vollkreis-Segment (n===1) lässt sich nicht als Arc von 0° bis 360° zeichnen
+                    (Start- und Endpunkt fallen zusammen -> unsichtbarer Pfad) - deshalb hier ein
+                    einfacher <circle> als Sonderfall statt arcPath(). */}
+                {n === 1
+                  ? <circle cx={cx} cy={cy} r={R} fill={col} stroke="#07000f" strokeWidth="2"/>
+                  : <path d={arcPath(cx,cy,R,s,e)} fill={col} stroke="#07000f" strokeWidth="2"/>
+                }
                 <text x={tx} y={ty} textAnchor="middle" dominantBaseline="middle"
                   transform={`rotate(${(s+e)/2+90},${tx},${ty})`}
                   fill="white" fontSize={n>7?"8":"10"} fontWeight="bold" fontFamily={F1}
