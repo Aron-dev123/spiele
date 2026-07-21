@@ -332,7 +332,15 @@ function App() {
         {screen==="winner" && <Winner winner={winner} players={players} onRestart={restart} onRevanche={revanche} timedOut={timedOut}/>}
         {wheelPhase==="showing" && wheelLoser && (
           <WheelModal
-            items={wheelItems.filter(s => s.trim() !== "")}
+            items={wheelItems.filter(s => s.trim() !== "").map(s => {
+              // "{zufällig}"-Platzhalter (Suff Edition, "Pistole mit ...") wird erst hier beim
+              // tatsächlichen Rad-Öffnen aufgelöst, nicht schon beim Vorausfüllen - so ist es
+              // bei jedem Dreh ein anderer Mitspieler (außer dem, der gerade verloren hat).
+              if (!s.includes("{zufällig}")) return s;
+              const others = players.filter(p => p.name !== wheelLoser.name);
+              const pick = others.length > 0 ? others[Math.floor(Math.random() * others.length)].name : "???";
+              return s.replace("{zufällig}", pick);
+            })}
             loser={wheelLoser}
             onClose={() => { setWheelPhase("hidden"); wheelCbRef.current?.(); }}
           />
@@ -427,6 +435,11 @@ function Setup({ players, nameIn, setNameIn, addPlayer, removePlayer, startGame,
         <div style={{ color:"#ffffff35", fontSize:"0.58rem", letterSpacing:"0.3em", textAlign:"center", marginBottom:"12px" }}>
           🎡 GLÜCKSRAD — STRAFEN EINTRAGEN
         </div>
+        <button onClick={() => setWheelItems(["Halb exen", "Exen", "Runde zahlen", "Runde zahlen", "Nichts (Glück gehabt)", "Pistole mit {zufällig}"])} style={{
+          display:"block", margin:"0 auto 12px", background:"rgba(255,45,107,0.12)",
+          border:"1px solid #ff2d6b50", borderRadius:"20px", color:"#ff9abc",
+          fontSize:"0.75rem", fontFamily:F1, padding:"7px 18px", cursor:"pointer",
+        }}>🍺 Suff Edition</button>
         <div style={{ display:"flex", flexDirection:"column", gap:"7px" }}>
           {wheelItems.map((item, i) => (
             <div key={i} style={{ display:"flex", alignItems:"center", gap:"8px" }}>
