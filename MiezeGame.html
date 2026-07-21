@@ -22,9 +22,12 @@ const EMO = ["🦊","🐯","🐸","🦄","🐲","🦁","🐺","🦋"];
 // Gleiche Stammspieler-Namen wie in 20ab.html (STAMMSPIELER_NAMES) - hier separat gepflegt,
 // da beide Seiten unabhängige Single-File-Apps ohne gemeinsames Modul sind.
 const STAMMSPIELER_NAMES = ["Adi", "Rob", "Kusi", "Basti", "Aron", "Cedi", "J", "Joel", "Cengiz", "Kev", "Heiko"];
-// Spezial-Strafe: statt eines direkten Zufalls-Ersatzes beim Vorausfüllen wird bei DIESER Strafe
-// nach dem Haupt-Glücksrad noch ein zweites Rad mit den Mitspieler-Namen gedreht (siehe App).
-const PISTOLE_ITEM = "Pistole mit {zufällig}";
+// Spezial-Strafen der Suff Edition: statt eines direkten Zufalls-Ersatzes beim Vorausfüllen wird
+// bei diesen Strafen nach dem Haupt-Glücksrad noch ein zweites Rad gedreht (siehe App).
+const PISTOLE_ITEM   = "Pistole mit {zufällig}";
+const DRINK_ITEM      = "Zahle das nächste Getränk von {zufällig}";
+const ROULETTE_ITEM   = "Russisches Roulette";
+const SUFF_ITEMS = ["Halb exen", "Exen", ROULETTE_ITEM, DRINK_ITEM, "Nichts (Glück gehabt)", PISTOLE_ITEM];
 const F1  = "'Orbitron', monospace";
 const F2  = "'Fredoka', sans-serif";
 
@@ -88,9 +91,11 @@ function App() {
   const [timedOut,   setTimedOut]   = useState(false);
   const [turnTimer,  setTurnTimer]  = useState(7);
   const [wheelItems, setWheelItems] = useState(["","","","","",""]);
+  const [suffMode,   setSuffMode]   = useState(false); // true = Suff Edition aktiv (Presets gesperrt)
   const [wheelPhase, setWheelPhase] = useState("hidden"); // "hidden"|"showing"
   const [wheelLoser, setWheelLoser] = useState(null);     // {name,emoji,color}
-  const [wheelStage, setWheelStage] = useState("punishment"); // "punishment"|"companion"
+  const [wheelStage, setWheelStage] = useState("punishment"); // "punishment"|"companion"|"roulette"
+  const [companionKind, setCompanionKind] = useState("pistole"); // "pistole"|"drink"
   const [elimPause,  setElimPause]  = useState(null);     // {name,emoji,color} während der Wahl nach einem Ausscheiden
   const elimContinueRef = useRef(null);
 
@@ -340,7 +345,7 @@ function App() {
         display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
         padding:"20px 16px",
       }}>
-        {screen==="setup"  && <Setup  players={players} nameIn={nameIn} setNameIn={setNameIn} addPlayer={addPlayer} removePlayer={id=>setPlayers(p=>p.filter(x=>x.id!==id))} startGame={startGame} timerDur={timerDur} setTimerDur={setTimerDur} wheelItems={wheelItems} setWheelItems={setWheelItems}/>}
+        {screen==="setup"  && <Setup  players={players} nameIn={nameIn} setNameIn={setNameIn} addPlayer={addPlayer} removePlayer={id=>setPlayers(p=>p.filter(x=>x.id!==id))} startGame={startGame} timerDur={timerDur} setTimerDur={setTimerDur} wheelItems={wheelItems} setWheelItems={setWheelItems} suffMode={suffMode} setSuffMode={setSuffMode}/>}
         {screen==="game"   && <Game   players={players} curIdx={curIdx} cur={cur} phase={phase} bet={bet} setBet={setBet} adj={adj} play={play} result={result} revKey={revKey} timeLeft={timeLeft} timerDur={timerDur} timeUp={timeLeft===0} turnTimer={turnTimer}/>}
         {screen==="winner" && <Winner winner={winner} players={players} onRestart={restart} onRevanche={revanche} timedOut={timedOut}/>}
         {wheelPhase==="showing" && wheelLoser && wheelStage==="punishment" && (
@@ -349,9 +354,13 @@ function App() {
             items={wheelItems.filter(s => s.trim() !== "")}
             loser={wheelLoser}
             onClose={(res) => {
-              // Landet man auf "Pistole mit ...", wird nicht sofort geschlossen, sondern noch
-              // ein zweites Rad mit den Mitspieler-Namen gedreht, um zu bestimmen, wer mittrinkt.
-              if (res === PISTOLE_ITEM) { setWheelStage("companion"); return; }
+              // Bei "Pistole mit ..." / "Zahle das nächste Getränk von ..." wird nicht sofort
+              // geschlossen, sondern noch ein zweites Rad mit den Mitspieler-Namen gedreht, um
+              // zu bestimmen, wer betroffen ist. Bei "Russisches Roulette" gibt's stattdessen
+              // ein zweites Rad mit 5x Glück gehabt und 1x Totenkopf.
+              if (res === PISTOLE_ITEM) { setCompanionKind("pistole"); setWheelStage("companion"); return; }
+              if (res === DRINK_ITEM) { setCompanionKind("drink"); setWheelStage("companion"); return; }
+              if (res === ROULETTE_ITEM) { setWheelStage("roulette"); return; }
               setWheelPhase("hidden");
               wheelCbRef.current?.();
             }}
@@ -362,8 +371,19 @@ function App() {
             key="companion"
             items={players.filter(p => p.name !== wheelLoser.name).map(p => p.name)}
             loser={wheelLoser}
-            subtitle="🔫 WER TRINKT DIE PISTOLE MIT?"
-            resultLabel="🎯 PISTOLE MIT:"
+            subtitle={companionKind==="drink" ? "🍹 FÜR WESSEN GETRÄNK ZAHLST DU?" : "🔫 WER TRINKT DIE PISTOLE MIT?"}
+            resultLabel={companionKind==="drink" ? "🎯 GETRÄNK ZAHLEN FÜR:" : "🎯 PISTOLE MIT:"}
+            onClose={() => { setWheelPhase("hidden"); setWheelStage("punishment"); wheelCbRef.current?.(); }}
+          />
+        )}
+        {wheelPhase==="showing" && wheelLoser && wheelStage==="roulette" && (
+          <WheelModal
+            key="roulette"
+            items={["Glück gehabt","Glück gehabt","Glück gehabt","Glück gehabt","Glück gehabt","💀"]}
+            loser={wheelLoser}
+            subtitle="🔫 RUSSISCHES ROULETTE!"
+            resultLabel="🎯 ERGEBNIS:"
+            resultOverrides={{ "💀": "Runde zahlen" }}
             onClose={() => { setWheelPhase("hidden"); setWheelStage("punishment"); wheelCbRef.current?.(); }}
           />
         )}
@@ -381,7 +401,7 @@ function App() {
 }
 
 /* ═══════════════════════════════ SETUP ══════════════════════════════ */
-function Setup({ players, nameIn, setNameIn, addPlayer, removePlayer, startGame, timerDur, setTimerDur, wheelItems, setWheelItems }) {
+function Setup({ players, nameIn, setNameIn, addPlayer, removePlayer, startGame, timerDur, setTimerDur, wheelItems, setWheelItems, suffMode, setSuffMode }) {
   return (
     <div className="fadeIn" style={{ width:"100%", maxWidth:"400px" }}>
       <div style={{ textAlign:"center", marginBottom:"28px" }}>
@@ -466,40 +486,59 @@ function Setup({ players, nameIn, setNameIn, addPlayer, removePlayer, startGame,
           🎡 GLÜCKSRAD — STRAFEN EINTRAGEN
         </div>
         <div style={{ display:"flex", gap:"8px", justifyContent:"center", marginBottom:"12px" }}>
-          <button onClick={() => setWheelItems(["Halb exen", "Exen", "Runde zahlen", "Leicht am Getränk nippen", "Nichts (Glück gehabt)", PISTOLE_ITEM])} style={{
+          <button onClick={() => { setWheelItems(SUFF_ITEMS.slice()); setSuffMode(true); }} style={{
             background:"rgba(255,45,107,0.12)",
             border:"1px solid #ff2d6b50", borderRadius:"20px", color:"#ff9abc",
             fontSize:"0.75rem", fontFamily:F1, padding:"7px 18px", cursor:"pointer",
           }}>🍺 Suff Edition</button>
-          <button onClick={() => setWheelItems(["","","","","",""])} style={{
+          <button onClick={() => { setWheelItems(["","","","","",""]); setSuffMode(false); }} style={{
             background:"rgba(255,255,255,0.05)",
             border:"1px solid #ffffff20", borderRadius:"20px", color:"#ffffff80",
             fontSize:"0.75rem", fontFamily:F1, padding:"7px 18px", cursor:"pointer",
           }}>Normale Edition</button>
         </div>
         <div style={{ display:"flex", flexDirection:"column", gap:"7px" }}>
-          {wheelItems.map((item, i) => (
-            <div key={i} style={{ display:"flex", alignItems:"center", gap:"8px" }}>
-              <span style={{ color:"#a855f760", fontSize:"0.65rem", fontFamily:F1, width:"14px", textAlign:"right", flexShrink:0 }}>{i+1}</span>
-              <input
-                value={item}
-                onChange={e => item !== PISTOLE_ITEM && setWheelItems(prev => prev.map((v,j) => j===i ? e.target.value : v))}
-                readOnly={item === PISTOLE_ITEM}
-                placeholder={`Strafe ${i+1} (leer lassen = überspringen)`}
-                maxLength={28}
-                style={{
-                  flex:1, background: item.trim() ? "rgba(168,85,247,0.1)" : "rgba(255,255,255,0.04)",
-                  border:`1px solid ${item.trim() ? "#a855f750" : "#ffffff14"}`,
-                  borderRadius:"10px", color: item.trim() ? "#c084fc" : "#ffffff50",
-                  fontSize:"0.82rem", fontFamily:F1,
-                  padding:"9px 12px", outline:"none",
-                  transition:"all 0.2s",
-                  cursor: item === PISTOLE_ITEM ? "not-allowed" : "text",
-                }}
-              />
-            </div>
-          ))}
+          {wheelItems.map((item, i) => {
+            // In der Suff Edition sind nur die 6 fest vorgegebenen Presets gesperrt - alles was
+            // danach per "+ Feld" ergänzt wurde, bleibt normal editier- und entfernbar.
+            const locked = suffMode && i < SUFF_ITEMS.length;
+            return (
+              <div key={i} style={{ display:"flex", alignItems:"center", gap:"8px" }}>
+                <span style={{ color:"#a855f760", fontSize:"0.65rem", fontFamily:F1, width:"14px", textAlign:"right", flexShrink:0 }}>{i+1}</span>
+                <input
+                  value={item}
+                  onChange={e => !locked && setWheelItems(prev => prev.map((v,j) => j===i ? e.target.value : v))}
+                  readOnly={locked}
+                  placeholder={`Strafe ${i+1} (leer lassen = überspringen)`}
+                  maxLength={40}
+                  style={{
+                    flex:1, background: item.trim() ? "rgba(168,85,247,0.1)" : "rgba(255,255,255,0.04)",
+                    border:`1px solid ${item.trim() ? "#a855f750" : "#ffffff14"}`,
+                    borderRadius:"10px", color: item.trim() ? "#c084fc" : "#ffffff50",
+                    fontSize:"0.82rem", fontFamily:F1,
+                    padding:"9px 12px", outline:"none",
+                    transition:"all 0.2s",
+                    cursor: locked ? "not-allowed" : "text",
+                  }}
+                />
+                {suffMode && i >= SUFF_ITEMS.length && (
+                  <button onClick={() => setWheelItems(prev => prev.filter((_,j) => j!==i))} style={{
+                    background:"transparent", border:"1px solid #ffffff18",
+                    borderRadius:"8px", color:"#ffffff45", fontSize:"1rem",
+                    width:"28px", height:"28px", flexShrink:0, cursor:"pointer", lineHeight:1,
+                  }}>×</button>
+                )}
+              </div>
+            );
+          })}
         </div>
+        {suffMode && (
+          <button onClick={() => setWheelItems(prev => [...prev, ""])} style={{
+            display:"block", margin:"10px auto 0", background:"rgba(255,255,255,0.05)",
+            border:"1px dashed #ffffff30", borderRadius:"10px", color:"#ffffff70",
+            fontSize:"0.72rem", fontFamily:F1, padding:"7px 16px", cursor:"pointer",
+          }}>+ Eigenes Feld hinzufügen</button>
+        )}
         <p style={{ color:"#ffffff18", fontSize:"0.58rem", textAlign:"center", marginTop:"8px" }}>
           Leer lassen = kein Rad
         </p>
@@ -933,7 +972,7 @@ function arcPath(cx, cy, r, startDeg, endDeg) {
 const WCOLS = ["#ff2d6b","#ff8c00","#ffd700","#00ff88","#00d4ff","#a855f7","#ff69b4","#7fff00","#00ffff","#ff6347"];
 
 /* ════════════════════════════ WHEEL MODAL ═══════════════════════════ */
-function WheelModal({ items, loser, onClose, subtitle = "🎡 WAS KOMMT AUF DICH ZU?", resultLabel }) {
+function WheelModal({ items, loser, onClose, subtitle = "🎡 WAS KOMMT AUF DICH ZU?", resultLabel, resultOverrides }) {
   const [deg,      setDeg]      = useState(0);
   const [spinning, setSpinning] = useState(false);
   const [result,   setResult]   = useState(null);
@@ -1031,7 +1070,7 @@ function WheelModal({ items, loser, onClose, subtitle = "🎡 WAS KOMMT AUF DICH
             fontFamily:F2, fontSize:"clamp(1.5rem,6vw,2.2rem)", fontWeight:700,
             color:"#ffd700", textShadow:"0 0 30px #ffd700, 0 0 60px #ffd70060",
             padding:"0 12px",
-          }}>{result}</div>
+          }}>{resultOverrides?.[result] ?? result}</div>
         </div>
       ) : (
         <button onClick={spin} disabled={spinning} style={{
