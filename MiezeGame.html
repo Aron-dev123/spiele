@@ -202,10 +202,10 @@ function App() {
   }, [turnTimer, screen, phase]);
   const addPlayer = (presetName) => {
     const name = (presetName ?? nameIn).trim();
-    if (!name || players.length >= 8) return;
+    if (!name) return;
     if (players.some(p => p.name.toLowerCase() === name.toLowerCase())) return;
     const i = players.length;
-    setPlayers(p => [...p, { id:Date.now(), name, balance:10, color:PAL[i], emoji:EMO[i] }]);
+    setPlayers(p => [...p, { id:Date.now(), name, balance:10, color:PAL[i % PAL.length], emoji:EMO[i % EMO.length] }]);
     if (presetName === undefined) setNameIn("");
   };
 
@@ -429,11 +429,11 @@ function Setup({ players, nameIn, setNameIn, addPlayer, removePlayer, startGame,
             padding:"12px 16px", outline:"none",
           }}
         />
-        <button onClick={() => addPlayer()} disabled={players.length>=8} style={{
-          background: players.length>=8 ? "#ffffff08" : "linear-gradient(135deg,#ff2d6b,#ff6b9d)",
+        <button onClick={() => addPlayer()} style={{
+          background: "linear-gradient(135deg,#ff2d6b,#ff6b9d)",
           border:"none", borderRadius:"12px", color:"white",
-          fontSize:"1.5rem", width:"50px", cursor:players.length>=8?"not-allowed":"pointer",
-          boxShadow: players.length>=8 ? "none" : "0 0 20px #ff2d6b50",
+          fontSize:"1.5rem", width:"50px", cursor:"pointer",
+          boxShadow: "0 0 20px #ff2d6b50",
         }}>+</button>
       </div>
 
@@ -441,7 +441,7 @@ function Setup({ players, nameIn, setNameIn, addPlayer, removePlayer, startGame,
       <div style={{ display:"flex", flexWrap:"wrap", gap:"6px", marginBottom:"18px" }}>
         {STAMMSPIELER_NAMES.map(name => {
           const already = players.some(p => p.name.toLowerCase() === name.toLowerCase());
-          const disabled = already || players.length >= 8;
+          const disabled = already;
           return (
             <button key={name} onClick={() => addPlayer(name)} disabled={disabled} style={{
               background: already ? "#ffffff05" : "rgba(255,255,255,0.06)",
@@ -521,7 +521,7 @@ function Setup({ players, nameIn, setNameIn, addPlayer, removePlayer, startGame,
                     cursor: locked ? "not-allowed" : "text",
                   }}
                 />
-                {suffMode && i >= SUFF_ITEMS.length && (
+                {!locked && (
                   <button onClick={() => setWheelItems(prev => prev.filter((_,j) => j!==i))} style={{
                     background:"transparent", border:"1px solid #ffffff18",
                     borderRadius:"8px", color:"#ffffff45", fontSize:"1rem",
@@ -532,13 +532,11 @@ function Setup({ players, nameIn, setNameIn, addPlayer, removePlayer, startGame,
             );
           })}
         </div>
-        {suffMode && (
-          <button onClick={() => setWheelItems(prev => [...prev, ""])} style={{
-            display:"block", margin:"10px auto 0", background:"rgba(255,255,255,0.05)",
-            border:"1px dashed #ffffff30", borderRadius:"10px", color:"#ffffff70",
-            fontSize:"0.72rem", fontFamily:F1, padding:"7px 16px", cursor:"pointer",
-          }}>+ Eigenes Feld hinzufügen</button>
-        )}
+        <button onClick={() => setWheelItems(prev => [...prev, ""])} style={{
+          display:"block", margin:"10px auto 0", background:"rgba(255,255,255,0.05)",
+          border:"1px dashed #ffffff30", borderRadius:"10px", color:"#ffffff70",
+          fontSize:"0.72rem", fontFamily:F1, padding:"7px 16px", cursor:"pointer",
+        }}>+ Eigenes Feld hinzufügen</button>
         <p style={{ color:"#ffffff18", fontSize:"0.58rem", textAlign:"center", marginTop:"8px" }}>
           Leer lassen = kein Rad
         </p>
