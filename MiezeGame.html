@@ -19,6 +19,9 @@ const { useState, useEffect, useRef } = React;
 
 const PAL = ["#ff2d6b","#00d4ff","#ffd700","#a855f7","#00ff88","#ff8c00","#00ffcc","#ff4da6"];
 const EMO = ["🦊","🐯","🐸","🦄","🐲","🦁","🐺","🦋"];
+// Gleiche Stammspieler-Namen wie in 20ab.html (STAMMSPIELER_NAMES) - hier separat gepflegt,
+// da beide Seiten unabhängige Single-File-Apps ohne gemeinsames Modul sind.
+const STAMMSPIELER_NAMES = ["Adi", "Rob", "Kusi", "Basti", "Aron", "Cedi", "J", "Joel", "Cengiz", "Kev", "Heiko"];
 const F1  = "'Orbitron', monospace";
 const F2  = "'Fredoka', sans-serif";
 
@@ -183,12 +186,13 @@ function App() {
       setCurIdx(next); setBet(prev=>Math.min(parseFloat(prev.toFixed(2)),upd[next].balance)); setPhase("betting");
     }, 2600);
   }, [turnTimer, screen, phase]);
-  const addPlayer = () => {
-    const name = nameIn.trim();
+  const addPlayer = (presetName) => {
+    const name = (presetName ?? nameIn).trim();
     if (!name || players.length >= 8) return;
+    if (players.some(p => p.name.toLowerCase() === name.toLowerCase())) return;
     const i = players.length;
     setPlayers(p => [...p, { id:Date.now(), name, balance:10, color:PAL[i], emoji:EMO[i] }]);
-    setNameIn("");
+    if (presetName === undefined) setNameIn("");
   };
 
   /* ── Start game ── */
@@ -367,12 +371,28 @@ function Setup({ players, nameIn, setNameIn, addPlayer, removePlayer, startGame,
             padding:"12px 16px", outline:"none",
           }}
         />
-        <button onClick={addPlayer} disabled={players.length>=8} style={{
+        <button onClick={() => addPlayer()} disabled={players.length>=8} style={{
           background: players.length>=8 ? "#ffffff08" : "linear-gradient(135deg,#ff2d6b,#ff6b9d)",
           border:"none", borderRadius:"12px", color:"white",
           fontSize:"1.5rem", width:"50px", cursor:players.length>=8?"not-allowed":"pointer",
           boxShadow: players.length>=8 ? "none" : "0 0 20px #ff2d6b50",
         }}>+</button>
+      </div>
+
+      {/* Vorauswahl: Stammspieler aus 20ab, ein Klick fügt sie direkt hinzu */}
+      <div style={{ display:"flex", flexWrap:"wrap", gap:"6px", marginBottom:"18px" }}>
+        {STAMMSPIELER_NAMES.map(name => {
+          const already = players.some(p => p.name.toLowerCase() === name.toLowerCase());
+          const disabled = already || players.length >= 8;
+          return (
+            <button key={name} onClick={() => addPlayer(name)} disabled={disabled} style={{
+              background: already ? "#ffffff05" : "rgba(255,255,255,0.06)",
+              border: "1px solid #ffffff20", borderRadius:"20px", color: already ? "#ffffff30" : "#fff",
+              fontSize:"0.8rem", padding:"6px 14px", cursor: disabled ? "not-allowed" : "pointer",
+              fontFamily:F1, opacity: disabled ? 0.5 : 1,
+            }}>{name}</button>
+          );
+        })}
       </div>
 
       {/* Player list */}
