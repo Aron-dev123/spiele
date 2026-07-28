@@ -92,6 +92,14 @@
     90% { opacity: 0.5; }
     100% { transform: translateY(-120vh) rotate(360deg); opacity: 0; }
   }
+
+  /* Kartenlos-Modus (Beta): einfache Austeil-Animation, Karten selbst gezeichnet - Platzhalter,
+     kann später durch echte Kartengrafiken ersetzt werden. */
+  @keyframes dealCardIn {
+    0% { transform: translateY(-40px) scale(0.7) rotate(-6deg); opacity: 0; }
+    100% { transform: translateY(0) scale(1) rotate(0deg); opacity: 1; }
+  }
+  .deal-card { animation: dealCardIn 0.4s ease backwards; }
 </style>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
@@ -141,6 +149,51 @@ const MAX_POINTS = 20;
 const CENT_PER_POINT = 0.10;
 const SESSION_PASSWORD = "$$$";
 const MAX_SESSION_PLAYERS = 5; // Kartenlegen geht nicht mehr auf, wenn mehr als 5 Leute mitspielen
+
+// ═══════════════════ KARTENLOS-MODUS (Beta): Deck & Hilfsfunktionen ═══════════════════
+// Doppeltes Gaigel/Binokel-Blatt: Ass, 10, König, Ober, Unter je Farbe (Eichel/Herz/Bollen/
+// Blatt), jede Karte zweimal - macht 5 Werte * 4 Farben * 2 = 40 Karten. "Herz Blind" ist
+// kein eigener Farb-Trumpf im Deck, sondern eine Sonderansage außerhalb des Reizens (Phase 1
+// des Kartenlos-Modus behandelt Herz Blind daher noch nicht - siehe getunreizenTrump unten).
+const CARD_RANKS = [
+  { id: "A",  label: "Ass",   short: "A" },
+  { id: "10", label: "10",    short: "10" },
+  { id: "K",  label: "König", short: "K" },
+  { id: "O",  label: "Ober",  short: "O" },
+  { id: "U",  label: "Unter", short: "U" },
+];
+const CARD_SUIT_IDS = ["eichel", "herz", "bollen", "blatt"];
+
+function buildCardDeck() {
+  const deck = [];
+  CARD_SUIT_IDS.forEach(suitId => {
+    CARD_RANKS.forEach(rank => {
+      // "copy" unterscheidet die beiden identischen Exemplare jeder Karte (fürs React-key /
+      // fürs Stich-Tiebreak später in Phase 2: zuerst gespielte gewinnt bei Gleichstand).
+      deck.push({ id: `${suitId}_${rank.id}_1`, suit: suitId, rank: rank.id, copy: 1 });
+      deck.push({ id: `${suitId}_${rank.id}_2`, suit: suitId, rank: rank.id, copy: 2 });
+    });
+  });
+  return deck;
+}
+
+function shuffle(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// Verteilt 6 Karten pro Spieler aus einem frisch gemischten Deck, Rest bleibt als Talon
+// (für die spätere Tausch-Phase) übrig.
+function dealCards(players) {
+  const deck = shuffle(buildCardDeck());
+  const hands = {};
+  players.forEach(p => { hands[p.id] = deck.splice(0, 6); });
+  return { hands, talon: deck };
+}
 
 const STAMMSPIELER_NAMES = ["Adi", "Rob", "Kusi", "Basti", "Aron", "Cedi", "J", "Joel", "Cengiz", "Kev", "Heiko"];
 
@@ -888,6 +941,7 @@ let registryRef = null;
 let activeSessionsRef = null;
 let lastSessionMovementRef = null;
 let liveGamesRef = null;
+let cardStatesRef = null;
 let firebaseInitError = null;
 try {
   if (typeof firebase === "undefined") {
@@ -899,6 +953,7 @@ try {
   activeSessionsRef = db.ref("20ab/activeSessions"); // Array aller aktuell laufenden Sessions (geräteübergreifend!)
   lastSessionMovementRef = db.ref("20ab/lastSessionMovement"); // Bestenlisten-Platzierungs-Bewegung der zuletzt beendeten Session
   liveGamesRef = db.ref("20ab/liveGames"); // Live-Rundenstand des GERADE laufenden Spiels je Session (geräteübergreifend!)
+  cardStatesRef = db.ref("20ab/cardStates"); // Kartenlos-Modus: Hände/Talon/Reizen-Stand je Session (geräteübergreifend!)
 } catch (e) {
   firebaseInitError = e.message;
   console.error("Firebase-Initialisierung fehlgeschlagen:", e);
@@ -920,6 +975,7 @@ function App() {
   // eigene ID (damit ihre eigenen Mitglieder nicht fälschlich als "Konflikt" gelten).
   // null = es wird eine KOMPLETT NEUE Session gestartet.
   const [selectSessionContext, setSelectSessionContext] = useState(null);
+  const [cardModePending, setCardModePending] = useState(false); // Spielerauswahl fürs Kartenlos-Modus statt normaler Session
 
   // In-App-Passwort-Dialog für das Starten neuer Sessions mit Stammspielern sowie für die
   // Host-Übernahme einer laufenden Session mit Stammspielern (ersetzt window.prompt, siehe
@@ -983,6 +1039,33 @@ function App() {
   // playerStatus, playerTricks, ansagerId, bidTricks } }. Ermöglicht es, ein laufendes Spiel
   // von einem ANDEREN Gerät aus fortzusetzen (z.B. wenn der Akku des ersten Handys leer wird).
   const [liveGames, setLiveGamesRaw] = useState({});
+
+  // ── KARTENLOS-MODUS (Beta) ──
+  // cardStates: geräteübergreifend synchronisierter Stand je Session mit { hands, talon,
+  // reizen, trumpId, ansagerId, bidTricks, wentMit, swapped, dealerIdx }. myCardPlayerId ist
+  // rein lokal (localStorage) - legt fest, welcher Spieler DIESES Gerät am Tisch repräsentiert,
+  // damit nur die eigene Hand offen angezeigt wird.
+  const [cardStates, setCardStatesRaw] = useState({});
+  const [myCardPlayerId, setMyCardPlayerId] = useState(null);
+  const [cardSwapSelection, setCardSwapSelection] = useState([]); // gerade markierte Karten zum Tausch
+
+  useEffect(() => {
+    if (!cardStatesRef) return;
+    const callback = (snapshot) => setCardStatesRaw(snapshot.val() || {});
+    cardStatesRef.on("value", callback, () => {});
+    return () => cardStatesRef.off("value", callback);
+  }, []);
+
+  // Beim (Wieder-)Betreten des Kartenlos-Identitäts-Screens gespeicherte Auswahl von diesem
+  // Gerät automatisch übernehmen (z.B. nach Reload), statt jedes Mal neu zu fragen.
+  useEffect(() => {
+    if (screen !== "cardIdentity" || !currentSessionId) return;
+    const stored = localStorage.getItem("20ab_cardIdentity_" + currentSessionId);
+    if (stored && gamePlayers.some(p => p.id === stored)) {
+      setMyCardPlayerId(stored);
+      setScreen("cardGame");
+    }
+  }, [screen, currentSessionId, gamePlayers]);
 
   useEffect(() => {
     if (!activeSessionsRef) { setSessionSyncReady(true); return; }
@@ -1300,6 +1383,181 @@ function App() {
     setScreen("game");
   }
 
+  // ═══════════════════ KARTENLOS-MODUS (Beta) ═══════════════════
+  // Startet eine neue Session im Kartenlos-Modus: gleiche Spielerauswahl/Validierung wie
+  // startGame(), aber statt direkt in den manuellen Stiche-Screen zu springen, werden erst
+  // Karten ausgeteilt und das Reizen gestartet (siehe finalizeStartCardSession).
+  function startCardSession(idsOverride) {
+    const ids = idsOverride || selectedIds;
+    if (ids.length < 2) return;
+    if (ids.length > MAX_SESSION_PLAYERS) {
+      alert(`Maximal ${MAX_SESSION_PLAYERS} Spieler pro Session (sonst geht das Kartenlegen nicht mehr auf).`);
+      return;
+    }
+    const conflictId = ids.find(id => activeSessions.some(s => (s.playerIds || []).includes(id)));
+    if (conflictId) {
+      const conflictPlayer = registry.find(p => p.id === conflictId);
+      alert(`${conflictPlayer ? conflictPlayer.name : "Ein Spieler"} ist bereits Teil einer anderen laufenden Session und kann nicht gleichzeitig hier mitspielen!`);
+      return;
+    }
+    const hasStamm = ids.some(id => { const p = registry.find(pl => pl.id === id); return p && isStammSpieler(p); });
+    if (hasStamm) {
+      setPendingPassword({ type: "startCardSession", ids });
+      setPasswordInput("");
+      setPasswordError("");
+      return;
+    }
+    finalizeStartCardSession(ids);
+  }
+
+  function finalizeStartCardSession(ids) {
+    const targetSession = { id: uid(), startedAt: new Date().toISOString(), playerIds: ids.slice(), hostDeviceId: deviceId, hostActive: true, cardMode: true };
+    setActiveSessions([...activeSessions, targetSession]);
+    setCurrentSessionId(targetSession.id);
+
+    const gp = ids.map(id => registry.find(p => p.id === id));
+    setGamePlayers(gp);
+    setGameRounds([]);
+    setDealerIdx(0);
+    setSelectedTrump(SUITS[0]);
+    initRound(gp, SUITS[0], 0);
+
+    // Karten austeilen + Reizen-Reihenfolge (rechts vom Geber beginnend, Geber selbst kommt
+    // als letzter dran - außer bei 5 Spielern, da setzt der Geber diese Runde komplett aus).
+    const { hands, talon } = dealCards(gp);
+    const sittingOut = getSittingOutId(gp, 0);
+    const order = [];
+    for (let i = 1; i <= gp.length; i++) {
+      const pid = gp[i % gp.length].id;
+      if (pid !== sittingOut) order.push(pid);
+    }
+    const initialCardState = {
+      dealerIdx: 0,
+      hands, talon,
+      reizen: { order, turnIdx: 0, currentBid: 0, currentBidderId: null, passed: {}, finished: false, winnerId: null },
+      trumpId: null, ansagerId: null, bidTricks: null,
+      wentMit: {}, swapped: {},
+    };
+    if (cardStatesRef) cardStatesRef.child(targetSession.id).set(initialCardState).catch(() => {});
+    setMyCardPlayerId(null);
+    setScreen("cardIdentity");
+  }
+
+  // Nur die Karten-Auktion voranschreiten lassen (nächster nicht-"gut"-Spieler in der
+  // festen Reihenfolge), OHNE die Passed-Map zu verändern - wird sowohl bei Geboten als auch
+  // beim Passen gebraucht.
+  function advanceReizenTurn(order, fromIdx, passedMap) {
+    const n = order.length;
+    for (let step = 1; step <= n; step++) {
+      const idx = (fromIdx + step) % n;
+      if (!passedMap[order[idx]]) return idx;
+    }
+    return -1;
+  }
+
+  function reizenBid(amount) {
+    const cs = cardStates[currentSessionId];
+    if (!cs || cs.reizen.finished) return;
+    const order = cs.reizen.order;
+    const turnPlayerId = order[cs.reizen.turnIdx];
+    if (turnPlayerId !== myCardPlayerId || amount <= cs.reizen.currentBid || amount > 6) return;
+
+    const nextIdx = advanceReizenTurn(order, cs.reizen.turnIdx, cs.reizen.passed || {});
+    // Kommt die Auktion (weil alle anderen schon "gut" gesagt haben) sofort wieder beim
+    // Bietenden selbst an, ist die Auktion damit sofort entschieden.
+    const finished = nextIdx === -1 || order[nextIdx] === turnPlayerId;
+    const newReizen = {
+      ...cs.reizen, currentBid: amount, currentBidderId: turnPlayerId,
+      turnIdx: finished ? cs.reizen.turnIdx : nextIdx, finished,
+      winnerId: finished ? turnPlayerId : null,
+    };
+    if (cardStatesRef) cardStatesRef.child(currentSessionId).set({ ...cs, reizen: newReizen }).catch(() => {});
+  }
+
+  function reizenPass() {
+    const cs = cardStates[currentSessionId];
+    if (!cs || cs.reizen.finished) return;
+    const order = cs.reizen.order;
+    const turnPlayerId = order[cs.reizen.turnIdx];
+    if (turnPlayerId !== myCardPlayerId) return;
+
+    const passed = { ...(cs.reizen.passed || {}), [turnPlayerId]: true };
+    const remaining = order.filter(id => !passed[id]);
+    let newReizen;
+    if (remaining.length === 0) {
+      // Niemand hat überhaupt geboten -> Ansage gilt als 0, Ansager ist der rechts vom Geber
+      // (erster in der Reizen-Reihenfolge), als hätte er "nichts angesagt".
+      newReizen = { ...cs.reizen, passed, finished: true, winnerId: order[0], currentBid: 0, currentBidderId: order[0] };
+    } else if (remaining.length === 1 && cs.reizen.currentBid > 0) {
+      newReizen = { ...cs.reizen, passed, finished: true, winnerId: remaining[0] };
+    } else {
+      const nextIdx = advanceReizenTurn(order, cs.reizen.turnIdx, passed);
+      newReizen = { ...cs.reizen, passed, turnIdx: nextIdx === -1 ? cs.reizen.turnIdx : nextIdx };
+    }
+    if (cardStatesRef) cardStatesRef.child(currentSessionId).set({ ...cs, reizen: newReizen }).catch(() => {});
+  }
+
+  // Nur der Reizen-Gewinner darf den Trumpf festlegen (Herz Blind ist im Kartenlos-Modus
+  // noch nicht wählbar, siehe CARD_SUIT_IDS-Kommentar weiter oben).
+  function chooseCardTrump(suitId) {
+    const cs = cardStates[currentSessionId];
+    if (!cs || !cs.reizen.finished || cs.trumpId || cs.reizen.winnerId !== myCardPlayerId) return;
+    if (cardStatesRef) cardStatesRef.child(currentSessionId).set({ ...cs, trumpId: suitId, ansagerId: cs.reizen.winnerId, bidTricks: cs.reizen.currentBid }).catch(() => {});
+  }
+
+  // Jeder Spieler entscheidet nur für sich selbst (kein Fremd-Setzen); Pflicht-Mit-Regeln
+  // (Eichel/Ansager/Punkte/3.-Mal) werden über die bestehende getForcedReason() geprüft.
+  function setCardWentMit(playerId, status) {
+    const cs = cardStates[currentSessionId];
+    if (!cs || !cs.trumpId || playerId !== myCardPlayerId) return;
+    const trumpObj = SUITS.find(s => s.id === cs.trumpId);
+    const idx = gamePlayers.findIndex(p => p.id === playerId);
+    if (getForcedReason(gamePlayers[idx], idx, trumpObj, cs.ansagerId, currentScores, consecutiveRaus)) return;
+    if (cardStatesRef) cardStatesRef.child(currentSessionId).set({ ...cs, wentMit: { ...(cs.wentMit || {}), [playerId]: status } }).catch(() => {});
+  }
+
+  // Hausregel: max. 4 Karten pro Tausch, kein Tausch mehr bei <= 3 Punkten. cardIdsToSwap
+  // leer lassen = bewusst kein Tausch (zählt trotzdem als "fertig" für diese Person).
+  function submitCardSwap(playerId, cardIdsToSwap) {
+    const cs = cardStates[currentSessionId];
+    if (!cs || playerId !== myCardPlayerId || cardIdsToSwap.length > 4) return;
+    const idx = gamePlayers.findIndex(p => p.id === playerId);
+    if ((currentScores[idx] || 0) <= 3 && cardIdsToSwap.length > 0) return;
+
+    const talon = cs.talon || [];
+    const hand = cs.hands[playerId] || [];
+    const keep = hand.filter(c => !cardIdsToSwap.includes(c.id));
+    const drawCount = Math.min(cardIdsToSwap.length, talon.length);
+    const drawn = talon.slice(0, drawCount);
+    const newTalon = talon.slice(drawCount);
+    if (cardStatesRef) cardStatesRef.child(currentSessionId).set({
+      ...cs,
+      hands: { ...cs.hands, [playerId]: [...keep, ...drawn] },
+      talon: newTalon,
+      swapped: { ...(cs.swapped || {}), [playerId]: true },
+    }).catch(() => {});
+  }
+
+  // Übergibt das Ergebnis von Reizen/Trumpf/Wer-geht-mit an den bestehenden (manuellen)
+  // Stiche-Screen - die eigentliche Stich-Simulation ist noch nicht Teil dieser ersten
+  // Ausbaustufe, daher wird ab hier wie gewohnt weitergemacht (Stiche selbst eintragen).
+  function finishCardPhase() {
+    const cs = cardStates[currentSessionId];
+    if (!cs || !cs.trumpId) return;
+    const trumpObj = SUITS.find(s => s.id === cs.trumpId);
+    const status = {};
+    gamePlayers.forEach(p => {
+      if (p.id === sittingOutId) return;
+      status[p.id] = (cs.wentMit || {})[p.id] || "mit";
+    });
+    setSelectedTrump(trumpObj);
+    setAnsagerId(cs.ansagerId);
+    setBidTricks(cs.bidTricks);
+    setPlayerStatus(status);
+    if (cardStatesRef) cardStatesRef.child(currentSessionId).remove().catch(() => {});
+    setScreen("game");
+  }
+
   // Aufgerufen, wenn man über "👥 Spieler ändern" die Spielerliste einer BESTEHENDEN Session
   // anpasst (nur möglich, wenn das aktuelle Spiel schon beendet ist). Im Gegensatz zu
   // startGame() wird dabei bewusst NICHT sofort ein neues Spiel gestartet - der gerade
@@ -1384,6 +1642,12 @@ function App() {
       const { ids, sessionIdOverride } = pendingPassword;
       setPendingPassword(null);
       finalizeUpdateSessionRoster(ids, sessionIdOverride);
+      return;
+    }
+    if (pendingPassword.type === "startCardSession") {
+      const { ids } = pendingPassword;
+      setPendingPassword(null);
+      finalizeStartCardSession(ids);
       return;
     }
     const { ids, sessionIdOverride } = pendingPassword;
@@ -2042,7 +2306,19 @@ function App() {
                 </div>
                 {isMine ? (
                   <div style={{ display: "flex", gap: "8px" }}>
-                    <button onClick={() => startGame(session.playerIds || [], session.id)} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #d4af37, #c9a83e)" }}>
+                    <button onClick={() => {
+                      // Kartenlos-Session, deren Reizen/Tausch-Phase noch nicht abgeschlossen
+                      // ist (cardStates existiert noch) -> zurück in den Karten-Screen statt
+                      // in den normalen Stiche-Screen.
+                      if (cardStates[session.id]) {
+                        setCurrentSessionId(session.id);
+                        setGamePlayers((session.playerIds || []).map(id => registry.find(p => p.id === id)));
+                        setMyCardPlayerId(null);
+                        setScreen("cardIdentity");
+                      } else {
+                        startGame(session.playerIds || [], session.id);
+                      }
+                    }} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #d4af37, #c9a83e)" }}>
                       ▶️ Weiterspielen
                     </button>
                     <button onClick={() => { if (window.confirm("Session wirklich beenden und abrechnen?")) endSession(session.id); }} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #a3383c, #6e1f28)" }}>
@@ -2067,13 +2343,14 @@ function App() {
 
             <div className="glass" style={{ padding: "20px", textAlign: "center" }}>
               <button className="pulse-btn" style={{ ...btnStyle, width: "100%", marginBottom: "15px", background: "linear-gradient(45deg, #d4af37, #c9a83e)", boxShadow: "0 0 15px #d4af37" }}
-                onClick={() => { setSelectSessionContext(null); setSelectedIds([]); setScreen("select"); }}>
+                onClick={() => { setSelectSessionContext(null); setCardModePending(false); setSelectedIds([]); setScreen("select"); }}>
                 🎴 Neue Session starten
               </button>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
                 <button style={{ ...btnStyle, background: "linear-gradient(45deg, #b8bcc4, #4a4d57)" }} onClick={() => setScreen("players")}>👤 Spieler</button>
                 <button style={{ ...btnStyle, background: "linear-gradient(45deg, #c9a83e, #a3383c)" }} onClick={() => setScreen("history")}>🕰️ Alte Sessions</button>
               </div>
+              <button style={{ ...btnStyle, width: "100%", marginTop: "12px", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)" }} onClick={() => setScreen("rules")}>📜 Spielregeln</button>
             </div>
 
             <div className="glass" style={{ padding: "20px" }}>
@@ -2107,6 +2384,10 @@ function App() {
                   );
                 })}
               </div>
+              <button style={{ ...btnStyle, width: "100%", marginTop: "15px", background: "linear-gradient(45deg, #7c3aed, #a855f7)" }}
+                onClick={() => { setSelectSessionContext(null); setCardModePending(true); setSelectedIds([]); setScreen("select"); }}>
+                🎴 Kartenlos spielen (beta)
+              </button>
             </div>
           </div>
         )}
@@ -3307,18 +3588,321 @@ function App() {
               onClick={() => {
                 if (selectSessionContext) {
                   updateSessionRoster(selectedIds, selectSessionContext);
+                } else if (cardModePending) {
+                  startCardSession(selectedIds);
                 } else {
                   startGame(undefined, selectSessionContext);
                 }
               }}
-              className="pulse-btn" style={{ ...btnStyle, background: "linear-gradient(45deg, #c9a83e, #a3383c)", width: "100%", marginTop: "5px", opacity: (selectedIds.length < 2 || selectedIds.length > MAX_SESSION_PLAYERS) ? 0.4 : 1 }} disabled={selectedIds.length < 2 || selectedIds.length > MAX_SESSION_PLAYERS}>
-              {selectSessionContext ? "✅ Spieler übernehmen" : "🚀 SPIEL STARTEN"}
+              className="pulse-btn" style={{ ...btnStyle, background: cardModePending ? "linear-gradient(45deg, #7c3aed, #a855f7)" : "linear-gradient(45deg, #c9a83e, #a3383c)", width: "100%", marginTop: "5px", opacity: (selectedIds.length < 2 || selectedIds.length > MAX_SESSION_PLAYERS) ? 0.4 : 1 }} disabled={selectedIds.length < 2 || selectedIds.length > MAX_SESSION_PLAYERS}>
+              {selectSessionContext ? "✅ Spieler übernehmen" : cardModePending ? "🎴 Karten austeilen" : "🚀 SPIEL STARTEN"}
             </button>
           </div>
           );
         })()}
 
+        {screen === "rules" && (
+          <div className="glass" style={{ padding: "20px" }}>
+            <h2 style={{ textAlign: "center", color: "#c9a83e", marginBottom: "15px", fontSize: "20px" }}>📜 Spielregeln</h2>
+
+            <h3 style={{ color: "#c9a83e", fontSize: "14px", marginBottom: "6px" }}>Kartendeck</h3>
+            <p style={{ fontSize: "13px", color: "#ccc", marginBottom: "16px" }}>
+              Doppeltes Gaigel/Binokel-Blatt: Ass, 10, König, Ober, Unter je Farbe (Eichel, Herz, Bollen, Blatt),
+              jede Karte zweimal (40 Karten). Wertigkeit absteigend: Ass &gt; 10 &gt; König &gt; Ober &gt; Unter.
+            </p>
+
+            <h3 style={{ color: "#c9a83e", fontSize: "14px", marginBottom: "6px" }}>Start & Ziel</h3>
+            <p style={{ fontSize: "13px", color: "#ccc", marginBottom: "16px" }}>
+              Jeder Spieler bekommt 6 Karten (in 2er-Paketen ausgeteilt) und startet mit 20 Punkten. Wer zuerst
+              0 Punkte oder weniger erreicht, hat "20 ab" geschafft und gewinnt das Spiel.
+            </p>
+
+            <h3 style={{ color: "#c9a83e", fontSize: "14px", marginBottom: "6px" }}>Ablauf einer Runde</h3>
+            <p style={{ fontSize: "13px", color: "#ccc", marginBottom: "16px" }}>
+              1. Trumpf auswählen (oder Herz Blind - Sonderregel, ×4 Multiplikator, kein Ansager).<br/>
+              2. Ansager bestimmen und Anzahl angesagter Stiche (1-6) festlegen.<br/>
+              3. Jeder Spieler entscheidet: mitgehen oder raus gehen.<br/>
+              4. Stiche eintragen - müssen sich exakt auf 6 summieren.
+            </p>
+
+            <h3 style={{ color: "#c9a83e", fontSize: "14px", marginBottom: "6px" }}>Punkteberechnung</h3>
+            <p style={{ fontSize: "13px", color: "#ccc", marginBottom: "16px" }}>
+              Wer mitgeht: pro gemachtem Stich sinkt der Punktestand um 1 (× Trumpf-Multiplikator: Herz ×2,
+              Herz Blind ×4, sonst ×1). Macht man 0 Stiche, steigt der Punktestand um 6 (× Multiplikator).
+              Verfehlt der Ansager seine Ansage (weniger Stiche als angesagt), steigt sein Punktestand um
+              (6 + Ansage) × Multiplikator - unabhängig davon, wie viele Stiche er trotzdem gemacht hat.
+            </p>
+
+            <h3 style={{ color: "#c9a83e", fontSize: "14px", marginBottom: "6px" }}>Pflicht-Mitgehen</h3>
+            <p style={{ fontSize: "13px", color: "#ccc", marginBottom: "16px" }}>
+              In folgenden Fällen muss ein Spieler mitgehen (kann nicht raus gehen):
+              bei einer Eichel-Runde (alle müssen mit), als Ansager, bei einem Punktestand von 6 oder weniger,
+              oder wenn er schon zweimal in Folge raus gegangen ist (spätestens beim 3. Mal muss er mit).
+            </p>
+
+            <h3 style={{ color: "#c9a83e", fontSize: "14px", marginBottom: "6px" }}>Zu fünft spielen</h3>
+            <p style={{ fontSize: "13px", color: "#ccc", marginBottom: "16px" }}>
+              Bei genau 5 Spielern setzt in jeder Runde der aktuelle Geber komplett aus (keine Punkte-Änderung,
+              kein Einfluss auf seine Raus-Serie) - die Geber-Rolle rotiert dabei ganz normal weiter.
+            </p>
+
+            <h3 style={{ color: "#c9a83e", fontSize: "14px", marginBottom: "6px" }}>Hausregeln (Kartentausch)</h3>
+            <p style={{ fontSize: "13px", color: "#ccc", marginBottom: "16px" }}>
+              Nach Trumpf-Bestimmung darf einmalig getauscht werden, maximal 4 Karten auf einmal.
+              Bei einem Punktestand von 3 oder weniger ist kein Tausch mehr erlaubt.
+            </p>
+
+            <h3 style={{ color: "#c9a83e", fontSize: "14px", marginBottom: "6px" }}>🎴 Kartenlos-Modus (Beta): Reizen</h3>
+            <p style={{ fontSize: "13px", color: "#ccc" }}>
+              Statt Trumpf/Ansager frei zu wählen, wird geboten: reihum, beginnend rechts vom Geber, sagt
+              jeder entweder eine höhere Stichzahl als der Vorherige an oder "gut" (endgültig raus aus der
+              Auktion). Wer als letzter übrig bleibt, bestimmt den Trumpf und ist Ansager mit seiner zuletzt
+              genannten Zahl als Ansage. Bietet niemand, gilt die Ansage als 0 und der Spieler rechts vom
+              Geber wird trotzdem zum Ansager (genau wie bei einer "echten" Ansage von 0 gewertet).
+            </p>
+          </div>
+        )}
+
+        {/* ═══════════════ KARTENLOS-MODUS (Beta) ═══════════════ */}
+        {screen === "cardIdentity" && (
+          <div className="glass" style={{ padding: "20px" }}>
+            <h2 style={{ textAlign: "center", color: "#c9a83e", marginBottom: "10px", fontSize: "18px" }}>🎴 Wer bist du an diesem Gerät?</h2>
+            <p style={{ fontSize: "12px", color: "#aaa", textAlign: "center", marginBottom: "20px" }}>
+              Damit nur deine eigenen Karten hier offen angezeigt werden - jeder wählt sich auf seinem eigenen Gerät selbst aus.
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+              {gamePlayers.map(p => (
+                <button key={p.id} onClick={() => {
+                  localStorage.setItem("20ab_cardIdentity_" + currentSessionId, p.id);
+                  setMyCardPlayerId(p.id);
+                  setScreen("cardGame");
+                }} style={{ ...btnStyle, background: "linear-gradient(45deg, #7c3aed, #a855f7)" }}>
+                  {p.name}
+                </button>
+              ))}
+            </div>
+            <button onClick={() => { setMyCardPlayerId(null); setScreen("cardGame"); }} style={{ ...btnStyle, width: "100%", marginTop: "15px", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)" }}>
+              👁️ Nur zuschauen
+            </button>
+          </div>
+        )}
+
+        {screen === "cardGame" && (() => {
+          const cs = cardStates[currentSessionId];
+          if (!cs) {
+            // cardStates wurde schon entfernt (finishCardPhase ist bereits abgeschlossen,
+            // z.B. weil ein anderes Gerät schneller war) -> einfach in den normalen
+            // Stiche-Screen weiterleiten, dort steht alles Nötige schon bereit.
+            return (
+              <div className="glass" style={{ padding: "20px", textAlign: "center" }}>
+                <p style={{ color: "#aaa", marginBottom: "15px" }}>Diese Runde ist schon weiter.</p>
+                <button onClick={() => setScreen("game")} style={{ ...btnStyle, background: "linear-gradient(45deg, #c9a83e, #a3383c)" }}>Weiter zu den Stichen</button>
+              </div>
+            );
+          }
+
+          // Firebase speichert keine leeren Objekte ({}) - nach dem Zurücklesen fehlen diese
+          // Felder dann komplett, statt als leeres Objekt dazustehen. Deshalb hier überall
+          // defensiv mit "|| {}" absichern.
+          const csWentMit = cs.wentMit || {};
+          const csSwapped = cs.swapped || {};
+          const csPassed = cs.reizen.passed || {};
+
+          const myIdx = gamePlayers.findIndex(p => p.id === myCardPlayerId);
+          const isMyReizenTurn = !cs.reizen.finished && cs.reizen.order[cs.reizen.turnIdx] === myCardPlayerId;
+          const trumpObj = cs.trumpId ? SUITS.find(s => s.id === cs.trumpId) : null;
+
+          // Effektiver Wer-geht-mit-Status je Spieler: Pflicht-Regeln (Eichel/Ansager/Punkte/
+          // 3.-Mal) automatisch "mit", sonst die manuell getroffene Wahl (Standard "mit").
+          const effectiveWentMit = {};
+          if (trumpObj) {
+            gamePlayers.forEach((p, idx) => {
+              if (p.id === sittingOutId) return;
+              const forced = getForcedReason(p, idx, trumpObj, cs.ansagerId, currentScores, consecutiveRaus);
+              effectiveWentMit[p.id] = forced ? "mit" : (csWentMit[p.id] || "mit");
+            });
+          }
+          const mitPlayers = gamePlayers.filter(p => p.id !== sittingOutId && effectiveWentMit[p.id] === "mit");
+          const allSwapped = !!trumpObj && mitPlayers.every(p => csSwapped[p.id]);
+
+          return (
+            <div>
+              <div className="glass" style={{ padding: "16px 20px", marginBottom: "15px", textAlign: "center" }}>
+                <h2 style={{ color: "#c9a83e", fontSize: "18px", marginBottom: "5px" }}>🎴 Kartenlos (Beta)</h2>
+                <p style={{ fontSize: "12px", color: "#aaa" }}>
+                  Du bist: {myCardPlayerId ? gamePlayers.find(p => p.id === myCardPlayerId)?.name : "Zuschauer"}
+                </p>
+              </div>
+
+              {/* Hände: eigene offen, alle anderen als Kartenrücken */}
+              <div className="glass" style={{ padding: "15px", marginBottom: "15px" }}>
+                {gamePlayers.map(p => {
+                  if (p.id === sittingOutId) {
+                    return <div key={p.id} style={{ fontSize: "12px", color: "#888", marginBottom: "8px" }}>🪑 {p.name} setzt diese Runde als Geber aus.</div>;
+                  }
+                  const hand = cs.hands[p.id] || [];
+                  const isMe = p.id === myCardPlayerId;
+                  const canSwapTap = trumpObj && isMe && effectiveWentMit[p.id] === "mit" && !csSwapped[p.id];
+                  return (
+                    <div key={p.id} style={{ marginBottom: "12px" }}>
+                      <div style={{ fontSize: "12px", color: "#c9a83e", marginBottom: "6px", fontWeight: "bold" }}>
+                        {isMe ? `🫵 ${p.name} (du)` : p.name}
+                        {!cs.reizen.finished && cs.reizen.order[cs.reizen.turnIdx] === p.id && <span style={{ color: "#4e8b5c" }}> — am Zug (Reizen)</span>}
+                      </div>
+                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                        {hand.map((card, i) => (
+                          isMe
+                            ? <PlayingCardView key={card.id} card={card} delay={i * 0.05}
+                                selected={cardSwapSelection.includes(card.id)}
+                                onClick={canSwapTap ? () => {
+                                  setCardSwapSelection(sel => sel.includes(card.id) ? sel.filter(id => id !== card.id) : (sel.length < 4 ? [...sel, card.id] : sel));
+                                } : undefined} />
+                            : <PlayingCardView key={card.id || i} hidden delay={i * 0.05} />
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* REIZEN */}
+              {!cs.reizen.finished && (
+                <div className="glass" style={{ padding: "20px", marginBottom: "15px" }}>
+                  <h3 style={{ color: "#c9a83e", marginBottom: "10px", fontSize: "15px" }}>📢 Reizen</h3>
+                  <p style={{ fontSize: "13px", color: "#ccc", marginBottom: "6px" }}>
+                    Aktuelles Gebot: <b>{cs.reizen.currentBid || "–"}</b>{cs.reizen.currentBidderId && ` (${gamePlayers.find(p => p.id === cs.reizen.currentBidderId)?.name})`}
+                  </p>
+                  <p style={{ fontSize: "13px", color: "#4e8b5c", marginBottom: "12px" }}>
+                    Am Zug: {gamePlayers.find(p => p.id === cs.reizen.order[cs.reizen.turnIdx])?.name}
+                  </p>
+                  {isMyReizenTurn ? (
+                    <div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "10px" }}>
+                        {[1, 2, 3, 4, 5, 6].filter(n => n > cs.reizen.currentBid).map(n => (
+                          <button key={n} onClick={() => reizenBid(n)} style={{ ...btnStyle, padding: "10px 16px", background: "linear-gradient(45deg, #c9a83e, #a15c2a)" }}>{n}</button>
+                        ))}
+                      </div>
+                      <button onClick={reizenPass} style={{ ...btnStyle, width: "100%", background: "rgba(255,255,255,0.1)" }}>Gut (aussteigen)</button>
+                    </div>
+                  ) : (
+                    <p style={{ fontSize: "12px", color: "#888" }}>Warte, bis du dran bist...</p>
+                  )}
+                  {Object.keys(csPassed).length > 0 && (
+                    <p style={{ fontSize: "11px", color: "#888", marginTop: "10px" }}>
+                      Ausgestiegen: {Object.keys(csPassed).map(id => gamePlayers.find(p => p.id === id)?.name).join(", ")}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* TRUMPF WÄHLEN - nur der Reizen-Gewinner */}
+              {cs.reizen.finished && !cs.trumpId && (
+                <div className="glass" style={{ padding: "20px", marginBottom: "15px" }}>
+                  <h3 style={{ color: "#c9a83e", marginBottom: "10px", fontSize: "15px" }}>
+                    🏆 {gamePlayers.find(p => p.id === cs.reizen.winnerId)?.name} hat das Reizen gewonnen (Ansage: {cs.reizen.currentBid || 0}) und bestimmt den Trumpf.
+                  </h3>
+                  {cs.reizen.winnerId === myCardPlayerId ? (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "8px" }}>
+                      {SUITS.filter(s => s.id !== "herzblind").map(s => (
+                        <button key={s.id} onClick={() => chooseCardTrump(s.id)} style={{ ...btnStyle, display: "flex", flexDirection: "column", alignItems: "center", gap: "4px", padding: "8px 5px", fontSize: "13px", background: s.color }}>
+                          <img src={s.icon} alt={s.label} style={{ height: "24px", width: "auto" }} />
+                          {s.label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p style={{ fontSize: "12px", color: "#888" }}>Warte auf Trumpf-Ansage...</p>
+                  )}
+                </div>
+              )}
+
+              {/* WER GEHT MIT + TAUSCHEN */}
+              {trumpObj && (
+                <div className="glass" style={{ padding: "20px", marginBottom: "15px" }}>
+                  <h3 style={{ color: "#c9a83e", marginBottom: "10px", fontSize: "15px", display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                    Trumpf: <img src={trumpObj.icon} alt={trumpObj.label} style={{ height: "20px", width: "auto" }} /> {trumpObj.label}
+                    <span style={{ fontSize: "12px", color: "#aaa", fontWeight: "normal" }}>— Ansager: {gamePlayers.find(p => p.id === cs.ansagerId)?.name} ({cs.bidTricks})</span>
+                  </h3>
+                  {gamePlayers.map((p, idx) => {
+                    if (p.id === sittingOutId) return null;
+                    const forced = getForcedReason(p, idx, trumpObj, cs.ansagerId, currentScores, consecutiveRaus);
+                    const status = effectiveWentMit[p.id];
+                    const isMe = p.id === myCardPlayerId;
+                    return (
+                      <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", background: "rgba(255,255,255,0.05)", borderRadius: "8px", marginBottom: "6px" }}>
+                        <span>{p.name}{forced && <span style={{ fontSize: "10px", color: "#c9a084", marginLeft: "6px" }}>{forced}</span>}</span>
+                        {isMe && !forced ? (
+                          <div style={{ display: "flex", gap: "5px" }}>
+                            <button onClick={() => setCardWentMit(p.id, "mit")} style={{ padding: "5px 12px", borderRadius: "6px", border: "none", fontWeight: "bold", background: status === "mit" ? "#4e8b5c" : "rgba(0,0,0,0.3)", color: "#fff" }}>Mit</button>
+                            <button onClick={() => setCardWentMit(p.id, "raus")} style={{ padding: "5px 12px", borderRadius: "6px", border: "none", fontWeight: "bold", background: status === "raus" ? "#a3383c" : "rgba(0,0,0,0.3)", color: "#fff" }}>Raus</button>
+                          </div>
+                        ) : (
+                          <span style={{ fontSize: "12px", fontWeight: "bold", color: status === "mit" ? "#4e8b5c" : "#a3383c" }}>{status === "mit" ? "Mit" : "Raus"}</span>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {myCardPlayerId && effectiveWentMit[myCardPlayerId] === "mit" && !csSwapped[myCardPlayerId] && (
+                    <div style={{ marginTop: "15px", paddingTop: "15px", borderTop: "1px solid rgba(255,255,255,0.1)" }}>
+                      {currentScores[myIdx] <= 3 ? (
+                        <p style={{ fontSize: "12px", color: "#a3383c", marginBottom: "10px" }}>⚠️ Bei ≤3 Punkten ist kein Tausch mehr erlaubt.</p>
+                      ) : (
+                        <p style={{ fontSize: "12px", color: "#aaa", marginBottom: "10px" }}>Tippe oben auf deine Karten, um sie zu markieren (max. 4), dann tauschen.</p>
+                      )}
+                      <div style={{ display: "flex", gap: "10px" }}>
+                        <button onClick={() => { submitCardSwap(myCardPlayerId, cardSwapSelection); setCardSwapSelection([]); }} disabled={currentScores[myIdx] <= 3 && cardSwapSelection.length > 0} style={{ ...btnStyle, flex: 2, background: "linear-gradient(45deg, #4e8b5c, #6ea88a)", opacity: (currentScores[myIdx] <= 3 && cardSwapSelection.length > 0) ? 0.4 : 1 }}>
+                          🔄 {cardSwapSelection.length} Karte(n) tauschen
+                        </button>
+                        <button onClick={() => { submitCardSwap(myCardPlayerId, []); setCardSwapSelection([]); }} style={{ ...btnStyle, flex: 1, background: "rgba(255,255,255,0.1)" }}>Kein Tausch</button>
+                      </div>
+                    </div>
+                  )}
+
+                  {allSwapped && (
+                    <button onClick={finishCardPhase} style={{ ...btnStyle, width: "100%", marginTop: "15px", background: "linear-gradient(45deg, #d4af37, #c9a83e)" }}>
+                      ✅ Weiter zu den Stichen
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
       </div>
+    </div>
+  );
+}
+
+// Kartenlos-Modus (Beta): einfache selbstgezeichnete Kartengrafik (Platzhalter, siehe
+// Kommentar bei CARD_SUIT_IDS - kann später durch echte Kartenbilder ersetzt werden).
+// "hidden" zeigt einen Kartenrücken statt der eigentlichen Karte (für fremde Hände).
+// "selected" hebt die Karte optisch hervor (fürs Auswählen beim Tauschen).
+function PlayingCardView({ card, hidden, selected, onClick, delay = 0 }) {
+  if (hidden) {
+    return (
+      <div className="deal-card" style={{
+        animationDelay: `${delay}s`, width: "46px", height: "66px", borderRadius: "6px",
+        background: "linear-gradient(135deg, #5c616c, #2c2e35)", border: "2px solid rgba(255,255,255,0.15)",
+        display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px", flexShrink: 0,
+      }}>🂠</div>
+    );
+  }
+  const suit = SUITS.find(s => s.id === card.suit);
+  const rank = CARD_RANKS.find(r => r.id === card.rank);
+  return (
+    <div className="deal-card" onClick={onClick} style={{
+      animationDelay: `${delay}s`, width: "46px", height: "66px", borderRadius: "6px",
+      background: selected ? "linear-gradient(135deg, #c9a83e, #a3383c)" : "#fff",
+      border: selected ? "2px solid #fff" : "2px solid rgba(0,0,0,0.15)",
+      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "2px",
+      cursor: onClick ? "pointer" : "default", flexShrink: 0,
+      transform: selected ? "translateY(-6px)" : "none", transition: "transform 0.15s",
+      boxShadow: selected ? "0 4px 10px rgba(0,0,0,0.4)" : "0 2px 4px rgba(0,0,0,0.3)",
+    }}>
+      <span style={{ fontSize: "13px", fontWeight: "900", color: selected ? "#fff" : "#222" }}>{rank.short}</span>
+      <img src={suit.icon} alt={suit.label} style={{ height: "16px", width: "auto" }} />
     </div>
   );
 }
