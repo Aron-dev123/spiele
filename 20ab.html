@@ -976,6 +976,7 @@ function App() {
   // null = es wird eine KOMPLETT NEUE Session gestartet.
   const [selectSessionContext, setSelectSessionContext] = useState(null);
   const [cardModePending, setCardModePending] = useState(false); // Spielerauswahl fürs Kartenlos-Modus statt normaler Session
+  const [pendingCardRosterIds, setPendingCardRosterIds] = useState(null); // gewählte Spielerliste, bevor der Ersteller seine eigene Identität wählt
 
   // In-App-Passwort-Dialog für das Starten neuer Sessions mit Stammspielern sowie für die
   // Host-Übernahme einer laufenden Session mit Stammspielern (ersetzt window.prompt, siehe
@@ -1407,10 +1408,15 @@ function App() {
       setPasswordError("");
       return;
     }
-    finalizeStartCardSession(ids);
+    // Vor dem eigentlichen Erstellen wählt der Ersteller erst noch, wer ER an diesem Gerät
+    // ist (siehe cardCreatorIdentity-Screen) - die Session selbst entsteht erst danach.
+    setPendingCardRosterIds(ids);
+    setScreen("cardCreatorIdentity");
   }
 
-  function finalizeStartCardSession(ids) {
+  // Erstellt die Session im Zustand "joining" - es wird NOCH NICHT ausgeteilt, sondern erst
+  // gewartet, bis alle ausgewählten Spieler (siehe joinCardSession) beigetreten sind.
+  function finalizeStartCardSession(ids, creatorPlayerId) {
     const targetSession = { id: uid(), startedAt: new Date().toISOString(), playerIds: ids.slice(), hostDeviceId: deviceId, hostActive: true, cardMode: true };
     setActiveSessions([...activeSessions, targetSession]);
     setCurrentSessionId(targetSession.id);
@@ -1422,8 +1428,17 @@ function App() {
     setSelectedTrump(SUITS[0]);
     initRound(gp, SUITS[0], 0);
 
-    // Karten austeilen + Reizen-Reihenfolge (rechts vom Geber beginnend, Geber selbst kommt
-    // als letzter dran - außer bei 5 Spielern, da setzt der Geber diese Runde komplett aus).
+    localStorage.setItem("20ab_cardIdentity_" + targetSession.id, creatorPlayerId);
+    setMyCardPlayerId(creatorPlayerId);
+    if (cardStatesRef) cardStatesRef.child(targetSession.id).set({ phase: "joining", joined: { [creatorPlayerId]: true } }).catch(() => {});
+    setPendingCardRosterIds(null);
+    setScreen("cardGame");
+  }
+
+  // Baut Karten austeilen + Reizen-Reihenfolge auf (rechts vom Geber beginnend, Geber selbst
+  // kommt als letzter dran - außer bei 5 Spielern, da setzt der Geber diese Runde komplett
+  // aus). Wird aufgerufen, sobald mit joinCardSession() der letzte fehlende Spieler beitritt.
+  function buildPlayingCardState(gp, joined) {
     const { hands, talon } = dealCards(gp);
     const sittingOut = getSittingOutId(gp, 0);
     const order = [];
@@ -1431,16 +1446,36 @@ function App() {
       const pid = gp[i % gp.length].id;
       if (pid !== sittingOut) order.push(pid);
     }
-    const initialCardState = {
+    return {
+      phase: "playing",
       dealerIdx: 0,
       hands, talon,
       reizen: { order, turnIdx: 0, currentBid: 0, currentBidderId: null, passed: {}, finished: false, winnerId: null },
       trumpId: null, ansagerId: null, bidTricks: null,
-      wentMit: {}, swapped: {},
+      wentMit: {}, swapped: {}, joined,
     };
-    if (cardStatesRef) cardStatesRef.child(targetSession.id).set(initialCardState).catch(() => {});
-    setMyCardPlayerId(null);
-    setScreen("cardIdentity");
+  }
+
+  // Ein Spieler (an einem beliebigen Gerät) gibt an, wer er in dieser Session ist - solange
+  // die Session noch im Zustand "joining" ist. Sind danach ALLE Rollen belegt, wird sofort
+  // ausgeteilt und das Reizen beginnt. Anklicken einer schon belegten Rolle ist erlaubt (z.B.
+  // um auf einem neuen Gerät weiterzumachen) und ändert am Beitritts-Stand nichts.
+  function joinCardSession(sessionId, playerId, rosterIds) {
+    localStorage.setItem("20ab_cardIdentity_" + sessionId, playerId);
+    setMyCardPlayerId(playerId);
+
+    const cs = cardStates[sessionId];
+    if (!cs || cs.phase !== "joining") return;
+
+    const joined = { ...(cs.joined || {}), [playerId]: true };
+    const allJoined = rosterIds.every(id => joined[id]);
+    if (!cardStatesRef) return;
+    if (allJoined) {
+      const gp = rosterIds.map(id => registry.find(p => p.id === id));
+      cardStatesRef.child(sessionId).set(buildPlayingCardState(gp, joined)).catch(() => {});
+    } else {
+      cardStatesRef.child(sessionId).set({ ...cs, joined }).catch(() => {});
+    }
   }
 
   // Nur die Karten-Auktion voranschreiten lassen (nächster nicht-"gut"-Spieler in der
@@ -1647,7 +1682,8 @@ function App() {
     if (pendingPassword.type === "startCardSession") {
       const { ids } = pendingPassword;
       setPendingPassword(null);
-      finalizeStartCardSession(ids);
+      setPendingCardRosterIds(ids);
+      setScreen("cardCreatorIdentity");
       return;
     }
     const { ids, sessionIdOverride } = pendingPassword;
@@ -2291,10 +2327,28 @@ function App() {
               // Sessions ohne hostDeviceId (Altbestand von vor diesem Feature) gelten als
               // "eigene" Session für jeden - Abwärtskompatibilität, keine Sperre.
               const isMine = !session.hostDeviceId || session.hostDeviceId === deviceId;
+              const isCardSession = !!session.cardMode;
+              const cs = isCardSession ? cardStates[session.id] : null;
+              const myIdentity = isCardSession ? localStorage.getItem("20ab_cardIdentity_" + session.id) : null;
+              const iHaveJoined = !!myIdentity && (session.playerIds || []).includes(myIdentity);
+              const isJoiningPhase = isCardSession && cs && cs.phase === "joining";
+              const enterCardGame = () => {
+                setCurrentSessionId(session.id);
+                setGamePlayers((session.playerIds || []).map(id => registry.find(p => p.id === id)));
+                setMyCardPlayerId(myIdentity);
+                setScreen("cardGame");
+              };
+              const enterJoinScreen = () => {
+                setCurrentSessionId(session.id);
+                setGamePlayers((session.playerIds || []).map(id => registry.find(p => p.id === id)));
+                setMyCardPlayerId(null);
+                setScreen("cardIdentity");
+              };
               return (
               <div key={session.id} className="glass" style={{ padding: "16px 20px", marginBottom: "15px", border: `1px solid ${isMine ? "#c9a83e" : "#7b8794"}`, background: isMine ? "rgba(249,212,35,0.08)" : "rgba(120,140,160,0.08)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
                   <span style={{ fontWeight: "bold", color: isMine ? "#c9a83e" : "#b8a8c9" }}>
+                    {isCardSession && "🎴 Kartenlos — "}
                     {isMine ? "🔥 Session läuft" : "👁️ Session läuft (Beobachtungsmodus)"}
                   </span>
                   <span style={{ fontSize: "12px", color: "#aaa" }}>
@@ -2304,21 +2358,41 @@ function App() {
                 <div style={{ fontSize: "13px", color: "#ccc", marginBottom: "12px" }}>
                   Spieler: {(session.playerIds || []).map(id => registry.find(p => p.id === id)?.name || "?").join(", ")}
                 </div>
-                {isMine ? (
+                {isCardSession ? (
+                  isJoiningPhase ? (
+                    <div>
+                      <div style={{ fontSize: "12px", color: "#aaa", marginBottom: "10px" }}>
+                        {(session.playerIds || []).map(id => ((cs.joined || {})[id] ? "✅ " : "⏳ ") + (registry.find(p => p.id === id)?.name || "?")).join("   ")}
+                      </div>
+                      {iHaveJoined ? (
+                        <button disabled style={{ ...btnStyle, width: "100%", opacity: 0.6, cursor: "default", background: "rgba(255,255,255,0.1)" }}>
+                          ⏳ Warte auf andere Mitspieler...
+                        </button>
+                      ) : (
+                        <button onClick={enterJoinScreen} style={{ ...btnStyle, width: "100%", background: "linear-gradient(45deg, #7c3aed, #a855f7)" }}>
+                          🎴 Session beitreten
+                        </button>
+                      )}
+                    </div>
+                  ) : iHaveJoined ? (
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <button onClick={enterCardGame} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #d4af37, #c9a83e)" }}>
+                        ▶️ Weiterspielen
+                      </button>
+                      {isMine && (
+                        <button onClick={() => { if (window.confirm("Session wirklich beenden und abrechnen?")) endSession(session.id); }} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #a3383c, #6e1f28)" }}>
+                          🏁 Session beenden
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <button onClick={() => watchSession(session)} style={{ ...btnStyle, width: "100%", padding: "10px", fontSize: "13px", background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.25)" }}>
+                      👁️ Ansehen
+                    </button>
+                  )
+                ) : isMine ? (
                   <div style={{ display: "flex", gap: "8px" }}>
-                    <button onClick={() => {
-                      // Kartenlos-Session, deren Reizen/Tausch-Phase noch nicht abgeschlossen
-                      // ist (cardStates existiert noch) -> zurück in den Karten-Screen statt
-                      // in den normalen Stiche-Screen.
-                      if (cardStates[session.id]) {
-                        setCurrentSessionId(session.id);
-                        setGamePlayers((session.playerIds || []).map(id => registry.find(p => p.id === id)));
-                        setMyCardPlayerId(null);
-                        setScreen("cardIdentity");
-                      } else {
-                        startGame(session.playerIds || [], session.id);
-                      }
-                    }} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #d4af37, #c9a83e)" }}>
+                    <button onClick={() => startGame(session.playerIds || [], session.id)} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #d4af37, #c9a83e)" }}>
                       ▶️ Weiterspielen
                     </button>
                     <button onClick={() => { if (window.confirm("Session wirklich beenden und abrechnen?")) endSession(session.id); }} style={{ ...btnStyle, flex: 1, padding: "10px", fontSize: "13px", background: "linear-gradient(45deg, #a3383c, #6e1f28)" }}>
@@ -3664,28 +3738,53 @@ function App() {
         )}
 
         {/* ═══════════════ KARTENLOS-MODUS (Beta) ═══════════════ */}
-        {screen === "cardIdentity" && (
+        {/* Nur für den SESSION-ERSTELLER, direkt bei der Session-Erstellung (vor dem Anlegen) */}
+        {screen === "cardCreatorIdentity" && (
           <div className="glass" style={{ padding: "20px" }}>
             <h2 style={{ textAlign: "center", color: "#c9a83e", marginBottom: "10px", fontSize: "18px" }}>🎴 Wer bist du an diesem Gerät?</h2>
             <p style={{ fontSize: "12px", color: "#aaa", textAlign: "center", marginBottom: "20px" }}>
-              Damit nur deine eigenen Karten hier offen angezeigt werden - jeder wählt sich auf seinem eigenen Gerät selbst aus.
+              Die anderen können der Session gleich beitreten und dann ebenfalls angeben, wer sie sind.
             </p>
             <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-              {gamePlayers.map(p => (
-                <button key={p.id} onClick={() => {
-                  localStorage.setItem("20ab_cardIdentity_" + currentSessionId, p.id);
-                  setMyCardPlayerId(p.id);
-                  setScreen("cardGame");
-                }} style={{ ...btnStyle, background: "linear-gradient(45deg, #7c3aed, #a855f7)" }}>
-                  {p.name}
-                </button>
-              ))}
+              {(pendingCardRosterIds || []).map(id => {
+                const p = registry.find(pl => pl.id === id);
+                if (!p) return null;
+                return (
+                  <button key={id} onClick={() => finalizeStartCardSession(pendingCardRosterIds, id)} style={{ ...btnStyle, background: "linear-gradient(45deg, #7c3aed, #a855f7)" }}>
+                    {p.name}
+                  </button>
+                );
+              })}
             </div>
-            <button onClick={() => { setMyCardPlayerId(null); setScreen("cardGame"); }} style={{ ...btnStyle, width: "100%", marginTop: "15px", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)" }}>
-              👁️ Nur zuschauen
-            </button>
           </div>
         )}
+
+        {/* Für ALLE weiteren Spieler: Session beitreten (oder, falls schon voll, wieder rein) */}
+        {screen === "cardIdentity" && (() => {
+          const session = activeSessions.find(s => s.id === currentSessionId);
+          const rosterIds = session ? session.playerIds : gamePlayers.map(p => p.id);
+          const cs = cardStates[currentSessionId];
+          const joined = (cs && cs.joined) || {};
+          return (
+            <div className="glass" style={{ padding: "20px" }}>
+              <h2 style={{ textAlign: "center", color: "#c9a83e", marginBottom: "10px", fontSize: "18px" }}>🎴 Wer bist du an diesem Gerät?</h2>
+              <p style={{ fontSize: "12px", color: "#aaa", textAlign: "center", marginBottom: "20px" }}>
+                Damit nur deine eigenen Karten hier offen angezeigt werden - jeder wählt sich auf seinem eigenen Gerät selbst aus.
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                {gamePlayers.map(p => (
+                  <button key={p.id} onClick={() => { joinCardSession(currentSessionId, p.id, rosterIds); setScreen("cardGame"); }} style={{ ...btnStyle, background: "linear-gradient(45deg, #7c3aed, #a855f7)", display: "flex", justifyContent: "space-between" }}>
+                    <span>{p.name}</span>
+                    {joined[p.id] && <span style={{ fontSize: "12px" }}>✅ schon dabei</span>}
+                  </button>
+                ))}
+              </div>
+              <button onClick={() => { setMyCardPlayerId(null); setScreen("cardGame"); }} style={{ ...btnStyle, width: "100%", marginTop: "15px", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)" }}>
+                👁️ Nur zuschauen
+              </button>
+            </div>
+          );
+        })()}
 
         {screen === "cardGame" && (() => {
           const cs = cardStates[currentSessionId];
@@ -3697,6 +3796,32 @@ function App() {
               <div className="glass" style={{ padding: "20px", textAlign: "center" }}>
                 <p style={{ color: "#aaa", marginBottom: "15px" }}>Diese Runde ist schon weiter.</p>
                 <button onClick={() => setScreen("game")} style={{ ...btnStyle, background: "linear-gradient(45deg, #c9a83e, #a3383c)" }}>Weiter zu den Stichen</button>
+              </div>
+            );
+          }
+
+          if (cs.phase === "joining") {
+            const joined = cs.joined || {};
+            const missing = gamePlayers.filter(p => !joined[p.id]);
+            return (
+              <div className="glass" style={{ padding: "20px", textAlign: "center" }}>
+                <h2 style={{ color: "#c9a83e", fontSize: "18px", marginBottom: "10px" }}>🎴 Warten, bis alle beigetreten sind...</h2>
+                <p style={{ fontSize: "12px", color: "#aaa", marginBottom: "15px" }}>
+                  Du bist: {myCardPlayerId ? gamePlayers.find(p => p.id === myCardPlayerId)?.name : "Zuschauer"}
+                </p>
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                  {gamePlayers.map(p => (
+                    <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: "rgba(255,255,255,0.05)", borderRadius: "8px" }}>
+                      <span>{p.name}</span>
+                      <span style={{ color: joined[p.id] ? "#4e8b5c" : "#888" }}>{joined[p.id] ? "✅ dabei" : "⏳ noch nicht"}</span>
+                    </div>
+                  ))}
+                </div>
+                {missing.length > 0 && (
+                  <p style={{ fontSize: "11px", color: "#888", marginTop: "12px" }}>
+                    Sobald {missing.map(p => p.name).join(", ")} beigetreten {missing.length === 1 ? "ist" : "sind"}, wird automatisch ausgeteilt.
+                  </p>
+                )}
               </div>
             );
           }
