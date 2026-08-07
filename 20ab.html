@@ -100,6 +100,14 @@
     100% { transform: translateY(0) scale(1) rotate(0deg); opacity: 1; }
   }
   .deal-card { animation: dealCardIn 0.4s ease backwards; }
+
+  /* Kompletter Stich bleibt kurz stehen (alle Karten sichtbar), bevor er automatisch
+     weggeräumt wird - die Karten fadenverzögert erst am Ende des 2s-Fensters aus. */
+  @keyframes trickClear {
+    0% { transform: scale(1); opacity: 1; }
+    100% { transform: scale(0.7) translateY(-16px); opacity: 0; }
+  }
+  .trick-clear { animation: trickClear 0.5s ease forwards; animation-delay: 1.5s; }
 </style>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
@@ -217,6 +225,14 @@ function getTrickPlayOrder(gp, leaderId, mitIds) {
 // da doppeltes Blatt) gewinnt die ZUERST gespielte - da playOrder in Spielreihenfolge sortiert
 // ist und "best" nur bei einem ECHT höheren Rang wechselt, bleibt bei Gleichstand die zuerst
 // gespielte automatisch stehen.
+// Hausregel: wie viele Karten man beim Tausch maximal abgeben darf, hängt von der
+// Spielerzahl ab (weniger Spieler = mehr Karten pro Spieler bleiben im Talon übrig).
+function getMaxSwapCount(playerCount) {
+  if (playerCount <= 2) return 6;
+  if (playerCount === 3) return 5;
+  return 4;
+}
+
 // Farbzwang + Stichzwang: muss die angespielte Farbe bedienen falls möglich; kann er das
 // nicht, muss er stechen (Trumpf spielen) falls er welchen hat; sonst darf er alles spielen.
 function isLegalTrickPlay(cs, card, hand) {
@@ -1118,6 +1134,18 @@ function App() {
     if (typeof cs.dealerIdx === "number") setDealerIdx(cs.dealerIdx);
   }, [cardStates, currentSessionId]);
 
+  // Ist ein Stich komplett ("resolved"), bleiben alle gespielten Karten (inkl. der zuletzt
+  // gelegten) noch 2s sichtbar, bevor automatisch weitergeschaltet wird (siehe playCard/
+  // advanceAfterTrick). Abhängigkeiten bewusst eng gefasst (nur resolved-Flag + Stich-Nummer),
+  // damit der Timer nicht bei jeder unabhängigen Firebase-Änderung neu startet.
+  const cardTrickResolved = cardStates[currentSessionId]?.trick?.resolved;
+  const cardTrickNum = cardStates[currentSessionId]?.trick?.trickNum;
+  useEffect(() => {
+    if (!cardTrickResolved) return;
+    const t = setTimeout(() => advanceAfterTrick(), 2000);
+    return () => clearTimeout(t);
+  }, [cardTrickResolved, cardTrickNum, currentSessionId]);
+
   // Beim (Wieder-)Betreten des Kartenlos-Identitäts-Screens gespeicherte Auswahl von diesem
   // Gerät automatisch übernehmen (z.B. nach Reload), statt jedes Mal neu zu fragen.
   useEffect(() => {
@@ -1628,23 +1656,23 @@ function App() {
     if (cardStatesRef) cardStatesRef.child(currentSessionId).set({ ...cs, wentMit: { ...(cs.wentMit || {}), [playerId]: status } }).catch(() => {});
   }
 
-  // Hausregel: max. 4 Karten pro Tausch, kein Tausch mehr bei <= 3 Punkten. cardIdsToSwap
-  // leer lassen = bewusst kein Tausch (zählt trotzdem als "fertig" für diese Person). Haben
-  // danach ALLE "mit"-Spieler getauscht (oder bewusst nicht), beginnt automatisch das
-  // Ausspielen der Stiche - kein Extra-Klick mehr nötig.
+  // Hausregel: maximale Tauschanzahl hängt von der Spielerzahl ab (siehe getMaxSwapCount),
+  // kein Tausch mehr bei <= 3 Punkten. cardIdsToSwap leer lassen = bewusst kein Tausch (zählt
+  // trotzdem als "fertig" für diese Person). Haben danach ALLE "mit"-Spieler getauscht (oder
+  // bewusst nicht), beginnt automatisch das Ausspielen der Stiche - kein Extra-Klick nötig.
   function submitCardSwap(playerId, cardIdsToSwap) {
     const cs = cardStates[currentSessionId];
-    if (!cs || playerId !== myCardPlayerId || cardIdsToSwap.length > 4) return;
+    if (!cs || playerId !== myCardPlayerId || cardIdsToSwap.length > getMaxSwapCount(gamePlayers.length)) return;
     const idx = gamePlayers.findIndex(p => p.id === playerId);
     if ((currentScores[idx] || 0) <= 3 && cardIdsToSwap.length > 0) return;
 
     const talon = cs.talon || [];
-    const hand = cs.hands[playerId] || [];
+    const hand = (cs.hands || {})[playerId] || [];
     const keep = hand.filter(c => !cardIdsToSwap.includes(c.id));
     const drawCount = Math.min(cardIdsToSwap.length, talon.length);
     const drawn = talon.slice(0, drawCount);
     const newTalon = talon.slice(drawCount);
-    const newHands = { ...cs.hands, [playerId]: [...keep, ...drawn] };
+    const newHands = { ...(cs.hands || {}), [playerId]: [...keep, ...drawn] };
     const swapped = { ...(cs.swapped || {}), [playerId]: true };
 
     const trumpObj = SUITS.find(s => s.id === cs.trumpId);
@@ -1668,7 +1696,7 @@ function App() {
     if (!cs || !cs.trick || playerId !== myCardPlayerId) return;
     const trick = cs.trick;
     if (trick.order[trick.turnIdx] !== playerId) return;
-    const hand = cs.hands[playerId] || [];
+    const hand = (cs.hands || {})[playerId] || [];
     if (!hand.some(c => c.id === card.id)) return;
 
     // Farbzwang: muss die angespielte Farbe bedienen, wenn möglich. Stichzwang: kann er
@@ -1687,7 +1715,7 @@ function App() {
     const cardsPlayed = { ...(trick.cardsPlayed || {}), [playerId]: card };
     const playOrder = [...(trick.playOrder || []), playerId];
     const ledSuit = trick.ledSuit || card.suit;
-    const newHands = { ...cs.hands, [playerId]: newHand };
+    const newHands = { ...(cs.hands || {}), [playerId]: newHand };
 
     if (playOrder.length < trick.order.length) {
       // Stich noch nicht komplett - einfach zum nächsten Spieler weiterreichen.
@@ -1696,20 +1724,35 @@ function App() {
       return;
     }
 
-    // Stich komplett -> Gewinner ermitteln.
+    // Stich komplett -> Gewinner ermitteln, aber NICHT sofort weiterschalten: erst bleiben
+    // alle gespielten Karten (inkl. der zuletzt gelegten) noch kurz sichtbar ("resolved"),
+    // ein Timer im UI (siehe useEffect weiter unten) macht nach 2s per advanceAfterTrick()
+    // erst den eigentlichen Übergang zum nächsten Stich bzw. zur Rundenwertung.
     const winnerId = resolveTrick(cardsPlayed, playOrder, ledSuit, cs.trumpId);
-    const tricksWon = { ...(trick.tricksWon || {}), [winnerId]: ((trick.tricksWon || {})[winnerId] || 0) + 1 };
+    const resolvedTrick = { ...trick, cardsPlayed, playOrder, ledSuit, turnIdx: trick.turnIdx + 1, resolved: true, winnerId };
+    if (cardStatesRef) cardStatesRef.child(currentSessionId).set({ ...cs, hands: newHands, trick: resolvedTrick }).catch(() => {});
+  }
+
+  // Wird ~2s nachdem ein Stich komplett ist (resolved: true) aufgerufen (siehe useEffect) und
+  // macht den eigentlichen Übergang: Stich-Zähler hochzählen, dann entweder nächster Stich
+  // oder - nach dem 6. Stich - automatische Rundenwertung. Mehrere Geräte können das
+  // gleichzeitig auslösen, das Ergebnis ist aber deterministisch/idempotent.
+  function advanceAfterTrick() {
+    const cs = cardStates[currentSessionId];
+    if (!cs || !cs.trick || !cs.trick.resolved) return;
+    const trick = cs.trick;
+    const tricksWon = { ...(trick.tricksWon || {}), [trick.winnerId]: ((trick.tricksWon || {})[trick.winnerId] || 0) + 1 };
 
     if (trick.trickNum >= 6) {
       finishCardRound(cs, tricksWon);
       return;
     }
     const newTrick = {
-      order: getTrickPlayOrder(gamePlayers, winnerId, trick.order),
+      order: getTrickPlayOrder(gamePlayers, trick.winnerId, trick.order),
       turnIdx: 0, ledSuit: null, cardsPlayed: {}, playOrder: [],
-      tricksWon, trickNum: trick.trickNum + 1,
+      tricksWon, trickNum: trick.trickNum + 1, resolved: false, winnerId: null,
     };
-    if (cardStatesRef) cardStatesRef.child(currentSessionId).set({ ...cs, hands: newHands, trick: newTrick }).catch(() => {});
+    if (cardStatesRef) cardStatesRef.child(currentSessionId).set({ ...cs, trick: newTrick }).catch(() => {});
   }
 
   // Wertet die komplette Runde automatisch (baut denselben Runden-Datensatz wie der manuelle
@@ -3900,8 +3943,10 @@ function App() {
 
             <h3 style={{ color: "#c9a83e", fontSize: "14px", marginBottom: "6px" }}>Hausregeln (Kartentausch)</h3>
             <p style={{ fontSize: "13px", color: "#ccc", marginBottom: "16px" }}>
-              Nach Trumpf-Bestimmung darf einmalig getauscht werden, maximal 4 Karten auf einmal.
-              Bei einem Punktestand von 3 oder weniger ist kein Tausch mehr erlaubt.
+              Nach Trumpf-Bestimmung darf einmalig getauscht werden. Wie viele Karten maximal,
+              hängt von der Spielerzahl ab: zu zweit bis zu 6, zu dritt bis zu 5, ab vier
+              Spielern bis zu 4 Karten. Bei einem Punktestand von 3 oder weniger ist kein
+              Tausch mehr erlaubt.
             </p>
 
             <h3 style={{ color: "#c9a83e", fontSize: "14px", marginBottom: "6px" }}>🎴 Kartenlos-Modus (Beta): Reizen</h3>
@@ -4040,7 +4085,7 @@ function App() {
                   if (p.id === sittingOutId) {
                     return <div key={p.id} style={{ fontSize: "12px", color: "#888", marginBottom: "8px" }}>🪑 {p.name} setzt diese Runde als Geber aus.</div>;
                   }
-                  const hand = cs.hands[p.id] || [];
+                  const hand = (cs.hands || {})[p.id] || [];
                   const isMe = p.id === myCardPlayerId;
                   const canSwapTap = trumpObj && !cs.trick && isMe && effectiveWentMit[p.id] === "mit" && !csSwapped[p.id];
                   const isMyTrickTurn = !!cs.trick && cs.trick.order[cs.trick.turnIdx] === p.id;
@@ -4058,7 +4103,7 @@ function App() {
                           if (!isMe) return <PlayingCardView key={card.id || i} hidden delay={i * 0.05} />;
                           const legal = canPlayTap ? isLegalTrickPlay(cs, card, hand) : true;
                           const onClick = canSwapTap
-                            ? () => setCardSwapSelection(sel => sel.includes(card.id) ? sel.filter(id => id !== card.id) : (sel.length < 4 ? [...sel, card.id] : sel))
+                            ? () => setCardSwapSelection(sel => sel.includes(card.id) ? sel.filter(id => id !== card.id) : (sel.length < getMaxSwapCount(gamePlayers.length) ? [...sel, card.id] : sel))
                             : (canPlayTap && legal) ? () => playCard(myCardPlayerId, card) : undefined;
                           return (
                             <PlayingCardView key={card.id} card={card} delay={i * 0.05}
@@ -4081,18 +4126,23 @@ function App() {
                     {cs.trick.order.map(pid => {
                       const p = gamePlayers.find(pl => pl.id === pid);
                       const card = (cs.trick.cardsPlayed || {})[pid];
+                      const isWinner = cs.trick.resolved && cs.trick.winnerId === pid;
                       return (
                         <div key={pid} style={{ textAlign: "center" }}>
-                          <div style={{ fontSize: "11px", color: "#aaa", marginBottom: "4px" }}>{p?.name}</div>
+                          <div style={{ fontSize: "11px", color: isWinner ? "#4e8b5c" : "#aaa", marginBottom: "4px", fontWeight: isWinner ? "bold" : "normal" }}>
+                            {isWinner && "🏆 "}{p?.name}
+                          </div>
                           {card
-                            ? <PlayingCardView card={card} />
+                            ? <PlayingCardView card={card} winner={isWinner} clearing={cs.trick.resolved} />
                             : <div style={{ width: "46px", height: "66px", borderRadius: "6px", border: "2px dashed rgba(255,255,255,0.15)" }} />}
                         </div>
                       );
                     })}
                   </div>
                   <p style={{ fontSize: "13px", color: "#4e8b5c" }}>
-                    Am Zug: {gamePlayers.find(p => p.id === cs.trick.order[cs.trick.turnIdx])?.name}
+                    {cs.trick.resolved
+                      ? `${gamePlayers.find(p => p.id === cs.trick.winnerId)?.name} gewinnt den Stich...`
+                      : `Am Zug: ${gamePlayers.find(p => p.id === cs.trick.order[cs.trick.turnIdx])?.name}`}
                   </p>
                 </div>
               )}
@@ -4180,7 +4230,7 @@ function App() {
                       {currentScores[myIdx] <= 3 ? (
                         <p style={{ fontSize: "12px", color: "#a3383c", marginBottom: "10px" }}>⚠️ Bei ≤3 Punkten ist kein Tausch mehr erlaubt.</p>
                       ) : (
-                        <p style={{ fontSize: "12px", color: "#aaa", marginBottom: "10px" }}>Tippe oben auf deine Karten, um sie zu markieren (max. 4), dann tauschen.</p>
+                        <p style={{ fontSize: "12px", color: "#aaa", marginBottom: "10px" }}>Tippe oben auf deine Karten, um sie zu markieren (max. {getMaxSwapCount(gamePlayers.length)}), dann tauschen.</p>
                       )}
                       <div style={{ display: "flex", gap: "10px" }}>
                         <button onClick={() => { submitCardSwap(myCardPlayerId, cardSwapSelection); setCardSwapSelection([]); }} disabled={currentScores[myIdx] <= 3 && cardSwapSelection.length > 0} style={{ ...btnStyle, flex: 2, background: "linear-gradient(45deg, #4e8b5c, #6ea88a)", opacity: (currentScores[myIdx] <= 3 && cardSwapSelection.length > 0) ? 0.4 : 1 }}>
@@ -4216,11 +4266,11 @@ function App() {
 // Kommentar bei CARD_SUIT_IDS - kann später durch echte Kartenbilder ersetzt werden).
 // "hidden" zeigt einen Kartenrücken statt der eigentlichen Karte (für fremde Hände).
 // "selected" hebt die Karte optisch hervor (fürs Auswählen beim Tauschen).
-function PlayingCardView({ card, hidden, selected, dim, onClick, delay = 0 }) {
+function PlayingCardView({ card, hidden, selected, dim, winner, clearing, onClick, delay = 0 }) {
   if (hidden) {
     return (
-      <div className="deal-card" style={{
-        animationDelay: `${delay}s`, width: "46px", height: "66px", borderRadius: "6px",
+      <div className={"deal-card" + (clearing ? " trick-clear" : "")} style={{
+        animationDelay: clearing ? undefined : `${delay}s`, width: "46px", height: "66px", borderRadius: "6px",
         background: "linear-gradient(135deg, #5c616c, #2c2e35)", border: "2px solid rgba(255,255,255,0.15)",
         display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px", flexShrink: 0,
       }}>🂠</div>
@@ -4229,14 +4279,14 @@ function PlayingCardView({ card, hidden, selected, dim, onClick, delay = 0 }) {
   const suit = SUITS.find(s => s.id === card.suit);
   const rank = CARD_RANKS.find(r => r.id === card.rank);
   return (
-    <div className="deal-card" onClick={onClick} style={{
-      animationDelay: `${delay}s`, width: "46px", height: "66px", borderRadius: "6px",
+    <div className={"deal-card" + (clearing ? " trick-clear" : "")} onClick={onClick} style={{
+      animationDelay: clearing ? undefined : `${delay}s`, width: "46px", height: "66px", borderRadius: "6px",
       background: selected ? "linear-gradient(135deg, #c9a83e, #a3383c)" : "#fff",
-      border: selected ? "2px solid #fff" : "2px solid rgba(0,0,0,0.15)",
+      border: winner ? "3px solid #4e8b5c" : selected ? "2px solid #fff" : "2px solid rgba(0,0,0,0.15)",
       display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "2px",
       cursor: onClick ? "pointer" : "default", flexShrink: 0,
       transform: selected ? "translateY(-6px)" : "none", transition: "transform 0.15s",
-      boxShadow: selected ? "0 4px 10px rgba(0,0,0,0.4)" : "0 2px 4px rgba(0,0,0,0.3)",
+      boxShadow: winner ? "0 0 12px #4e8b5c99" : selected ? "0 4px 10px rgba(0,0,0,0.4)" : "0 2px 4px rgba(0,0,0,0.3)",
       opacity: dim ? 0.35 : 1,
     }}>
       <span style={{ fontSize: "13px", fontWeight: "900", color: selected ? "#fff" : "#222" }}>{rank.short}</span>
