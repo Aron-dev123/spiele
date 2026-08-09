@@ -236,6 +236,7 @@ function getMaxSwapCount(playerCount) {
 // Farbzwang + Stichzwang: muss die angespielte Farbe bedienen falls möglich; kann er das
 // nicht, muss er stechen (Trumpf spielen) falls er welchen hat; sonst darf er alles spielen.
 function isLegalTrickPlay(cs, card, hand) {
+  if (cs.trumpId === "herzblind") return true; // blind gespielt, kein Farbzwang möglich
   const ledSuit = cs.trick.ledSuit;
   if (!ledSuit) return true;
   const hasLed = hand.some(c => c.suit === ledSuit);
@@ -1541,7 +1542,10 @@ function App() {
   // aus). Wird beim ERSTEN Austeilen (sobald der letzte Spieler beitritt) UND für jede weitere
   // Runde derselben Session aufgerufen (dealerIdx rotiert dann weiter, cardGameRounds bleibt
   // die bisherige Rundenhistorie dieses Spiels).
-  function buildPlayingCardState(gp, joined, dealerIdx, cardGameRounds) {
+  // herzBlindOffer (optional): { candidates: [playerId,...], askIdx: 0 } - wird vor dem
+  // Reizen abgefragt (siehe respondHerzBlindOffer), falls jemand letzte Runde die 50 von
+  // unten durchschritten hat. null/undefined = niemand berechtigt, normales Reizen sofort.
+  function buildPlayingCardState(gp, joined, dealerIdx, cardGameRounds, herzBlindOffer) {
     const { hands, talon } = dealCards(gp);
     const sittingOut = getSittingOutId(gp, dealerIdx);
     const order = [];
@@ -1557,6 +1561,7 @@ function App() {
       trumpId: null, ansagerId: null, bidTricks: null,
       wentMit: {}, swapped: {}, joined,
       cardGameRounds: cardGameRounds || [],
+      herzBlindOffer: herzBlindOffer || null,
     };
   }
 
@@ -1630,8 +1635,47 @@ function App() {
     if (cardStatesRef) cardStatesRef.child(currentSessionId).set({ ...cs, reizen: newReizen }).catch(() => {});
   }
 
-  // Nur der Reizen-Gewinner darf den Trumpf festlegen (Herz Blind ist im Kartenlos-Modus
-  // noch nicht wählbar, siehe CARD_SUIT_IDS-Kommentar weiter oben).
+  // Herz Blind: nur der GERADE abgefragte Kandidat (herzBlindOffer.candidates[askIdx]) darf
+  // antworten. Bei Zusage wird die Runde SOFORT als Herz-Blind-Runde aufgesetzt - kein
+  // Reizen, kein Tausch (man kann ja nicht sehen, was man tauscht), alle Spieler sind
+  // automatisch "mit" - und startet direkt mit dem ersten Stich (Ansager fängt an). Bei
+  // Absage rückt der nächste Kandidat aus der Gleichstands-Gruppe nach; sind alle durch,
+  // bleibt herzBlindOffer null und das bereits vorbereitete normale Reizen läuft los.
+  function respondHerzBlindOffer(accept) {
+    const cs = cardStates[currentSessionId];
+    const offer = cs && cs.herzBlindOffer;
+    if (!cs || !offer) return;
+    const candidateId = offer.candidates[offer.askIdx];
+    if (candidateId !== myCardPlayerId) return;
+
+    if (!accept) {
+      const nextAskIdx = offer.askIdx + 1;
+      const newOffer = nextAskIdx < offer.candidates.length ? { ...offer, askIdx: nextAskIdx } : null;
+      if (cardStatesRef) cardStatesRef.child(currentSessionId).set({ ...cs, herzBlindOffer: newOffer }).catch(() => {});
+      return;
+    }
+
+    const mitIds = gamePlayers.filter(p => p.id !== sittingOutId).map(p => p.id);
+    const wentMit = {};
+    const swapped = {};
+    mitIds.forEach(id => { wentMit[id] = "mit"; swapped[id] = true; });
+    const update = {
+      ...cs,
+      herzBlindOffer: null,
+      trumpId: "herzblind",
+      ansagerId: candidateId,
+      bidTricks: null,
+      wentMit, swapped,
+      trick: {
+        order: getTrickPlayOrder(gamePlayers, candidateId, mitIds),
+        turnIdx: 0, ledSuit: null, cardsPlayed: {}, playOrder: [],
+        tricksWon: {}, trickNum: 1,
+      },
+    };
+    if (cardStatesRef) cardStatesRef.child(currentSessionId).set(update).catch(() => {});
+  }
+
+  // Nur der Reizen-Gewinner darf den Trumpf festlegen.
   function chooseCardTrump(suitId) {
     const cs = cardStates[currentSessionId];
     if (!cs || !cs.reizen.finished || cs.trumpId || cs.reizen.winnerId !== myCardPlayerId) return;
@@ -1711,15 +1755,21 @@ function App() {
     const hand = (cs.hands || {})[playerId] || [];
     if (!hand.some(c => c.id === card.id)) return;
 
+    // Herz Blind: niemand sieht seine Karten, es wird komplett blind abgelegt - Farbzwang/
+    // Stichzwang entfallen zwangsläufig (man kann ja nicht bewusst bedienen). "Herz" (nicht
+    // die Ansage "herzblind" selbst) ist der tatsächliche Trumpf für Stich-Zwecke.
+    const isBlind = cs.trumpId === "herzblind";
+    const effectiveTrumpId = isBlind ? "herz" : cs.trumpId;
+
     // Farbzwang: muss die angespielte Farbe bedienen, wenn möglich. Stichzwang: kann er
     // nicht bedienen, muss er stechen (Trumpf spielen), falls er welchen hat. Nur wenn beides
     // nicht geht, darf er eine beliebige Karte abwerfen.
-    if (trick.ledSuit) {
+    if (!isBlind && trick.ledSuit) {
       const hasLed = hand.some(c => c.suit === trick.ledSuit);
       if (hasLed && card.suit !== trick.ledSuit) return;
       if (!hasLed) {
-        const hasTrump = hand.some(c => c.suit === cs.trumpId);
-        if (hasTrump && card.suit !== cs.trumpId) return;
+        const hasTrump = hand.some(c => c.suit === effectiveTrumpId);
+        if (hasTrump && card.suit !== effectiveTrumpId) return;
       }
     }
 
@@ -1740,7 +1790,7 @@ function App() {
     // alle gespielten Karten (inkl. der zuletzt gelegten) noch kurz sichtbar ("resolved"),
     // ein Timer im UI (siehe useEffect weiter unten) macht nach 2s per advanceAfterTrick()
     // erst den eigentlichen Übergang zum nächsten Stich bzw. zur Rundenwertung.
-    const winnerId = resolveTrick(cardsPlayed, playOrder, ledSuit, cs.trumpId);
+    const winnerId = resolveTrick(cardsPlayed, playOrder, ledSuit, effectiveTrumpId);
     const resolvedTrick = { ...trick, cardsPlayed, playOrder, ledSuit, turnIdx: trick.turnIdx + 1, resolved: true, winnerId };
     if (cardStatesRef) cardStatesRef.child(currentSessionId).set({ ...cs, hands: newHands, trick: resolvedTrick }).catch(() => {});
   }
@@ -1791,8 +1841,10 @@ function App() {
       playerTricks: playerTricksResult,
       dealerIdx: cs.dealerIdx,
       sittingOutId: sittingOutId,
-      ansagerId: cs.ansagerId,
-      bidTricks: cs.bidTricks,
+      // Herz Blind hat wie im manuellen Modus keinen "echten" Ansager/keine Ansage - nur für
+      // die Stich-Reihenfolge dieser Runde wird cs.ansagerId intern als Wer-fängt-an genutzt.
+      ansagerId: cs.trumpId === "herzblind" ? null : cs.ansagerId,
+      bidTricks: cs.trumpId === "herzblind" ? null : cs.bidTricks,
     };
     const updatedRounds = [...(cs.cardGameRounds || []), newRoundData];
     const { scores: nextScores } = calculateScoresFromRounds(gamePlayers, updatedRounds);
@@ -1809,7 +1861,22 @@ function App() {
       const nextDealerIdx = (cs.dealerIdx + 1) % gamePlayers.length;
       setDealerIdx(nextDealerIdx);
       setCardSwapSelection([]);
-      const nextState = buildPlayingCardState(gamePlayers, cs.joined, nextDealerIdx, updatedRounds);
+
+      // Herz-Blind-Berechtigung: wer hat MIT DIESER Runde die 50 von unten durchschritten
+      // (Punktestand vorher <50, jetzt >=50)? Bei mehreren gleichzeitig gilt der/die mit der
+      // höchsten Punktzahl; bei Gleichstand wird eine Zufallsreihenfolge unter ihnen
+      // festgelegt - lehnt der erste ab, wird noch in derselben Runde der nächste gefragt usw.
+      const crossers = gamePlayers
+        .map((p, idx) => ({ id: p.id, before: currentScores[idx], after: nextScores[idx] }))
+        .filter(c => c.before < 50 && c.after >= 50);
+      let herzBlindOffer = null;
+      if (crossers.length > 0) {
+        const maxAfter = Math.max(...crossers.map(c => c.after));
+        const topCrossers = shuffle(crossers.filter(c => c.after === maxAfter).map(c => c.id));
+        herzBlindOffer = { candidates: topCrossers, askIdx: 0 };
+      }
+
+      const nextState = buildPlayingCardState(gamePlayers, cs.joined, nextDealerIdx, updatedRounds, herzBlindOffer);
       if (cardStatesRef) cardStatesRef.child(currentSessionId).set(nextState).catch(() => {});
     }
   }
@@ -3993,6 +4060,21 @@ function App() {
               genannten Zahl als Ansage. Bietet niemand, gilt die Ansage als 0 und der Spieler rechts vom
               Geber wird trotzdem zum Ansager (genau wie bei einer "echten" Ansage von 0 gewertet).
             </p>
+
+            <h3 style={{ color: "#c9a83e", fontSize: "14px", marginBottom: "6px", marginTop: "16px" }}>🃏❤️ Kartenlos-Modus (Beta): Herz Blind</h3>
+            <p style={{ fontSize: "13px", color: "#ccc" }}>
+              Wer mit einer Runde die 50 Punkte von unten durchschreitet (vorher unter 50, danach 50 oder mehr),
+              darf vor dem Reizen der nächsten Runde Herz Blind ansagen. Sagen mehrere Spieler gleichzeitig die
+              50 an, darf zuerst, wer die höchste Punktzahl hat; bei Gleichstand entscheidet das Los, wer als
+              Erstes fragen darf - lehnt der/die Erste ab, rückt reihum der/die Nächste aus der Gleichstands-
+              Gruppe nach, noch in derselben Runde. Sagt niemand zu, läuft das normale Reizen wie gewohnt.
+              <br/><br/>
+              Bei Zusage sieht niemand mehr seine Karten - es wird komplett blind ausgespielt, man sieht eine
+              Karte erst, sobald sie abgelegt wird. Herz ist automatisch Trumpf und zählt 4-fach. Farbzwang und
+              Stichzwang entfallen (man kann ja nicht bewusst bedienen), Kartentausch entfällt ebenfalls, und
+              alle Spieler sind automatisch mit dabei (kein Aussteigen möglich). Wer Herz Blind angesagt hat,
+              spielt den ersten Stich an; danach beginnt wie gewohnt, wer den letzten Stich gemacht hat.
+            </p>
           </div>
         )}
 
@@ -4123,6 +4205,7 @@ function App() {
                   }
                   const hand = (cs.hands || {})[p.id] || [];
                   const isMe = p.id === myCardPlayerId;
+                  const isBlind = cs.trumpId === "herzblind";
                   const canSwapTap = trumpObj && !cs.trick && isMe && effectiveWentMit[p.id] === "mit" && !csSwapped[p.id];
                   const isMyTrickTurn = !!cs.trick && cs.trick.order[cs.trick.turnIdx] === p.id;
                   const canPlayTap = !!cs.trick && isMe && isMyTrickTurn;
@@ -4130,13 +4213,18 @@ function App() {
                     <div key={p.id} style={{ marginBottom: "12px" }}>
                       <div style={{ fontSize: "12px", color: "#c9a83e", marginBottom: "6px", fontWeight: "bold" }}>
                         {isMe ? `🫵 ${p.name} (du)` : p.name}
-                        {!cs.reizen.finished && cs.reizen.order[cs.reizen.turnIdx] === p.id && <span style={{ color: "#4e8b5c" }}> — am Zug (Reizen)</span>}
+                        {!cs.reizen.finished && !cs.herzBlindOffer && !cs.trumpId && cs.reizen.order[cs.reizen.turnIdx] === p.id && <span style={{ color: "#4e8b5c" }}> — am Zug (Reizen)</span>}
                         {isMyTrickTurn && <span style={{ color: "#4e8b5c" }}> — am Zug (Stich)</span>}
                         {cs.trick && <span style={{ fontSize: "11px", color: "#888", marginLeft: "8px" }}>🏆 {(cs.trick.tricksWon || {})[p.id] || 0}</span>}
                       </div>
                       <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                         {hand.map((card, i) => {
-                          if (!isMe) return <PlayingCardView key={card.id || i} hidden delay={i * 0.05} />;
+                          // Herz Blind: auch die eigene Hand bleibt verdeckt (niemand sieht seine
+                          // Karten) - Klick zum Ausspielen bleibt trotzdem auf der echten Karte.
+                          if (!isMe || isBlind) {
+                            const onClick = (isMe && canPlayTap) ? () => playCard(myCardPlayerId, card) : undefined;
+                            return <PlayingCardView key={card.id || i} hidden delay={i * 0.05} onClick={onClick} />;
+                          }
                           const legal = canPlayTap ? isLegalTrickPlay(cs, card, hand) : true;
                           const onClick = canSwapTap
                             ? () => setCardSwapSelection(sel => sel.includes(card.id) ? sel.filter(id => id !== card.id) : (sel.length < getMaxSwapCount(gamePlayers.length) ? [...sel, card.id] : sel))
@@ -4183,8 +4271,34 @@ function App() {
                 </div>
               )}
 
+              {/* HERZ BLIND ANSAGE - wer die 50 von unten durchschritten hat, darf (in
+                  Zufallsreihenfolge bei Gleichstand) Herz Blind ansagen, bevor überhaupt
+                  gereizt wird. Lehnt der Kandidat ab, rückt der/die nächste nach. */}
+              {cs.herzBlindOffer && (() => {
+                const candidateId = cs.herzBlindOffer.candidates[cs.herzBlindOffer.askIdx];
+                const candidate = gamePlayers.find(p => p.id === candidateId);
+                const candidateIdx = gamePlayers.findIndex(p => p.id === candidateId);
+                const isMeAsked = candidateId === myCardPlayerId;
+                return (
+                  <div className="glass" style={{ padding: "20px", marginBottom: "15px" }}>
+                    <h3 style={{ color: "#c9a83e", marginBottom: "10px", fontSize: "15px" }}>🃏❤️ Herz Blind</h3>
+                    <p style={{ fontSize: "13px", color: "#ccc", marginBottom: "12px" }}>
+                      {candidate?.name} hat die 50 durchschritten (Punktestand {currentScores[candidateIdx]}) und darf Herz Blind ansagen.
+                    </p>
+                    {isMeAsked ? (
+                      <div style={{ display: "flex", gap: "10px" }}>
+                        <button onClick={() => respondHerzBlindOffer(true)} style={{ ...btnStyle, flex: 1, background: "linear-gradient(45deg, #4e8b5c, #6ea88a)" }}>Ja, Herz Blind!</button>
+                        <button onClick={() => respondHerzBlindOffer(false)} style={{ ...btnStyle, flex: 1, background: "rgba(255,255,255,0.1)" }}>Nein, normal weiter</button>
+                      </div>
+                    ) : (
+                      <p style={{ fontSize: "12px", color: "#888" }}>Warte auf {candidate?.name}...</p>
+                    )}
+                  </div>
+                );
+              })()}
+
               {/* REIZEN */}
-              {!cs.reizen.finished && (
+              {!cs.reizen.finished && !cs.herzBlindOffer && !cs.trumpId && (
                 <div className="glass" style={{ padding: "20px", marginBottom: "15px" }}>
                   <h3 style={{ color: "#c9a83e", marginBottom: "10px", fontSize: "15px" }}>📢 Reizen</h3>
                   <p style={{ fontSize: "13px", color: "#ccc", marginBottom: "6px" }}>
@@ -4239,7 +4353,9 @@ function App() {
                 <div className="glass" style={{ padding: "20px", marginBottom: "15px" }}>
                   <h3 style={{ color: "#c9a83e", marginBottom: "10px", fontSize: "15px", display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
                     Trumpf: <img src={trumpObj.icon} alt={trumpObj.label} style={{ height: "20px", width: "auto" }} /> {trumpObj.label}
-                    <span style={{ fontSize: "12px", color: "#aaa", fontWeight: "normal" }}>— Ansager: {gamePlayers.find(p => p.id === cs.ansagerId)?.name} ({cs.bidTricks})</span>
+                    {cs.trumpId === "herzblind"
+                      ? <span style={{ fontSize: "12px", color: "#aaa", fontWeight: "normal" }}>— {gamePlayers.find(p => p.id === cs.ansagerId)?.name} hat Herz Blind angesagt (4-fache Zählung, alle sind blind mit dabei)</span>
+                      : <span style={{ fontSize: "12px", color: "#aaa", fontWeight: "normal" }}>— Ansager: {gamePlayers.find(p => p.id === cs.ansagerId)?.name} ({cs.bidTricks})</span>}
                   </h3>
                   {gamePlayers.map((p, idx) => {
                     if (p.id === sittingOutId) return null;
@@ -4305,10 +4421,11 @@ function App() {
 function PlayingCardView({ card, hidden, selected, dim, winner, clearing, onClick, delay = 0 }) {
   if (hidden) {
     return (
-      <div className={"deal-card" + (clearing ? " trick-clear" : "")} style={{
+      <div className={"deal-card" + (clearing ? " trick-clear" : "")} onClick={onClick} style={{
         animationDelay: clearing ? undefined : `${delay}s`, width: "46px", height: "66px", borderRadius: "6px",
         background: "linear-gradient(135deg, #5c616c, #2c2e35)", border: "2px solid rgba(255,255,255,0.15)",
         display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px", flexShrink: 0,
+        cursor: onClick ? "pointer" : "default", opacity: dim ? 0.35 : 1,
       }}>🂠</div>
     );
   }
