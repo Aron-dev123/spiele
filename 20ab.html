@@ -1134,6 +1134,18 @@ function App() {
     if (typeof cs.dealerIdx === "number") setDealerIdx(cs.dealerIdx);
   }, [cardStates, currentSessionId]);
 
+  // Eine Kartenlos-Session soll NIE im manuellen "game"-Screen landen: startet irgendein
+  // Gerät (per "➕ Neues Spiel"/startNewCardGame) ein neues Spiel innerhalb derselben Session,
+  // wechseln alle anderen Geräte (die z.B. noch auf dem Abschluss-Screen des vorherigen
+  // Spiels warten) automatisch mit in den Kartenlos-Screen.
+  useEffect(() => {
+    if (screen !== "game" || !currentSessionId) return;
+    const session = activeSessions.find(s => s.id === currentSessionId);
+    if (!session || !session.cardMode) return;
+    const cs = cardStates[currentSessionId];
+    if (cs && cs.phase === "playing") setScreen("cardGame");
+  }, [cardStates, currentSessionId, screen, activeSessions]);
+
   // Ist ein Stich komplett ("resolved"), bleiben alle gespielten Karten (inkl. der zuletzt
   // gelegten) noch 2s sichtbar, bevor automatisch weitergeschaltet wird (siehe playCard/
   // advanceAfterTrick). Abhängigkeiten bewusst eng gefasst (nur resolved-Flag + Stich-Nummer),
@@ -1800,6 +1812,26 @@ function App() {
       const nextState = buildPlayingCardState(gamePlayers, cs.joined, nextDealerIdx, updatedRounds);
       if (cardStatesRef) cardStatesRef.child(currentSessionId).set(nextState).catch(() => {});
     }
+  }
+
+  // "➕ Neues Spiel" für eine Session, die im Kartenlos-Modus läuft (session.cardMode) - eine
+  // Kartenlos-Session soll komplett aus Kartenlos-Spielen bestehen, nie in den manuellen
+  // Trumpf/Ansager/Stiche-Screen zurückfallen. Alle Spieler sind schon bekannt (localStorage-
+  // Identität besteht weiter), deshalb direkt "joined" und ohne erneuten Beitritts-Screen neu
+  // austeilen.
+  function startNewCardGame() {
+    const session = activeSessions.find(s => s.id === currentSessionId);
+    if (!session) return;
+    const gp = (session.playerIds || []).map(id => registry.find(p => p.id === id));
+    setGamePlayers(gp);
+    setGameRounds([]);
+    setDealerIdx(0);
+    setCardSwapSelection([]);
+    const joined = {};
+    gp.forEach(p => { joined[p.id] = true; });
+    const nextState = buildPlayingCardState(gp, joined, 0, []);
+    if (cardStatesRef) cardStatesRef.child(currentSessionId).set(nextState).catch(() => {});
+    setScreen("cardGame");
   }
 
   // Aufgerufen, wenn man über "👥 Spieler ändern" die Spielerliste einer BESTEHENDEN Session
@@ -2819,7 +2851,11 @@ function App() {
                   <button
                     onClick={() => {
                       const session = activeSessions.find(s => s.id === currentSessionId);
-                      startGame(session ? session.playerIds : gamePlayers.map(p => p.id), currentSessionId);
+                      if (session && session.cardMode) {
+                        startNewCardGame();
+                      } else {
+                        startGame(session ? session.playerIds : gamePlayers.map(p => p.id), currentSessionId);
+                      }
                     }}
                     disabled={!gameIsOver}
                     style={{ ...btnStyle, flex: 1, padding: "9px", fontSize: "12px", background: gameIsOver ? "linear-gradient(45deg, #4e8b5c, #6ea88a)" : "rgba(255,255,255,0.08)", color: gameIsOver ? "#000" : "#666", cursor: gameIsOver ? "pointer" : "default", opacity: gameIsOver ? 1 : 0.5 }}>
