@@ -1138,13 +1138,17 @@ function App() {
   // Eine Kartenlos-Session soll NIE im manuellen "game"-Screen landen: startet irgendein
   // Gerät (per "➕ Neues Spiel"/startNewCardGame) ein neues Spiel innerhalb derselben Session,
   // wechseln alle anderen Geräte (die z.B. noch auf dem Abschluss-Screen des vorherigen
-  // Spiels warten) automatisch mit in den Kartenlos-Screen.
+  // Spiels warten) automatisch mit in den Kartenlos-Screen. Wurde stattdessen (weil die
+  // Spielerliste sich geändert hat) wieder der Beitritts-Zustand "joining" gestartet, geht es
+  // zurück zur Startseite - dort zeigt die Session-Karte reaktiv den Beitreten/Warten-Status
+  // (der cardGame-Screen selbst hat keine "wer bin ich"-Auswahl für noch nicht Beigetretene).
   useEffect(() => {
     if (screen !== "game" || !currentSessionId) return;
     const session = activeSessions.find(s => s.id === currentSessionId);
     if (!session || !session.cardMode) return;
     const cs = cardStates[currentSessionId];
     if (cs && cs.phase === "playing") setScreen("cardGame");
+    else if (cs && cs.phase === "joining") setScreen("home");
   }, [cardStates, currentSessionId, screen, activeSessions]);
 
   // Ist ein Stich komplett ("resolved"), bleiben alle gespielten Karten (inkl. der zuletzt
@@ -1854,7 +1858,10 @@ function App() {
     if (hasWinner) {
       const winnerIndices = nextScores.map((s, idx) => s <= 0 ? idx : -1).filter(idx => idx !== -1);
       const clampedScores = nextScores.map(s => s < 0 ? 0 : s);
-      if (cardStatesRef) cardStatesRef.child(currentSessionId).remove().catch(() => {});
+      // Statt cardStates komplett zu entfernen, bleibt ein schlanker "finished"-Marker mit dem
+      // zuletzt bekannten joined-Stand stehen - startNewCardGame() braucht den, um bei "Neues
+      // Spiel" zu wissen, wer schon eine Geräte-Identität für diese Session hat (siehe dort).
+      if (cardStatesRef) cardStatesRef.child(currentSessionId).set({ phase: "finished", joined: cs.joined || {} }).catch(() => {});
       saveGameResult(clampedScores, winnerIndices, updatedRounds);
       setScreen("game");
     } else {
@@ -1883,9 +1890,13 @@ function App() {
 
   // "➕ Neues Spiel" für eine Session, die im Kartenlos-Modus läuft (session.cardMode) - eine
   // Kartenlos-Session soll komplett aus Kartenlos-Spielen bestehen, nie in den manuellen
-  // Trumpf/Ansager/Stiche-Screen zurückfallen. Alle Spieler sind schon bekannt (localStorage-
-  // Identität besteht weiter), deshalb direkt "joined" und ohne erneuten Beitritts-Screen neu
-  // austeilen.
+  // Trumpf/Ansager/Stiche-Screen zurückfallen. Wer schon beim letzten Spiel dieser Session
+  // dabei war, bleibt automatisch "beigetreten" (siehe joined-Marker in finishCardRound) und
+  // muss sich nicht erneut über den Beitritts-Screen identifizieren. Wurde die Spielerliste
+  // zwischenzeitlich per "Spieler ändern" erweitert (neue(r) Spieler noch nie beigetreten),
+  // startet die Session stattdessen wieder im Zustand "joining" - genau wie beim allerersten
+  // Erstellen -, damit der/die Neue auf einem eigenen Gerät beitreten kann, und es wird erst
+  // ausgeteilt, sobald wirklich ALLE aktuellen Spieler beigetreten sind.
   function startNewCardGame() {
     const session = activeSessions.find(s => s.id === currentSessionId);
     if (!session) return;
@@ -1894,9 +1905,15 @@ function App() {
     setGameRounds([]);
     setDealerIdx(0);
     setCardSwapSelection([]);
+
+    const prevJoined = (cardStates[currentSessionId] || {}).joined || {};
     const joined = {};
-    gp.forEach(p => { joined[p.id] = true; });
-    const nextState = buildPlayingCardState(gp, joined, 0, []);
+    gp.forEach(p => { if (prevJoined[p.id]) joined[p.id] = true; });
+    const allAlreadyJoined = gp.every(p => joined[p.id]);
+
+    const nextState = allAlreadyJoined
+      ? buildPlayingCardState(gp, joined, 0, [])
+      : { phase: "joining", joined };
     if (cardStatesRef) cardStatesRef.child(currentSessionId).set(nextState).catch(() => {});
     setScreen("cardGame");
   }
@@ -4129,10 +4146,11 @@ function App() {
 
         {screen === "cardGame" && (() => {
           const cs = cardStates[currentSessionId];
-          if (!cs) {
-            // cardStates wurde schon entfernt (finishCardPhase ist bereits abgeschlossen,
-            // z.B. weil ein anderes Gerät schneller war) -> einfach in den normalen
-            // Stiche-Screen weiterleiten, dort steht alles Nötige schon bereit.
+          if (!cs || cs.phase === "finished") {
+            // cardStates wurde schon entfernt bzw. steht nur noch als "finished"-Marker da
+            // (das vorherige Spiel dieser Session ist bereits abgeschlossen, z.B. weil ein
+            // anderes Gerät schneller war) -> einfach in den normalen Stiche-Screen
+            // weiterleiten, dort steht alles Nötige schon bereit.
             return (
               <div className="glass" style={{ padding: "20px", textAlign: "center" }}>
                 <p style={{ color: "#aaa", marginBottom: "15px" }}>Diese Runde ist schon weiter.</p>
