@@ -389,7 +389,9 @@ function calculateScoresFromRounds(players, rounds) {
 // Bei genau 5 Spielern setzt in jeder Runde der aktuelle Geber aus (rotiert automatisch
 // mit der Geber-Rotation durch, sodass immer nur 4 Leute tatsächlich mitspielen). Bei
 // anderen Spielerzahlen gibt es kein Aussetzen.
-function getSittingOutId(playersList, dealerIndex) {
+// AUSNAHME Herz Blind: da spielen IMMER alle mit, auch zu fünft - niemand setzt aus.
+function getSittingOutId(playersList, dealerIndex, trumpId) {
+  if (trumpId === "herzblind") return null;
   return playersList.length === 5 ? playersList[dealerIndex]?.id ?? null : null;
 }
 
@@ -1344,7 +1346,14 @@ function App() {
   // mit der Geber-Rotation durch) - so gehen immer nur 4 Leute tatsächlich mit. Das
   // Aussetzen zählt NICHT zum "2× raus"-Limit und ist auch bei Punktestand > 6 zulässig
   // (siehe calculateScoresFromRounds/r.sittingOutId).
-  const sittingOutId = getSittingOutId(gamePlayers, dealerIdx);
+  // Bei Herz Blind spielen dagegen alle 5 mit - deshalb muss hier der aktuell geltende
+  // Trumpf mit einfließen: im Kartenlos-Modus der aus cardStates, sonst der manuell
+  // ausgewählte Trumpf des laufenden Eintrag-Screens.
+  const activeSessionForSitOut = activeSessions.find(s => s.id === currentSessionId);
+  const activeTrumpId = activeSessionForSitOut && activeSessionForSitOut.cardMode
+    ? ((cardStates[currentSessionId] || {}).trumpId || null)
+    : (selectedTrump && selectedTrump.id);
+  const sittingOutId = getSittingOutId(gamePlayers, dealerIdx, activeTrumpId);
 
   // Aktueller Geldstand der laufenden Session je Spieler (Summe aller bereits
   // abgeschlossenen Spiele dieser Session) - wird in der Punkte-Tafel neben dem Namen
@@ -1486,10 +1495,11 @@ function App() {
       setAnsagerId(existingLive.ansagerId ?? null);
       setBidTricks(existingLive.bidTricks ?? 2);
     } else {
+      const startDealerIdx = getStartDealerIdx(gp, targetSession);
       setGameRounds([]);
-      setDealerIdx(0);
+      setDealerIdx(startDealerIdx);
       setSelectedTrump(SUITS[0]);
-      initRound(gp, SUITS[0], 0);
+      initRound(gp, SUITS[0], startDealerIdx);
     }
 
     setScreen("game");
@@ -1590,7 +1600,9 @@ function App() {
     if (!cardStatesRef) return;
     if (allJoined) {
       const gp = rosterIds.map(id => registry.find(p => p.id === id));
-      cardStatesRef.child(sessionId).set(buildPlayingCardState(gp, joined, 0, [])).catch(() => {});
+      // Ein im Beitritts-Zustand vorgemerkter dealerIdx (Sieger des letzten Spiels setzt
+      // aus, siehe startNewCardGame) muss beim Austeilen erhalten bleiben.
+      cardStatesRef.child(sessionId).set(buildPlayingCardState(gp, joined, cs.dealerIdx || 0, [])).catch(() => {});
     } else {
       cardStatesRef.child(sessionId).set({ ...cs, joined }).catch(() => {});
     }
@@ -1664,7 +1676,10 @@ function App() {
       return;
     }
 
-    const mitIds = gamePlayers.filter(p => p.id !== sittingOutId).map(p => p.id);
+    // Herz Blind ist die Ausnahme von der 5-Spieler-Aussetz-Regel: hier spielen ALLE mit,
+    // auch der, der sonst diese Runde als Geber ausgesetzt hätte. Karten hat er ohnehin
+    // schon bekommen (buildPlayingCardState teilt immer an alle aus).
+    const mitIds = gamePlayers.map(p => p.id);
     const wentMit = {};
     const swapped = {};
     mitIds.forEach(id => { wentMit[id] = "mit"; swapped[id] = true; });
@@ -1906,9 +1921,10 @@ function App() {
     const session = activeSessions.find(s => s.id === currentSessionId);
     if (!session) return;
     const gp = (session.playerIds || []).map(id => registry.find(p => p.id === id));
+    const startDealerIdx = getStartDealerIdx(gp, session);
     setGamePlayers(gp);
     setGameRounds([]);
-    setDealerIdx(0);
+    setDealerIdx(startDealerIdx);
     setCardSwapSelection([]);
 
     const prevJoined = (cardStates[currentSessionId] || {}).joined || {};
@@ -1916,9 +1932,11 @@ function App() {
     gp.forEach(p => { if (prevJoined[p.id]) joined[p.id] = true; });
     const allAlreadyJoined = gp.every(p => joined[p.id]);
 
+    // dealerIdx wandert bei "joining" mit in den Beitritts-Zustand, damit der Aussetzer
+    // auch dann stimmt, wenn erst später (per joinCardSession) ausgeteilt wird.
     const nextState = allAlreadyJoined
-      ? buildPlayingCardState(gp, joined, 0, [])
-      : { phase: "joining", joined };
+      ? buildPlayingCardState(gp, joined, startDealerIdx, [])
+      : { phase: "joining", joined, dealerIdx: startDealerIdx };
     if (cardStatesRef) cardStatesRef.child(currentSessionId).set(nextState).catch(() => {});
     setScreen("cardGame");
   }
@@ -2094,6 +2112,18 @@ function App() {
     if (currentSessionId) {
       setActiveSessions(activeSessions.map(s => s.id === currentSessionId ? { ...s, playerIds: next.map(p => p.id) } : s));
     }
+  }
+
+  // Startpunkt der Geber-/Aussetz-Rotation für ein NEUES Spiel: Bei 5 Spielern setzt der
+  // Sieger des zuletzt beendeten Spiels dieser Session als Erster aus (siehe die Auslosung
+  // in saveGameResult). Ohne vorheriges Spiel - oder bei anderer Spielerzahl, wo niemand
+  // aussetzt - bleibt es wie bisher beim ersten Spieler.
+  function getStartDealerIdx(gp, session) {
+    if (!gp || gp.length !== 5) return 0;
+    const id = session && session.nextSitOutPlayerId;
+    if (!id) return 0;
+    const idx = gp.findIndex(p => p && p.id === id);
+    return idx === -1 ? 0 : idx;
   }
 
   function initRound(playersList, trump, dealerIndexForRound = 0) {
@@ -2277,6 +2307,18 @@ function App() {
     // bis ggf. ein neues Spiel gestartet wird (verhindert, dass andere Geräte den bereits
     // abgeschlossenen Stand fälschlich noch als "läuft gerade" anzeigen).
     if (liveGamesRef && currentSessionId) liveGamesRef.child(currentSessionId).remove().catch(() => {});
+
+    // Hausregel: Wer ein Spiel gewinnt, setzt im NÄCHSTEN Spiel dieser Session als Erster
+    // aus (greift nur bei 5 Spielern, sonst setzt ohnehin niemand aus). Haben mehrere
+    // gleichzeitig gewonnen, wird EINER von ihnen zufällig ausgelost - und zwar genau hier,
+    // einmalig beim Spielende. Würde erst beim Start des nächsten Spiels gewürfelt, könnten
+    // zwei Geräte unterschiedlich losen und danach verschiedene Aussetzer anzeigen.
+    const sitOutWinnerId = winnerIndices.length > 0
+      ? (gamePlayers[winnerIndices[Math.floor(Math.random() * winnerIndices.length)]] || {}).id || null
+      : null;
+    if (currentSessionId && sitOutWinnerId) {
+      setActiveSessions(activeSessions.map(s => s.id === currentSessionId ? { ...s, nextSitOutPlayerId: sitOutWinnerId } : s));
+    }
 
     const winnerNames = winnerIndices.map(i => gamePlayers[i].name);
     const winnerText = winnerNames.length > 1
@@ -4165,6 +4207,11 @@ function App() {
             <p style={{ fontSize: "13px", color: "#ccc", marginBottom: "16px" }}>
               Bei genau 5 Spielern setzt in jeder Runde der aktuelle Geber komplett aus (keine Punkte-Änderung,
               kein Einfluss auf seine Raus-Serie) - die Geber-Rolle rotiert dabei ganz normal weiter.
+              Den Anfang macht der Sieger des letzten Spiels: Wer ein Spiel gewinnt, setzt im nächsten Spiel
+              als Erster aus. Haben mehrere gleichzeitig gewonnen, wird einer von ihnen ausgelost.
+              <br/><br/>
+              Ausnahme Herz Blind: In einer Herz-Blind-Runde spielen immer alle mit - auch zu fünft setzt
+              dann niemand aus.
             </p>
 
             <h3 style={{ color: "#c9a83e", fontSize: "14px", marginBottom: "6px" }}>Hausregeln (Kartentausch)</h3>
@@ -4195,7 +4242,8 @@ function App() {
               Bei Zusage sieht niemand mehr seine Karten - es wird komplett blind ausgespielt, man sieht eine
               Karte erst, sobald sie abgelegt wird. Herz ist automatisch Trumpf und zählt 4-fach. Farbzwang und
               Stichzwang entfallen (man kann ja nicht bewusst bedienen), Kartentausch entfällt ebenfalls, und
-              alle Spieler sind automatisch mit dabei (kein Aussteigen möglich). Wer Herz Blind angesagt hat,
+              alle Spieler sind automatisch mit dabei (kein Aussteigen möglich) - zu fünft spielen dabei
+              ausnahmsweise alle 5 mit, es setzt niemand aus. Wer Herz Blind angesagt hat,
               spielt den ersten Stich an; danach beginnt wie gewohnt, wer den letzten Stich gemacht hat.
             </p>
           </div>
