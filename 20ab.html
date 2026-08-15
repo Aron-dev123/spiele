@@ -450,6 +450,7 @@ function computePlayerStats(player, gamesOverride) {
   games.forEach(g => {
     const rounds = g.rounds || [];
     rounds.forEach((r, rIdx) => {
+      if (r.isManualAdjustment) return; // Reine Punktestand-Korrektur, keine gespielte Runde
       if (r.sittingOutId === player.id) return; // Aussetz-Runde zählt für ihn nicht mit
       totalRounds++;
       const status = r.playerStatus?.[player.id] || "mit";
@@ -726,6 +727,7 @@ function computeSessionStats(games, registry) {
 
     const rounds = g.rounds || [];
     rounds.forEach((r, rIdx) => {
+      if (r.isManualAdjustment) return; // Reine Punktestand-Korrektur, keine gespielte Runde
       const deltas = computeRoundDelta(g.players, rounds, rIdx);
       // Punktestand + Raus-Streak JEWEILS VOR dieser Runde (für Einstellig/Herz Blind/Macher).
       const { scores: scoresBefore, consecutiveRaus: rausBefore } = calculateScoresFromRounds(g.players, rounds.slice(0, rIdx));
@@ -1277,6 +1279,9 @@ function App() {
 
   // Edit States für laufende Runden
   const [editingRoundIdx, setEditingRoundIdx] = useState(null);
+  // Manuelle Punktestand-Korrektur (siehe applyManualScoreAdjustment): null = Panel zu,
+  // sonst { [playerId]: "12" } als Roh-Eingabe je Spieler.
+  const [manualScoreDraft, setManualScoreDraft] = useState(null);
 
   // Session-Spiele: welches Spiel wird gerade auf der eigenen Detail-Seite betrachtet
   const [detailGameId, setDetailGameId] = useState(null);
@@ -2427,17 +2432,72 @@ function App() {
 
 
 
-  function saveEditedRound(rIdx, editedStatus, editedTricks) {
+  // "Ab hier mit diesem Punktestand weiter": hängt einen Sonder-Eintrag an die Rundenhistorie,
+  // der die Punktestände hart auf die eingegebenen Werte setzt (siehe isManualAdjustment in
+  // calculateScoresFromRounds). Gedacht für den Fall, dass beim Eintragen irgendwo etwas
+  // schiefgelaufen ist und man den Fehler nicht mehr einzelnen Runden zuordnen kann - man
+  // einigt sich am Tisch auf den korrekten Stand und spielt ab da normal weiter. Alle
+  // folgenden Runden rechnen ganz normal auf diesem Stand auf.
+  function applyManualScoreAdjustment(draft) {
+    const manualScores = gamePlayers.map(p => {
+      const raw = (draft[p.id] ?? "").toString().trim();
+      return raw === "" ? NaN : Number(raw);
+    });
+    if (manualScores.some(v => !Number.isFinite(v) || v < 0 || !Number.isInteger(v))) {
+      alert("Bitte für jeden Spieler einen gültigen Punktestand (ganze Zahl, 0 oder mehr) eintragen.");
+      return;
+    }
+
+    const newRoundData = {
+      roundNum: gameRounds.length + 1,
+      isManualAdjustment: true,
+      manualScores,
+      dealerIdx: dealerIdx,
+      sittingOutId: null,
+    };
+    const updatedRounds = [...gameRounds, newRoundData];
+    const { scores: nextScores } = calculateScoresFromRounds(gamePlayers, updatedRounds);
+
+    setGameRounds(updatedRounds);
+    setManualScoreDraft(null);
+
+    // Setzt jemand sich damit selbst auf 0, ist das Spiel wie nach einer normalen Runde
+    // vorbei - dieselbe Auswertung/Abrechnung wie in evaluateRound.
+    const hasWinner = nextScores.some(s => s <= 0);
+    if (hasWinner) {
+      const winnerIndices = nextScores.map((s, idx) => s <= 0 ? idx : -1).filter(idx => idx !== -1);
+      const clampedScores = nextScores.map(s => s < 0 ? 0 : s);
+      saveGameResult(clampedScores, winnerIndices, updatedRounds);
+    }
+  }
+
+  // Nachträgliche Korrektur einer Runde des LAUFENDEN Spiels - inklusive Ansager/Ansage,
+  // da sich beim Eintragen während des Spiels leicht der falsche Ansager einschleicht.
+  // Die Punktestände aller FOLGENDEN Runden ergeben sich automatisch neu, weil
+  // calculateScoresFromRounds ohnehin immer die komplette Rundenhistorie durchrechnet.
+  function saveEditedRound(rIdx, editedStatus, editedTricks, editedAnsagerId, editedBidTricks) {
     const round = gameRounds[rIdx];
+    const isHerzBlind = round.trump?.id === "herzblind";
+    const ansagerIdFinal = isHerzBlind ? null : (editedAnsagerId || null);
     const editablePlayers = gamePlayers.filter(p => p.id !== round.sittingOutId);
-    const total = editablePlayers.reduce((sum, p) => sum + (editedStatus[p.id] === "mit" ? (editedTricks[p.id] || 0) : 0), 0);
+
+    if (ansagerIdFinal && !editablePlayers.some(p => p.id === ansagerIdFinal)) {
+      alert("Der Ansager muss ein Spieler sein, der in dieser Runde mitgespielt hat.");
+      return;
+    }
+
+    // Der Ansager kann nie "raus" sein - beim Umstellen im Editor wird er zwar automatisch
+    // auf "mit" gesetzt, hier aber nochmal hart abgesichert.
+    const statusFinal = ansagerIdFinal ? { ...editedStatus, [ansagerIdFinal]: "mit" } : { ...editedStatus };
+
+    const total = editablePlayers.reduce((sum, p) => sum + (statusFinal[p.id] === "mit" ? (editedTricks[p.id] || 0) : 0), 0);
     if (total !== 6) {
       alert(`Fehler: Eine Runde muss immer genau 6 Stiche haben! (Aktuell: ${total})`);
       return;
     }
 
-    const mitCount = editablePlayers.filter(p => editedStatus[p.id] === "mit").length;
-    if (round.trump.id !== "herzblind" && round.ansagerId) {
+    const mitCount = editablePlayers.filter(p => statusFinal[p.id] === "mit").length;
+    if (ansagerIdFinal) {
       if (mitCount < 2) {
         alert("Außer dem Ansager muss mindestens ein weiterer Spieler mitgehen!");
         return;
@@ -2450,8 +2510,10 @@ function App() {
     const updatedRounds = [...gameRounds];
     updatedRounds[rIdx] = {
       ...updatedRounds[rIdx],
-      playerStatus: editedStatus,
-      playerTricks: editedTricks
+      playerStatus: statusFinal,
+      playerTricks: editedTricks,
+      ansagerId: ansagerIdFinal,
+      bidTricks: ansagerIdFinal ? editedBidTricks : null,
     };
 
     setGameRounds(updatedRounds);
@@ -3117,7 +3179,10 @@ function App() {
                   <div style={{ marginTop: "14px" }}>
                     {editingRoundIdx === null ? (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-                        {gameRounds.map((r, rIdx) => (
+                        {/* Manuell gesetzte Punktestände sind keine gespielten Runden und haben
+                            daher nichts zu editieren - sie werden schlicht durch ein erneutes
+                            "Punktestand manuell setzen" überschrieben. */}
+                        {gameRounds.map((r, rIdx) => r.isManualAdjustment ? null : (
                           <button key={rIdx} onClick={() => setEditingRoundIdx(rIdx)} style={{ background: "rgba(255,255,255,0.08)", border: "none", borderRadius: "6px", color: "#c9a83e", cursor: "pointer", fontSize: "11px", padding: "4px 8px" }}>
                             ✏️ Runde {r.roundNum}
                           </button>
@@ -3129,11 +3194,52 @@ function App() {
                         <RoundInlineEditor
                           gamePlayers={gamePlayers}
                           roundData={gameRounds[editingRoundIdx]}
-                          onSave={(edStatus, edTricks) => saveEditedRound(editingRoundIdx, edStatus, edTricks)}
+                          onSave={(edStatus, edTricks, edAnsagerId, edBidTricks) => saveEditedRound(editingRoundIdx, edStatus, edTricks, edAnsagerId, edBidTricks)}
                           onCancel={() => setEditingRoundIdx(null)}
                         />
                       </div>
                     )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* PUNKTESTAND MANUELL SETZEN - Notausgang, wenn beim Eintragen etwas schiefging
+                und sich der Fehler nicht mehr einzelnen Runden zuordnen lässt: Stand am Tisch
+                einigen, hier eintragen, normal weiterspielen. */}
+            {!isObserver && !gameIsOver && (
+              <div className="glass" style={{ padding: "16px", marginTop: "15px" }}>
+                {manualScoreDraft === null ? (
+                  <button
+                    onClick={() => {
+                      const draft = {};
+                      gamePlayers.forEach((p, idx) => { draft[p.id] = String(Math.max(0, currentScores[idx])); });
+                      setManualScoreDraft(draft);
+                    }}
+                    style={{ ...btnStyle, width: "100%", padding: "9px", fontSize: "12px", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)" }}>
+                    📝 Punktestand manuell setzen
+                  </button>
+                ) : (
+                  <div>
+                    <h3 style={{ color: "#c9a83e", marginBottom: "6px", fontSize: "15px" }}>📝 Punktestand manuell setzen</h3>
+                    <p style={{ fontSize: "12px", color: "#aaa", marginBottom: "12px" }}>
+                      Trage für jeden Spieler den Punktestand ein, mit dem ab jetzt weitergespielt wird.
+                      Die bisherigen Runden bleiben als Verlauf stehen, ab hier wird auf diesen Werten normal weitergerechnet.
+                    </p>
+                    {gamePlayers.map(p => (
+                      <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", background: "rgba(255,255,255,0.05)", borderRadius: "8px", marginBottom: "6px" }}>
+                        <span style={{ fontSize: "14px" }}>{p.name}</span>
+                        <input
+                          type="number" min="0" inputMode="numeric"
+                          value={manualScoreDraft[p.id] ?? ""}
+                          onChange={e => setManualScoreDraft({ ...manualScoreDraft, [p.id]: e.target.value })}
+                          style={{ width: "70px", textAlign: "center", background: "#000", color: "#fff", border: "1px solid #555", borderRadius: "6px", padding: "6px", fontSize: "15px" }} />
+                      </div>
+                    ))}
+                    <div style={{ display: "flex", gap: "8px", marginTop: "12px" }}>
+                      <button onClick={() => setManualScoreDraft(null)} style={{ ...btnStyle, flex: 1, padding: "9px", fontSize: "12px", background: "rgba(255,255,255,0.1)" }}>Abbrechen</button>
+                      <button onClick={() => applyManualScoreAdjustment(manualScoreDraft)} style={{ ...btnStyle, flex: 2, padding: "9px", fontSize: "12px", background: "linear-gradient(45deg, #4e8b5c, #6ea88a)", color: "#000" }}>✅ Ab hier so weiterspielen</button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -4594,18 +4700,49 @@ function SessionCard({ sessionEntry, registry, onOpenStats, onOpenGameDetail }) 
 function RoundInlineEditor({ gamePlayers, roundData, onSave, onCancel }) {
   const [status, setStatus] = useState({ ...roundData.playerStatus });
   const [tricks, setTricks] = useState({ ...roundData.playerTricks });
+  // Ansager + Ansage sind nachträglich korrigierbar (beim Eintragen während des Spiels
+  // passiert es schnell, dass der falsche Ansager erwischt wird). Die Punkte werden danach
+  // über calculateScoresFromRounds für DIESE und alle FOLGENDEN Runden neu durchgerechnet.
+  const [ansagerId, setAnsagerId] = useState(roundData.ansagerId || null);
+  const [bidTricks, setBidTricks] = useState(roundData.bidTricks || 1);
 
   const sittingOutId = roundData.sittingOutId || null;
+  const isHerzBlind = roundData.trump?.id === "herzblind";
   const editablePlayers = gamePlayers.filter(p => p.id !== sittingOutId);
   const total = editablePlayers.reduce((sum, p) => sum + (status[p.id] === "mit" ? (tricks[p.id] || 0) : 0), 0);
-  const ansagerName = roundData.ansagerId ? gamePlayers.find(p => p.id === roundData.ansagerId)?.name : null;
   const sittingOutName = sittingOutId ? gamePlayers.find(p => p.id === sittingOutId)?.name : null;
+
+  // Ein neu gewählter Ansager muss zwingend "mit" sein - sonst stimmt die Wertung nicht.
+  function changeAnsager(newId) {
+    setAnsagerId(newId);
+    if (newId) {
+      setStatus(s => ({ ...s, [newId]: "mit" }));
+    }
+  }
+
+  const inputStyle = { background: "#000", color: "#fff", padding: "4px", border: "1px solid #555", borderRadius: "4px" };
 
   return (
     <div style={{ background: "rgba(255,255,255,0.05)", padding: "10px", borderRadius: "8px", marginTop: "5px" }}>
-      {ansagerName && (
-        <div style={{ fontSize: "12px", color: "#c9a83e", marginBottom: "8px" }}>
-          📣 Ansager: <strong>{ansagerName}</strong> (Ansage: {roundData.bidTricks} Stiche — Ansager selbst nicht änderbar, nur Status/Stiche)
+      {isHerzBlind ? (
+        <div style={{ fontSize: "12px", color: "#c9a83e", marginBottom: "8px" }}>🃏❤️ Herz-Blind-Runde (×4) — hier gibt es keinen Ansager.</div>
+      ) : (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center", marginBottom: "10px", paddingBottom: "8px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+          <span style={{ fontSize: "12px", color: "#c9a83e" }}>📣 Ansager:</span>
+          <select value={ansagerId || ""} onChange={e => changeAnsager(e.target.value || null)} style={inputStyle}>
+            <option value="">— kein Ansager —</option>
+            {editablePlayers.map(p => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+          {ansagerId && (
+            <>
+              <span style={{ fontSize: "12px", color: "#c9a83e" }}>Ansage:</span>
+              <select value={bidTricks} onChange={e => setBidTricks(parseInt(e.target.value))} style={inputStyle}>
+                {[1, 2, 3, 4, 5, 6].map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </>
+          )}
         </div>
       )}
       {sittingOutName && (
@@ -4615,7 +4752,7 @@ function RoundInlineEditor({ gamePlayers, roundData, onSave, onCancel }) {
         Stiche: {total} / 6
       </div>
       {editablePlayers.map(p => {
-        const isAnsager = roundData.ansagerId === p.id;
+        const isAnsager = ansagerId === p.id;
         return (
         <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px", borderBottom: "1px solid rgba(255,255,255,0.05)", paddingBottom: "5px" }}>
           <span style={{ fontSize: "14px" }}>{isAnsager && "📣 "}{p.name}</span>
@@ -4624,13 +4761,13 @@ function RoundInlineEditor({ gamePlayers, roundData, onSave, onCancel }) {
               const s = e.target.value;
               setStatus({ ...status, [p.id]: s });
               if (s === "raus") setTricks({ ...tricks, [p.id]: 0 });
-            }} style={{ background: "#000", color: "#fff", padding: "4px", border: "1px solid #555", borderRadius: "4px", opacity: isAnsager ? 0.5 : 1 }}>
+            }} style={{ ...inputStyle, opacity: isAnsager ? 0.5 : 1 }}>
               <option value="mit">Mit</option>
               <option value="raus">Raus</option>
             </select>
-            
+
             {status[p.id] !== "raus" && (
-              <input type="number" min="0" max="6" value={tricks[p.id] || 0} onChange={e => setTricks({ ...tricks, [p.id]: parseInt(e.target.value) || 0 })} style={{ width: "45px", textAlign: "center", background: "#000", color: "#fff", border: "1px solid #555", borderRadius: "4px", padding: "4px" }} />
+              <input type="number" min="0" max="6" value={tricks[p.id] || 0} onChange={e => setTricks({ ...tricks, [p.id]: parseInt(e.target.value) || 0 })} style={{ ...inputStyle, width: "45px", textAlign: "center" }} />
             )}
           </div>
         </div>
@@ -4638,7 +4775,7 @@ function RoundInlineEditor({ gamePlayers, roundData, onSave, onCancel }) {
       })}
       <div style={{ display: "flex", gap: "6px", marginTop: "10px" }}>
         <button onClick={onCancel} style={{ padding: "4px 8px", background: "#888", border: "none", color: "#fff", borderRadius: "4px", cursor: "pointer" }}>Abbrechen</button>
-        <button onClick={() => onSave(status, tricks)} style={{ padding: "4px 8px", background: "#4e8b5c", border: "none", color: "#000", fontWeight: "bold", borderRadius: "4px", cursor: "pointer" }}>Übernehmen</button>
+        <button onClick={() => onSave(status, tricks, isHerzBlind ? null : ansagerId, isHerzBlind ? null : bidTricks)} style={{ padding: "4px 8px", background: "#4e8b5c", border: "none", color: "#000", fontWeight: "bold", borderRadius: "4px", cursor: "pointer" }}>Übernehmen</button>
       </div>
     </div>
   );
@@ -4887,14 +5024,17 @@ function GameRoundsTable({ players, rounds }) {
                 {/* Schmale Zwischenzeile: Trumpf dieser Runde + Veränderung je Spieler */}
                 <tr style={{ borderTop: isLastRound ? undefined : "1px solid rgba(255,255,255,0.05)" }}>
                   <td style={{ padding: "4px 3px 0", color: "#d4af37", whiteSpace: "nowrap", verticalAlign: "top", ...deltaCellFrame(true, false) }}>
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: "3px" }}>{r.roundNum} <img src={r.trump.icon} alt={r.trump.label} style={{ height: "13px", width: "auto" }} /></span>
+                    {/* Manuell gesetzter Punktestand hat keinen Trumpf - stattdessen ein Stift-Symbol. */}
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: "3px" }}>{r.roundNum} {r.isManualAdjustment
+                      ? <span title="Punktestand manuell gesetzt" style={{ fontSize: "11px" }}>📝</span>
+                      : <img src={r.trump.icon} alt={r.trump.label} style={{ height: "13px", width: "auto" }} />}</span>
                   </td>
                   {players.map((p, pIdx) => {
                     const isLastCol = pIdx === players.length - 1;
                     if (r.sittingOutId === p.id) {
                       return <td key={p.id} title="Setzt aus (Geber)" style={{ textAlign: "right", padding: "0 3px", color: "#666", fontSize: "10px", ...deltaCellFrame(false, isLastCol) }}>(–)</td>;
                     }
-                    const status = r.playerStatus?.[p.id] || "mit";
+                    const status = r.isManualAdjustment ? "mit" : (r.playerStatus?.[p.id] || "mit");
                     if (status === "raus") {
                       return <td key={p.id} style={{ textAlign: "right", padding: "0 3px", color: "#666", fontSize: "10px", ...deltaCellFrame(false, isLastCol) }}>–</td>;
                     }
