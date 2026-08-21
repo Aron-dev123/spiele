@@ -2446,13 +2446,16 @@ function App() {
   // Setzt das laufende Spiel (gameRounds, alle Punkte etc.) komplett zurück, OHNE dabei
   // Spieler-Auswahl oder Session zu verlassen.
   function restartCurrentGameInSession() {
+    // Auch der Neustart zählt als neues Spiel dieser Session - der Sieger des zuletzt
+    // beendeten Spiels ist also wieder zuerst Geber und setzt damit als Erster aus.
+    const startDealerIdx = getStartDealerIdx(gamePlayers, activeSessions.find(s => s.id === currentSessionId));
     setGameRounds([]);
-    setDealerIdx(0);
+    setDealerIdx(startDealerIdx);
     setSelectedTrump(SUITS[0]);
     setRoundPhase("setup");
     setAnsagerId(null);
     setBidTricks(2);
-    const sittingOut = getSittingOutId(gamePlayers, 0);
+    const sittingOut = getSittingOutId(gamePlayers, startDealerIdx);
     const freshStatus = {};
     const freshTricks = {};
     gamePlayers.forEach(p => {
@@ -2517,11 +2520,15 @@ function App() {
   // da sich beim Eintragen während des Spiels leicht der falsche Ansager einschleicht.
   // Die Punktestände aller FOLGENDEN Runden ergeben sich automatisch neu, weil
   // calculateScoresFromRounds ohnehin immer die komplette Rundenhistorie durchrechnet.
-  function saveEditedRound(rIdx, editedStatus, editedTricks, editedAnsagerId, editedBidTricks) {
+  function saveEditedRound(rIdx, editedStatus, editedTricks, editedAnsagerId, editedBidTricks, editedTrump, editedSittingOutId) {
     const round = gameRounds[rIdx];
-    const isHerzBlind = round.trump?.id === "herzblind";
+    const trumpFinal = editedTrump || round.trump;
+    const isHerzBlind = trumpFinal?.id === "herzblind";
     const ansagerIdFinal = isHerzBlind ? null : (editedAnsagerId || null);
-    const editablePlayers = gamePlayers.filter(p => p.id !== round.sittingOutId);
+    // Der Aussetzer hängt am Trumpf (bei Herz Blind spielen alle mit), deshalb kommt er aus
+    // dem Editor mit - und nicht mehr aus dem alten, eingefrorenen Rundenwert.
+    const sittingOutIdFinal = editedSittingOutId !== undefined ? editedSittingOutId : (round.sittingOutId || null);
+    const editablePlayers = gamePlayers.filter(p => p.id !== sittingOutIdFinal);
 
     if (ansagerIdFinal && !editablePlayers.some(p => p.id === ansagerIdFinal)) {
       alert("Der Ansager muss ein Spieler sein, der in dieser Runde mitgespielt hat.");
@@ -2552,6 +2559,8 @@ function App() {
     const updatedRounds = [...gameRounds];
     updatedRounds[rIdx] = {
       ...updatedRounds[rIdx],
+      trump: trumpFinal,
+      sittingOutId: sittingOutIdFinal,
       playerStatus: statusFinal,
       playerTricks: editedTricks,
       ansagerId: ansagerIdFinal,
@@ -3236,7 +3245,7 @@ function App() {
                         <RoundInlineEditor
                           gamePlayers={gamePlayers}
                           roundData={gameRounds[editingRoundIdx]}
-                          onSave={(edStatus, edTricks, edAnsagerId, edBidTricks) => saveEditedRound(editingRoundIdx, edStatus, edTricks, edAnsagerId, edBidTricks)}
+                          onSave={(edStatus, edTricks, edAnsagerId, edBidTricks, edTrump, edSittingOutId) => saveEditedRound(editingRoundIdx, edStatus, edTricks, edAnsagerId, edBidTricks, edTrump, edSittingOutId)}
                           onCancel={() => setEditingRoundIdx(null)}
                         />
                       </div>
@@ -4207,8 +4216,9 @@ function App() {
             <p style={{ fontSize: "13px", color: "#ccc", marginBottom: "16px" }}>
               Bei genau 5 Spielern setzt in jeder Runde der aktuelle Geber komplett aus (keine Punkte-Änderung,
               kein Einfluss auf seine Raus-Serie) - die Geber-Rolle rotiert dabei ganz normal weiter.
-              Den Anfang macht der Sieger des letzten Spiels: Wer ein Spiel gewinnt, setzt im nächsten Spiel
-              als Erster aus. Haben mehrere gleichzeitig gewonnen, wird einer von ihnen ausgelost.
+              Wer ein Spiel gewinnt, ist im nächsten Spiel in Runde 1 der Geber und setzt damit als Erster aus -
+              er fängt also nicht an, sondern ist zuerst Geber. Ab da rotiert die Geber-Rolle (und damit das
+              Aussetzen) normal weiter. Haben mehrere gleichzeitig gewonnen, wird einer von ihnen ausgelost.
               <br/><br/>
               Ausnahme Herz Blind: In einer Herz-Blind-Runde spielen immer alle mit - auch zu fünft setzt
               dann niemand aus.
@@ -4748,16 +4758,27 @@ function SessionCard({ sessionEntry, registry, onOpenStats, onOpenGameDetail }) 
 function RoundInlineEditor({ gamePlayers, roundData, onSave, onCancel }) {
   const [status, setStatus] = useState({ ...roundData.playerStatus });
   const [tricks, setTricks] = useState({ ...roundData.playerTricks });
-  // Ansager + Ansage sind nachträglich korrigierbar (beim Eintragen während des Spiels
-  // passiert es schnell, dass der falsche Ansager erwischt wird). Die Punkte werden danach
-  // über calculateScoresFromRounds für DIESE und alle FOLGENDEN Runden neu durchgerechnet.
+  // Trumpf, Ansager und Ansage sind nachträglich korrigierbar (beim Eintragen während des
+  // Spiels passiert es schnell, dass etwas davon danebengeht). Die Punkte werden danach über
+  // calculateScoresFromRounds für DIESE und alle FOLGENDEN Runden neu durchgerechnet.
+  const [trump, setTrump] = useState(roundData.trump);
   const [ansagerId, setAnsagerId] = useState(roundData.ansagerId || null);
   const [bidTricks, setBidTricks] = useState(roundData.bidTricks || 1);
 
-  const sittingOutId = roundData.sittingOutId || null;
-  const isHerzBlind = roundData.trump?.id === "herzblind";
+  const isHerzBlind = trump?.id === "herzblind";
+  // Wer in dieser Runde aussetzt, hängt am Trumpf: bei Herz Blind setzt niemand aus, sonst
+  // (zu fünft) der Geber dieser Runde. Deshalb aus dem gespeicherten dealerIdx der Runde neu
+  // ableiten, statt das eingefrorene sittingOutId zu nehmen - nur so kommt der Aussetzer beim
+  // Wechsel weg von Herz Blind korrekt zurück. Ältere Runden ohne dealerIdx fallen auf den
+  // gespeicherten Wert zurück.
+  const sittingOutId = typeof roundData.dealerIdx === "number"
+    ? getSittingOutId(gamePlayers, roundData.dealerIdx, trump?.id)
+    : (isHerzBlind ? null : (roundData.sittingOutId || null));
   const editablePlayers = gamePlayers.filter(p => p.id !== sittingOutId);
-  const total = editablePlayers.reduce((sum, p) => sum + (status[p.id] === "mit" ? (tricks[p.id] || 0) : 0), 0);
+  // Fehlender Status = "mit" (z.B. ein Spieler, der durch den Wechsel auf Herz Blind gerade
+  // erst dazugekommen ist und deshalb noch gar keinen Eintrag hat).
+  const statusOf = (id) => status[id] || "mit";
+  const total = editablePlayers.reduce((sum, p) => sum + (statusOf(p.id) === "mit" ? (tricks[p.id] || 0) : 0), 0);
   const sittingOutName = sittingOutId ? gamePlayers.find(p => p.id === sittingOutId)?.name : null;
 
   // Ein neu gewählter Ansager muss zwingend "mit" sein - sonst stimmt die Wertung nicht.
@@ -4768,12 +4789,30 @@ function RoundInlineEditor({ gamePlayers, roundData, onSave, onCancel }) {
     }
   }
 
+  // Herz Blind kennt keinen Ansager - beim Wechsel dorthin die Auswahl verwerfen.
+  function changeTrump(newTrump) {
+    setTrump(newTrump);
+    if (newTrump.id === "herzblind") setAnsagerId(null);
+  }
+
   const inputStyle = { background: "#000", color: "#fff", padding: "4px", border: "1px solid #555", borderRadius: "4px" };
 
   return (
     <div style={{ background: "rgba(255,255,255,0.05)", padding: "10px", borderRadius: "8px", marginTop: "5px" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center", marginBottom: "10px", paddingBottom: "8px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+        <span style={{ fontSize: "12px", color: "#c9a83e", width: "100%" }}>Farbe:</span>
+        {SUITS.map(s => (
+          <button key={s.id} onClick={() => changeTrump(s)} title={s.label}
+            style={{ display: "flex", alignItems: "center", gap: "4px", padding: "4px 7px", borderRadius: "5px", cursor: "pointer",
+              fontSize: "11px", color: "#fff", background: trump?.id === s.id ? s.color : "rgba(0,0,0,0.4)",
+              border: trump?.id === s.id ? "2px solid #fff" : "2px solid transparent" }}>
+            <img src={s.icon} alt={s.label} style={{ height: "14px", width: "auto" }} />
+            {s.id === "herzblind" ? "Blind ×4" : s.label}
+          </button>
+        ))}
+      </div>
       {isHerzBlind ? (
-        <div style={{ fontSize: "12px", color: "#c9a83e", marginBottom: "8px" }}>🃏❤️ Herz-Blind-Runde (×4) — hier gibt es keinen Ansager.</div>
+        <div style={{ fontSize: "12px", color: "#c9a83e", marginBottom: "8px" }}>🃏❤️ Herz-Blind-Runde (×4) — hier gibt es keinen Ansager, und es spielen alle mit.</div>
       ) : (
         <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center", marginBottom: "10px", paddingBottom: "8px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
           <span style={{ fontSize: "12px", color: "#c9a83e" }}>📣 Ansager:</span>
@@ -4794,7 +4833,7 @@ function RoundInlineEditor({ gamePlayers, roundData, onSave, onCancel }) {
         </div>
       )}
       {sittingOutName && (
-        <div style={{ fontSize: "12px", color: "#888", marginBottom: "8px" }}>🪑 {sittingOutName} hat als Geber ausgesetzt (nicht änderbar).</div>
+        <div style={{ fontSize: "12px", color: "#888", marginBottom: "8px" }}>🪑 {sittingOutName} hat als Geber ausgesetzt (ergibt sich aus dem Geber, nicht direkt änderbar).</div>
       )}
       <div style={{ textAlign: "right", fontSize: "12px", marginBottom: "10px", color: total === 6 ? "#4e8b5c" : "#a3383c" }}>
         Stiche: {total} / 6
@@ -4805,7 +4844,7 @@ function RoundInlineEditor({ gamePlayers, roundData, onSave, onCancel }) {
         <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px", borderBottom: "1px solid rgba(255,255,255,0.05)", paddingBottom: "5px" }}>
           <span style={{ fontSize: "14px" }}>{isAnsager && "📣 "}{p.name}</span>
           <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-            <select value={status[p.id] || "mit"} disabled={isAnsager} onChange={e => {
+            <select value={statusOf(p.id)} disabled={isAnsager} onChange={e => {
               const s = e.target.value;
               setStatus({ ...status, [p.id]: s });
               if (s === "raus") setTricks({ ...tricks, [p.id]: 0 });
@@ -4814,7 +4853,7 @@ function RoundInlineEditor({ gamePlayers, roundData, onSave, onCancel }) {
               <option value="raus">Raus</option>
             </select>
 
-            {status[p.id] !== "raus" && (
+            {statusOf(p.id) !== "raus" && (
               <input type="number" min="0" max="6" value={tricks[p.id] || 0} onChange={e => setTricks({ ...tricks, [p.id]: parseInt(e.target.value) || 0 })} style={{ ...inputStyle, width: "45px", textAlign: "center" }} />
             )}
           </div>
@@ -4823,7 +4862,13 @@ function RoundInlineEditor({ gamePlayers, roundData, onSave, onCancel }) {
       })}
       <div style={{ display: "flex", gap: "6px", marginTop: "10px" }}>
         <button onClick={onCancel} style={{ padding: "4px 8px", background: "#888", border: "none", color: "#fff", borderRadius: "4px", cursor: "pointer" }}>Abbrechen</button>
-        <button onClick={() => onSave(status, tricks, isHerzBlind ? null : ansagerId, isHerzBlind ? null : bidTricks)} style={{ padding: "4px 8px", background: "#4e8b5c", border: "none", color: "#000", fontWeight: "bold", borderRadius: "4px", cursor: "pointer" }}>Übernehmen</button>
+        <button onClick={() => {
+          // Vollständige Status-Map bauen, damit ein durch den Trumpf-Wechsel neu
+          // dazugekommener Spieler nicht ohne Eintrag (und damit als "raus") gespeichert wird.
+          const fullStatus = {};
+          editablePlayers.forEach(p => { fullStatus[p.id] = statusOf(p.id); });
+          onSave(fullStatus, tricks, isHerzBlind ? null : ansagerId, isHerzBlind ? null : bidTricks, trump, sittingOutId);
+        }} style={{ padding: "4px 8px", background: "#4e8b5c", border: "none", color: "#000", fontWeight: "bold", borderRadius: "4px", cursor: "pointer" }}>Übernehmen</button>
       </div>
     </div>
   );
