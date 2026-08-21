@@ -1,6 +1,38 @@
 # Backup der 20ab-Spielstände
 
-## Was das Skript macht
+Es gibt zwei Wege. Der normale ist der **Snapshot ins Repo** (unten zuerst beschrieben),
+das JSON-Backup darunter läuft nur, wenn man es bewusst startet.
+
+---
+
+## 1. Snapshot als .txt im Repo (der übliche Weg)
+
+`20ab-snapshot.ps1` schreibt den aktuellen Stand als lesbare Textdatei nach
+`spielstaende/20ab-stand_<datum>_<uhrzeit>.txt` und wird dann committet. Dadurch liegt
+jede Sicherung versioniert auf GitHub.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "C:\Users\aron\Documents\spiele\tools\20ab-snapshot.ps1"
+```
+
+Aufbau der Datei:
+
+- **Teil 1 – Übersicht:** Bestenliste mit Kontoständen, Spiele/Siege/Runden je Spieler,
+  Spieler-IDs und eine Liste aller Spiele mit Siegern und Endpunkten.
+- **Teil 2 – Rohdaten:** der vollständige Datenbankinhalt als JSON. **Nur damit** ist ein
+  echtes Wiederherstellen möglich; die Übersicht allein reicht dafür nicht.
+
+Es werden automatisch die letzten **5** Snapshots behalten, ältere Dateien werden gelöscht
+(`-Keep 10` für mehr). Auch dieses Skript ist rein lesend gegenüber der Datenbank.
+
+> Hinweis: Das Repo ist öffentlich, und Git behält jede Version dauerhaft. Ein gelöschter
+> Snapshot verschwindet aus dem aktuellen Stand, bleibt aber in der Git-Historie lesbar.
+
+---
+
+## 2. JSON-Backup (optional, läuft aktuell nicht automatisch)
+
+### Was das Skript macht
 
 `20ab-backup.ps1` holt den kompletten Datenstand (`registry`, `activeSessions`,
 `liveGames`, `cardStates`, `lastSessionMovement`) per einzelnem HTTP-GET aus der
@@ -71,10 +103,11 @@ bitte drin lassen.
 Bewusst **kein** fertiges Restore-Skript — ein Zurückspielen überschreibt den aktuellen
 Stand und soll nie versehentlich passieren. Vorgehen, wenn es wirklich nötig ist:
 
-1. Erst den *aktuellen* Stand sichern (Skript einmal manuell laufen lassen), damit es auch
+1. Erst den *aktuellen* Stand sichern (Snapshot einmal laufen lassen), damit es auch
    vom kaputten Zustand eine Kopie gibt.
-2. Die gewünschte Sicherungsdatei aus `backups/` heraussuchen und prüfen (Spielerzahl,
-   Kontostände, Datum im Dateinamen).
+2. Die gewünschte Sicherung heraussuchen und prüfen (Spielerzahl, Kontostände, Datum im
+   Dateinamen): entweder ein `.txt` aus `spielstaende/` — dort den JSON-Block **unterhalb**
+   der Zeile `ROHDATEN` verwenden — oder eine `.json` aus `backups/`.
 3. In der Firebase-Konsole unter *Realtime Database* den Knoten `20ab` auswählen und über
    *JSON importieren* die Datei einspielen — oder gezielt einzelne Teilknoten
    (z. B. nur `registry`) ersetzen, statt alles zu überschreiben.
