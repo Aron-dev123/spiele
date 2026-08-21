@@ -1,0 +1,4 @@
+# Backups der Spielstaende (siehe tools/20ab-backup.ps1).
+# Die Dateien enthalten echte Namen und Geldstaende der Mitspieler - dieses Repo ist
+# oeffentlich (GitHub Pages), deshalb duerfen sie NICHT mit hochgeladen werden.
+backups/
