@@ -2126,13 +2126,16 @@ function App() {
     }
   }
 
-  // Startpunkt der Geber-/Aussetz-Rotation für ein NEUES Spiel: Bei 5 Spielern setzt der
-  // Sieger des zuletzt beendeten Spiels dieser Session als Erster aus (siehe die Auslosung
-  // in saveGameResult). Ohne vorheriges Spiel - oder bei anderer Spielerzahl, wo niemand
-  // aussetzt - bleibt es wie bisher beim ersten Spieler.
+  // Startpunkt der Geber-Rotation für ein NEUES Spiel: Der Sieger des zuletzt beendeten
+  // Spiels dieser Session ist in Runde 1 der Geber (bei mehreren Siegern der ausgeloste,
+  // siehe saveGameResult) - und zwar bei JEDER Spielerzahl. Zu fünft bedeutet Geber
+  // gleichzeitig aussetzen, bei allen anderen Spielerzahlen gibt er nur. Gab es in dieser
+  // Session noch kein beendetes Spiel, bleibt es wie bisher beim ersten Spieler.
+  // nextDealerPlayerId hieß früher nextSitOutPlayerId - alte, noch laufende Sessions haben
+  // das alte Feld gespeichert, deshalb wird es als Rückfallebene weiter mitgelesen.
   function getStartDealerIdx(gp, session) {
-    if (!gp || gp.length !== 5) return 0;
-    const id = session && session.nextSitOutPlayerId;
+    if (!gp || gp.length === 0) return 0;
+    const id = session && (session.nextDealerPlayerId || session.nextSitOutPlayerId);
     if (!id) return 0;
     const idx = gp.findIndex(p => p && p.id === id);
     return idx === -1 ? 0 : idx;
@@ -2321,16 +2324,16 @@ function App() {
     // abgeschlossenen Stand fälschlich noch als "läuft gerade" anzeigen).
     if (liveGamesRef && currentSessionId) liveGamesRef.child(currentSessionId).remove().catch(() => {});
 
-    // Hausregel: Wer ein Spiel gewinnt, setzt im NÄCHSTEN Spiel dieser Session als Erster
-    // aus (greift nur bei 5 Spielern, sonst setzt ohnehin niemand aus). Haben mehrere
-    // gleichzeitig gewonnen, wird EINER von ihnen zufällig ausgelost - und zwar genau hier,
-    // einmalig beim Spielende. Würde erst beim Start des nächsten Spiels gewürfelt, könnten
-    // zwei Geräte unterschiedlich losen und danach verschiedene Aussetzer anzeigen.
-    const sitOutWinnerId = winnerIndices.length > 0
+    // Hausregel: Wer ein Spiel gewinnt, ist im NÄCHSTEN Spiel dieser Session der erste Geber -
+    // bei jeder Spielerzahl. Zu fünft setzt er dadurch zugleich als Erster aus, sonst gibt er
+    // einfach. Haben mehrere gleichzeitig gewonnen, wird EINER von ihnen zufällig ausgelost -
+    // und zwar genau hier, einmalig beim Spielende. Würde erst beim Start des nächsten Spiels
+    // gewürfelt, könnten zwei Geräte unterschiedlich losen und danach verschiedene Geber zeigen.
+    const nextDealerWinnerId = winnerIndices.length > 0
       ? (gamePlayers[winnerIndices[Math.floor(Math.random() * winnerIndices.length)]] || {}).id || null
       : null;
-    if (currentSessionId && sitOutWinnerId) {
-      setActiveSessions(activeSessions.map(s => s.id === currentSessionId ? { ...s, nextSitOutPlayerId: sitOutWinnerId } : s));
+    if (currentSessionId && nextDealerWinnerId) {
+      setActiveSessions(activeSessions.map(s => s.id === currentSessionId ? { ...s, nextDealerPlayerId: nextDealerWinnerId } : s));
     }
 
     const winnerNames = winnerIndices.map(i => gamePlayers[i].name);
@@ -4313,13 +4316,20 @@ function App() {
               oder wenn er schon zweimal in Folge raus gegangen ist (spätestens beim 3. Mal muss er mit).
             </p>
 
+            <h3 style={{ color: "#c9a83e", fontSize: "14px", marginBottom: "6px" }}>Wer gibt?</h3>
+            <p style={{ fontSize: "13px", color: "#ccc", marginBottom: "16px" }}>
+              Innerhalb eines Spiels rotiert die Geber-Rolle nach jeder Runde einen Platz weiter.
+              Den Anfang eines neuen Spiels macht der Sieger des vorherigen Spiels: Wer gewinnt, ist im
+              nächsten Spiel in Runde 1 der Geber - er fängt also nicht an, sondern gibt zuerst. Haben
+              mehrere gleichzeitig gewonnen, wird einer von ihnen ausgelost. Das gilt bei jeder Spielerzahl.
+            </p>
+
             <h3 style={{ color: "#c9a83e", fontSize: "14px", marginBottom: "6px" }}>Zu fünft spielen</h3>
             <p style={{ fontSize: "13px", color: "#ccc", marginBottom: "16px" }}>
               Bei genau 5 Spielern setzt in jeder Runde der aktuelle Geber komplett aus (keine Punkte-Änderung,
-              kein Einfluss auf seine Raus-Serie) - die Geber-Rolle rotiert dabei ganz normal weiter.
-              Wer ein Spiel gewinnt, ist im nächsten Spiel in Runde 1 der Geber und setzt damit als Erster aus -
-              er fängt also nicht an, sondern ist zuerst Geber. Ab da rotiert die Geber-Rolle (und damit das
-              Aussetzen) normal weiter. Haben mehrere gleichzeitig gewonnen, wird einer von ihnen ausgelost.
+              kein Einfluss auf seine Raus-Serie) - Geber sein und Aussetzen ist hier also dasselbe. Zusammen
+              mit der Geber-Regel oben heißt das: Der Sieger des letzten Spiels setzt im nächsten Spiel als
+              Erster aus, danach rotiert es normal weiter.
               <br/><br/>
               Ausnahme Herz Blind: In einer Herz-Blind-Runde spielen immer alle mit - auch zu fünft setzt
               dann niemand aus.
