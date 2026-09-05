@@ -1732,17 +1732,23 @@ function App() {
   // Genau wie im normalen Modus muss (neben dem immer erzwungenen Ansager) mindestens ein
   // weiterer Spieler mitgehen - sonst gäbe es keinen sinnvollen Stich.
   function setCardWentMit(playerId, status) {
-    const cs = cardStates[currentSessionId];
-    if (!cs || !cs.trumpId || playerId !== myCardPlayerId) return;
-    const trumpObj = SUITS.find(s => s.id === cs.trumpId);
+    const csNow = cardStates[currentSessionId];
+    if (!csNow || !csNow.trumpId || playerId !== myCardPlayerId) return;
+    const trumpObj = SUITS.find(s => s.id === csNow.trumpId);
     const idx = gamePlayers.findIndex(p => p.id === playerId);
-    if (getForcedReason(gamePlayers[idx], idx, trumpObj, cs.ansagerId, currentScores, consecutiveRaus)) return;
+    if (getForcedReason(gamePlayers[idx], idx, trumpObj, csNow.ansagerId, currentScores, consecutiveRaus)) return;
+    if (!cardStatesRef) return;
 
-    if (status === "raus") {
-      const projected = { ...(cs.wentMit || {}), [playerId]: "raus" };
-      if (getCardMitIds(cs, trumpObj, projected).length < 2) return;
-    }
-    if (cardStatesRef) cardStatesRef.child(currentSessionId).set({ ...cs, wentMit: { ...(cs.wentMit || {}), [playerId]: status } }).catch(() => {});
+    // Wie beim Tauschen entscheiden hier alle gleichzeitig - deshalb ebenfalls als
+    // Transaktion, sonst überschreibt die zuletzt geschriebene Wahl die der anderen.
+    cardStatesRef.child(currentSessionId).transaction(cs => {
+      if (!cs || cs.trick) return;
+      if (status === "raus") {
+        const projected = { ...(cs.wentMit || {}), [playerId]: "raus" };
+        if (getCardMitIds(cs, trumpObj, projected).length < 2) return; // mind. 2 müssen mit
+      }
+      return { ...cs, wentMit: { ...(cs.wentMit || {}), [playerId]: status } };
+    }).catch(() => {});
   }
 
   // Hausregel: maximale Tauschanzahl hängt von der Spielerzahl ab (siehe getMaxSwapCount),
@@ -1750,31 +1756,46 @@ function App() {
   // trotzdem als "fertig" für diese Person). Haben danach ALLE "mit"-Spieler getauscht (oder
   // bewusst nicht), beginnt automatisch das Ausspielen der Stiche - kein Extra-Klick nötig.
   function submitCardSwap(playerId, cardIdsToSwap) {
-    const cs = cardStates[currentSessionId];
-    if (!cs || playerId !== myCardPlayerId || cardIdsToSwap.length > getMaxSwapCount(gamePlayers.length)) return;
+    const csNow = cardStates[currentSessionId];
+    if (!csNow || playerId !== myCardPlayerId || cardIdsToSwap.length > getMaxSwapCount(gamePlayers.length)) return;
     const idx = gamePlayers.findIndex(p => p.id === playerId);
     if ((currentScores[idx] || 0) <= 3 && cardIdsToSwap.length > 0) return;
+    const trumpObj = SUITS.find(s => s.id === csNow.trumpId);
+    if (!cardStatesRef) return;
 
-    const talon = cs.talon || [];
-    const hand = (cs.hands || {})[playerId] || [];
-    const keep = hand.filter(c => !cardIdsToSwap.includes(c.id));
-    const drawCount = Math.min(cardIdsToSwap.length, talon.length);
-    const drawn = talon.slice(0, drawCount);
-    const newTalon = talon.slice(drawCount);
-    const newHands = { ...(cs.hands || {}), [playerId]: [...keep, ...drawn] };
-    const swapped = { ...(cs.swapped || {}), [playerId]: true };
+    // TRANSAKTION statt set(): In der Tauschphase tippen ALLE Mitspieler gleichzeitig. Vorher
+    // wurde hier der komplette Datensatz gelesen und wieder zurückgeschrieben - wer als
+    // Zweiter fertig war, hat den Tausch des Ersten damit gelöscht (dessen Karten und
+    // "fertig"-Haken waren wieder weg, und beide zogen dieselbe Karte vom Talon). Firebase
+    // führt eine Transaktion bei einem Konflikt automatisch erneut auf dem aktuellen Stand
+    // aus, dadurch gehen gleichzeitige Tauschvorgänge nicht mehr verloren.
+    cardStatesRef.child(currentSessionId).transaction(cs => {
+      if (!cs || cs.trick) return;              // Runde läuft schon / kein Stand -> abbrechen
+      if ((cs.swapped || {})[playerId]) return; // schon getauscht -> nicht nochmal ziehen
 
-    const trumpObj = SUITS.find(s => s.id === cs.trumpId);
-    const mitIds = getCardMitIds(cs, trumpObj);
-    const update = { ...cs, hands: newHands, talon: newTalon, swapped };
-    if (mitIds.every(id => swapped[id])) {
-      update.trick = {
-        order: getTrickPlayOrder(gamePlayers, cs.ansagerId, mitIds),
-        turnIdx: 0, ledSuit: null, cardsPlayed: {}, playOrder: [],
-        tricksWon: {}, trickNum: 1,
+      const talon = cs.talon || [];
+      const hand = (cs.hands || {})[playerId] || [];
+      const keep = hand.filter(c => !cardIdsToSwap.includes(c.id));
+      const drawCount = Math.min(cardIdsToSwap.length, talon.length);
+      const swapped = { ...(cs.swapped || {}), [playerId]: true };
+
+      const next = {
+        ...cs,
+        hands: { ...(cs.hands || {}), [playerId]: [...keep, ...talon.slice(0, drawCount)] },
+        talon: talon.slice(drawCount),
+        swapped,
       };
-    }
-    if (cardStatesRef) cardStatesRef.child(currentSessionId).set(update).catch(() => {});
+      // Sind danach ALLE "mit"-Spieler durch, beginnt automatisch der erste Stich.
+      const mitIds = getCardMitIds(cs, trumpObj);
+      if (mitIds.every(id => swapped[id])) {
+        next.trick = {
+          order: getTrickPlayOrder(gamePlayers, cs.ansagerId, mitIds),
+          turnIdx: 0, ledSuit: null, cardsPlayed: {}, playOrder: [],
+          tricksWon: {}, trickNum: 1,
+        };
+      }
+      return next;
+    }).catch(() => {});
   }
 
   // Spielt eine Karte im aktuellen Stich aus (Farbzwang + Stichzwang, siehe unten). Ist der
