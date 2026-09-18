@@ -1,0 +1,853 @@
+{
+ "games": [
+  {
+   "player": "NoWorkNoCry",
+   "start": "2026-08-27T08:56:47Z",
+   "duration": 1945,
+   "placement": 2,
+   "championId": 5,
+   "teammates": [
+    "Hanfen",
+    "Noobilici0us"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1gfK-Zy8Rzp58NeYIRWTDtHwN7MgZlmoH0="
+   }
+  },
+  {
+   "player": "NoWorkNoCry",
+   "start": "2026-08-27T09:27:56Z",
+   "duration": 1616,
+   "placement": 6,
+   "championId": 7,
+   "teammates": [
+    "Hanfen",
+    "Noobilici0us"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1iydxF1QkSaIAADaT7-l5rdrCk957QHtQo="
+   }
+  },
+  {
+   "player": "NoWorkNoCry",
+   "start": "2026-08-27T11:46:35Z",
+   "duration": 1395,
+   "placement": 6,
+   "championId": 887,
+   "teammates": [
+    "Noobilici0us",
+    "Touagmi"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1jGgcW8az5wjFyQjm2AjUCmCVBNqHVacSY="
+   }
+  },
+  {
+   "player": "NoWorkNoCry",
+   "start": "2026-08-27T12:06:05Z",
+   "duration": 1667,
+   "placement": 2,
+   "championId": 56,
+   "teammates": [
+    "Chrippex",
+    "Noobilici0us"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1gFlimjiZx5t2CUHG8R0ObnFN2Nyfil9Hc="
+   }
+  },
+  {
+   "player": "NoWorkNoCry",
+   "start": "2026-08-27T12:33:23Z",
+   "duration": 1449,
+   "placement": 6,
+   "championId": 223,
+   "teammates": [
+    "Noobilici0us",
+    "Silvercrrown"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1gVV6QFZnQqZ8O2DR_Qe1cEfKue1_uCOIQ="
+   }
+  },
+  {
+   "player": "NoWorkNoCry",
+   "start": "2026-08-27T17:40:58Z",
+   "duration": 1307,
+   "placement": 5,
+   "championId": 30,
+   "teammates": [
+    "FutureTrunks91",
+    "Riggi"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1jJeU7UhnLpgr1rCYuK0urjRcKyKz5xO_k="
+   }
+  },
+  {
+   "player": "NoWorkNoCry",
+   "start": "2026-08-27T18:00:05Z",
+   "duration": 1292,
+   "placement": 2,
+   "championId": 42,
+   "teammates": [
+    "FutureTrunks91",
+    "Riggi"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1iSOt2dxY7_vrx-bKPnAhuwsAHtg-QlPTo="
+   }
+  },
+  {
+   "player": "NoWorkNoCry",
+   "start": "2026-08-27T18:26:08Z",
+   "duration": 1412,
+   "placement": 1,
+   "championId": 14,
+   "teammates": [
+    "Elodin",
+    "Riggi"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1hLzn-rWFy28RShQbkbNqy9FMn5ZKqNu-4="
+   }
+  },
+  {
+   "player": "NoWorkNoCry",
+   "start": "2026-08-27T21:07:53Z",
+   "duration": 1342,
+   "placement": 1,
+   "championId": 54,
+   "teammates": [
+    "Zperience",
+    "painter austrian"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1jagzPj2dw-j9kUgF7-bK8mw0N9y5j731M="
+   }
+  },
+  {
+   "player": "NoWorkNoCry",
+   "start": "2026-08-27T21:45:44Z",
+   "duration": 2061,
+   "placement": 2,
+   "championId": 235,
+   "teammates": [
+    "Zperience",
+    "Molrih"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1izWDMceJ-gw_szb2wQT8lCBvSDbR2n8is="
+   }
+  },
+  {
+   "player": "NoWorkNoCry",
+   "start": "2026-08-28T07:57:17Z",
+   "duration": 1425,
+   "placement": 3,
+   "championId": 96,
+   "teammates": [
+    "HungryPengu",
+    "lnt Account XD "
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1hlCCR6aiVNXgPI59_2PJ5UZDrGUY4sIjs="
+   }
+  },
+  {
+   "player": "NoWorkNoCry",
+   "start": "2026-08-28T10:32:14Z",
+   "duration": 1412,
+   "placement": 3,
+   "championId": 427,
+   "teammates": [
+    "Hanfen",
+    "Noobilici0us"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1h91NqlWnX3svyduRAT7U9wcLpYiLxeX4w="
+   }
+  },
+  {
+   "player": "NoWorkNoCry",
+   "start": "2026-08-28T10:56:11Z",
+   "duration": 1356,
+   "placement": 2,
+   "championId": 166,
+   "teammates": [
+    "Hanfen",
+    "Noobilici0us"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1guNbndf4ToH6NzdiSG4ScgZ3TuL2mvGVE="
+   }
+  },
+  {
+   "player": "NoWorkNoCry",
+   "start": "2026-08-28T11:55:15Z",
+   "duration": 1357,
+   "placement": 3,
+   "championId": 98,
+   "teammates": [
+    "HeijiLeBiscuit",
+    "エイドリアン"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1iBbSr2qcQsX95cEPyuwZgRc8bFhSpBmB8="
+   }
+  },
+  {
+   "player": "NoWorkNoCry",
+   "start": "2026-08-28T13:57:12Z",
+   "duration": 1474,
+   "placement": 2,
+   "championId": 432,
+   "teammates": [
+    "Hanfen",
+    "Riggi"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1gWCrMe_7oXRJ3iwn5zpi_rv51M2xnVJwM="
+   }
+  },
+  {
+   "player": "NoWorkNoCry",
+   "start": "2026-08-28T14:22:18Z",
+   "duration": 1397,
+   "placement": 4,
+   "championId": 77,
+   "teammates": [
+    "Hanfen",
+    "Riggi"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1j_lkOuFoUzifVZuXLpZdJLWCcpk03rhyo="
+   }
+  },
+  {
+   "player": "NoWorkNoCry",
+   "start": "2026-08-28T14:52:39Z",
+   "duration": 1713,
+   "placement": 2,
+   "championId": 897,
+   "teammates": [
+    "Hanfen",
+    "Riggi"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1gnCivULkr0vJA5kmnN23bjjKVvY6NSQc4="
+   }
+  },
+  {
+   "player": "NoWorkNoCry",
+   "start": "2026-09-01T05:45:26Z",
+   "duration": 1536,
+   "placement": 1,
+   "championId": 145,
+   "teammates": [
+    "Touain",
+    "礼安郎"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1heN4jJUeFgY8RCHzR2nkIpgx__b49VP7M="
+   }
+  },
+  {
+   "player": "Hanfen",
+   "start": "2026-09-06T12:34:42Z",
+   "duration": 1461,
+   "placement": 6,
+   "championId": 101,
+   "teammates": [
+    "Noobilici0us",
+    "ArenaBob164"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1gp-aopqaoTeBXfYm8cuy5MmBtqT2Cdz1w="
+   }
+  },
+  {
+   "player": "Hanfen",
+   "start": "2026-09-06T18:08:01Z",
+   "duration": 1696,
+   "placement": 4,
+   "championId": 268,
+   "teammates": [
+    "cewwwefrasannis",
+    "EuroWald"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1iV0tzItiK9s0TPyqzFEDqWKkpJEd9hf2Y="
+   }
+  },
+  {
+   "player": "Hanfen",
+   "start": "2026-09-06T20:16:50Z",
+   "duration": 1591,
+   "placement": 2,
+   "championId": 246,
+   "teammates": [
+    "Noobilici0us",
+    "EhrenEntwender"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1hYubRLlsB6BsRxlNQvCAoceFDz9V-dU_c="
+   }
+  },
+  {
+   "player": "Hanfen",
+   "start": "2026-09-06T20:46:03Z",
+   "duration": 1537,
+   "placement": 6,
+   "championId": 43,
+   "teammates": [
+    "JaxyBlack",
+    "EhrenEntwender"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1ieEY9umTB57YybhMAl_64H9zRRK28oDuA="
+   }
+  },
+  {
+   "player": "Hanfen",
+   "start": "2026-09-07T15:45:48Z",
+   "duration": 1765,
+   "placement": 3,
+   "championId": 10,
+   "teammates": [
+    "Noobilici0us",
+    "ArenaBob164"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1iwzjzR0mzoADd1v1rtk5PTwWC9zCHTfS0="
+   }
+  },
+  {
+   "player": "Hanfen",
+   "start": "2026-09-07T19:40:07Z",
+   "duration": 1348,
+   "placement": 2,
+   "championId": 517,
+   "teammates": [
+    "Noobilici0us",
+    "ArenaBob164"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1jouk3qWEULOjGwV55DX4UTi1WPozkjV04="
+   }
+  },
+  {
+   "player": "Hanfen",
+   "start": "2026-09-07T20:11:26Z",
+   "duration": 1612,
+   "placement": 2,
+   "championId": 23,
+   "teammates": [
+    "JaxyBlack",
+    "ArenaBob164"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1ixt4qYDuyIvah_4eRHJIZ7qyzABP7642Q="
+   }
+  },
+  {
+   "player": "Hanfen",
+   "start": "2026-09-07T20:37:09Z",
+   "duration": 1304,
+   "placement": 5,
+   "championId": 9,
+   "teammates": [
+    "JaxyBlack",
+    "Florence Welch"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1gGwjRflQiiFKj6GXDjZH3YQmaXG4q7OjU="
+   }
+  },
+  {
+   "player": "NoWorkNoCry",
+   "start": "2026-09-09T08:19:12Z",
+   "duration": 1369,
+   "placement": 4,
+   "championId": 28,
+   "teammates": [
+    "StarGaming",
+    "SilverPat"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1hpd50-1WTlN-mJ8FN0-sASN3uDpGfaaAc="
+   }
+  },
+  {
+   "player": "Hanfen",
+   "start": "2026-09-09T14:30:11Z",
+   "duration": 1335,
+   "placement": 3,
+   "championId": 233,
+   "teammates": [
+    "Aegon Targaryen",
+    "ArenaBob164"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1heV6H5a3cHeUcr6oeS2D05noQPDnQ6f5E="
+   }
+  },
+  {
+   "player": "Noobilici0us",
+   "start": "2026-09-09T20:04:14Z",
+   "duration": 1715,
+   "placement": 2,
+   "championId": 16,
+   "teammates": [
+    "PíckleDíck",
+    "ArenaBob164"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1gQRfhZO7drJpayJo85oEcCMmWlHMb1uGE="
+   }
+  },
+  {
+   "player": "Noobilici0us",
+   "start": "2026-09-11T22:14:13Z",
+   "duration": 1387,
+   "placement": 4,
+   "championId": 432,
+   "teammates": [
+    "FFperience",
+    "JaxyBlack"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1iGmSdMFeoCBU8qI0aGNpgWMX4Mc_UYzQo="
+   }
+  },
+  {
+   "player": "Noobilici0us",
+   "start": "2026-09-11T22:38:33Z",
+   "duration": 1441,
+   "placement": 3,
+   "championId": 201,
+   "teammates": [
+    "FFperience",
+    "JaxyBlack"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1i46d34-RKuGwReT4pVvwTGrmeT34ZcCsU="
+   }
+  },
+  {
+   "player": "Hanfen",
+   "start": "2026-09-12T00:22:02Z",
+   "duration": 1721,
+   "placement": 2,
+   "championId": 112,
+   "teammates": [
+    "JaxyBlack",
+    "Noobilici0us"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1gjcNf85ZfVKR6FMbMEzdvmxoDwtfUTFyI="
+   }
+  },
+  {
+   "player": "Noobilici0us",
+   "start": "2026-09-12T00:22:02Z",
+   "duration": 1721,
+   "placement": 2,
+   "championId": 141,
+   "teammates": [
+    "Hanfen",
+    "JaxyBlack"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1gjcNf85ZfVKR6FMbMEzdvmxoDwtfUTFyI="
+   }
+  },
+  {
+   "player": "Hanfen",
+   "start": "2026-09-12T00:50:38Z",
+   "duration": 1417,
+   "placement": 5,
+   "championId": 235,
+   "teammates": [
+    "JaxyBlack",
+    "Noobilici0us"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1hFt8MU0iYLGctn8d2yklI6c_AXVHTAuoI="
+   }
+  },
+  {
+   "player": "Noobilici0us",
+   "start": "2026-09-12T00:50:38Z",
+   "duration": 1417,
+   "placement": 5,
+   "championId": 136,
+   "teammates": [
+    "Hanfen",
+    "JaxyBlack"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1hFt8MU0iYLGctn8d2yklI6c_AXVHTAuoI="
+   }
+  },
+  {
+   "player": "Hanfen",
+   "start": "2026-09-12T22:02:49Z",
+   "duration": 1710,
+   "placement": 4,
+   "championId": 711,
+   "teammates": [
+    "JaxyBlack",
+    "StanyFox"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1jfRXI1EsQ0Etj6tj6_aRGmVoPUjJI5Ix8="
+   }
+  },
+  {
+   "player": "Hanfen",
+   "start": "2026-09-12T22:23:08Z",
+   "duration": 1393,
+   "placement": 2,
+   "championId": 254,
+   "teammates": [
+    "JaxyBlack",
+    "kikiboss11"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1iIHYS70xKSi9UJX27RHy91ri2kgh8VJ6o="
+   }
+  },
+  {
+   "player": "Hanfen",
+   "start": "2026-09-12T22:52:52Z",
+   "duration": 1468,
+   "placement": 5,
+   "championId": 81,
+   "teammates": [
+    "MeySinn",
+    "JaxyBlack"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1jZZDiKuWhk0-DBQgY2sw_6H6UFnQ7lRSg="
+   }
+  },
+  {
+   "player": "Noobilici0us",
+   "start": "2026-09-14T07:42:26Z",
+   "duration": 1451,
+   "placement": 6,
+   "championId": 3,
+   "teammates": [
+    "N9oor",
+    "ArenaBob164"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1hSabXijkdHQqIDdG8Qnv0mpB9liufQBWE="
+   }
+  },
+  {
+   "player": "Noobilici0us",
+   "start": "2026-09-14T11:03:27Z",
+   "duration": 1439,
+   "placement": 2,
+   "championId": 800,
+   "teammates": [
+    "Fortnite Legende",
+    "xLun4tic"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1joeYtJbnLYGuhMVSDRYbVTGtK3wipqIhY="
+   }
+  },
+  {
+   "player": "Noobilici0us",
+   "start": "2026-09-14T11:32:54Z",
+   "duration": 1502,
+   "placement": 2,
+   "championId": 245,
+   "teammates": [
+    "Rainer WinkIer",
+    "ArenaBob164"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1il7C6_rY6sl8lO-CWoFWuNk3v32cxjaW0="
+   }
+  },
+  {
+   "player": "Noobilici0us",
+   "start": "2026-09-14T12:00:28Z",
+   "duration": 1339,
+   "placement": 3,
+   "championId": 40,
+   "teammates": [
+    "timokette",
+    "ArenaBob164"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1iZbTZS61DiRFJwJhUzd-ryvKtw8YcfcfM="
+   }
+  },
+  {
+   "player": "Noobilici0us",
+   "start": "2026-09-14T12:26:26Z",
+   "duration": 1459,
+   "placement": 2,
+   "championId": 82,
+   "teammates": [
+    "Yunallescae",
+    "ArenaBob164"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1jcprB1HQkuPSgJ9fWWFJS-6Jp0xZXS2Oc="
+   }
+  },
+  {
+   "player": "Hanfen",
+   "start": "2026-09-15T16:54:50Z",
+   "duration": 1370,
+   "placement": 5,
+   "championId": 115,
+   "teammates": [
+    "Noobilici0us",
+    "ArenaBob164"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1iiIVJv_lkvZoVl68geZVs7ehw6GQRvYWs="
+   }
+  },
+  {
+   "player": "Noobilici0us",
+   "start": "2026-09-15T16:54:50Z",
+   "duration": 1370,
+   "placement": 5,
+   "championId": 75,
+   "teammates": [
+    "Hanfen",
+    "ArenaBob164"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1iiIVJv_lkvZoVl68geZVs7ehw6GQRvYWs="
+   }
+  },
+  {
+   "player": "Hanfen",
+   "start": "2026-09-15T17:15:48Z",
+   "duration": 1323,
+   "placement": 3,
+   "championId": 82,
+   "teammates": [
+    "Noobilici0us",
+    "ArenaBob164"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1hD9fNTtUaV5704pzj2Tshn9mUfRYGWHZY="
+   }
+  },
+  {
+   "player": "Noobilici0us",
+   "start": "2026-09-15T17:15:48Z",
+   "duration": 1323,
+   "placement": 3,
+   "championId": 13,
+   "teammates": [
+    "Hanfen",
+    "ArenaBob164"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1hD9fNTtUaV5704pzj2Tshn9mUfRYGWHZY="
+   }
+  },
+  {
+   "player": "Hanfen",
+   "start": "2026-09-15T17:38:15Z",
+   "duration": 1416,
+   "placement": 4,
+   "championId": 950,
+   "teammates": [
+    "Noobilici0us",
+    "ArenaBob164"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1gQSv5jlHSBuLk72qzsCosu837FLkZIzTo="
+   }
+  },
+  {
+   "player": "Noobilici0us",
+   "start": "2026-09-15T17:38:15Z",
+   "duration": 1416,
+   "placement": 4,
+   "championId": 121,
+   "teammates": [
+    "Hanfen",
+    "ArenaBob164"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1gQSv5jlHSBuLk72qzsCosu837FLkZIzTo="
+   }
+  },
+  {
+   "player": "Hanfen",
+   "start": "2026-09-15T18:41:37Z",
+   "duration": 1420,
+   "placement": 2,
+   "championId": 266,
+   "teammates": [
+    "ArenaBob164",
+    "Riggi"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1jitx01M_A_WLN4GwCv7DaBu_lgHMak5N4="
+   }
+  },
+  {
+   "player": "Noobilici0us",
+   "start": "2026-09-16T01:00:20Z",
+   "duration": 1664,
+   "placement": 4,
+   "championId": 13,
+   "teammates": [
+    "DeVladdy",
+    "117M4ster"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1inXd3cBKjfzLrr5wBjf2QPAWff1bPsNH0="
+   }
+  },
+  {
+   "player": "Noobilici0us",
+   "start": "2026-09-16T01:19:31Z",
+   "duration": 1497,
+   "placement": 4,
+   "championId": 13,
+   "teammates": [
+    "DeVladdy",
+    "legendary member"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1g7d5yWaUP-Q3MA6pSt3jCI_7PYAZvSbn4="
+   }
+  },
+  {
+   "player": "Noobilici0us",
+   "start": "2026-09-16T09:21:16Z",
+   "duration": 1385,
+   "placement": 4,
+   "championId": 24,
+   "teammates": [
+    "ArenaBob164",
+    "qs1"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1gvdbxMe1rLjNIQnQFNPbfQdOBDKWn8D04="
+   }
+  },
+  {
+   "player": "Hanfen",
+   "start": "2026-09-17T09:46:06Z",
+   "duration": 1839,
+   "placement": 2,
+   "championId": 7,
+   "teammates": [
+    "Noobilici0us",
+    "ArenaBob164"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1iwwSZqb516_ceIAeGypZ8jGlE-MlNqNp4="
+   }
+  },
+  {
+   "player": "Noobilici0us",
+   "start": "2026-09-17T09:46:06Z",
+   "duration": 1839,
+   "placement": 2,
+   "championId": 804,
+   "teammates": [
+    "Hanfen",
+    "ArenaBob164"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1iwwSZqb516_ceIAeGypZ8jGlE-MlNqNp4="
+   }
+  },
+  {
+   "player": "Hanfen",
+   "start": "2026-09-17T10:20:14Z",
+   "duration": 1764,
+   "placement": 3,
+   "championId": 76,
+   "teammates": [
+    "Noobilici0us",
+    "ArenaBob164"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1irhmlQZMzBuSJsMw4pKwlG2bq9nAuXi2M="
+   }
+  },
+  {
+   "player": "Noobilici0us",
+   "start": "2026-09-17T10:20:14Z",
+   "duration": 1764,
+   "placement": 3,
+   "championId": 222,
+   "teammates": [
+    "Hanfen",
+    "ArenaBob164"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1irhmlQZMzBuSJsMw4pKwlG2bq9nAuXi2M="
+   }
+  },
+  {
+   "player": "Noobilici0us",
+   "start": "2026-09-17T18:13:27Z",
+   "duration": 1480,
+   "placement": 5,
+   "championId": 35,
+   "teammates": [
+    "9966699",
+    "ArenaBob164"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1hkz02XcE6JmoHJZ_72mKUP_7Iaclp0arI="
+   }
+  },
+  {
+   "player": "Noobilici0us",
+   "start": "2026-09-17T18:37:48Z",
+   "duration": 1487,
+   "placement": 2,
+   "championId": 4,
+   "teammates": [
+    "ArenaBob164",
+    "Paddy The Baddy"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1i7B_Y8_C51iSANBcJVvg8uQoKQUnpoudU="
+   }
+  },
+  {
+   "player": "NoWorkNoCry",
+   "start": "2026-09-18T07:35:38Z",
+   "duration": 1372,
+   "placement": 4,
+   "championId": 29,
+   "teammates": [
+    "Nameaster",
+    "poo demon"
+   ],
+   "ids": {
+    "opgg": "KfMsKXoZb1h5IaEHFaIwVtVqIHDgyqNhkl-4Juo6-AE="
+   }
+  }
+ ],
+ "sources": {
+  "opgg": {
+   "checkedAt": "2026-09-18T09:26:48Z",
+   "error": null,
+   "okAt": "2026-09-18T09:26:48Z"
+  }
+ },
+ "checkedAt": "2026-09-18T09:26:48Z",
+ "updatedAt": "2026-09-18T09:20:55Z"
+}
