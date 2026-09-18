@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Arena Tokens</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0d0d10;
+      --surface: #16161c;
+      --surface2: #1f1f28;
+      --border: rgba(255,255,255,0.08);
+      --accent: #c8ff00;
+      --accent2: #7c3aed;
+      --text: #f0f0f0;
+      --muted: #888;
+      --red: #ff4d5e;
+      --gold: #f5c542;
+      --silver: #c9d1dc;
+      --bronze: #d08a4e;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      top: -200px; left: 50%;
+      transform: translateX(-50%);
+      width: 800px; height: 500px;
+      background: radial-gradient(ellipse, rgba(200,255,0,0.08) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .wrap { position: relative; z-index: 1; max-width: 1080px; margin: 0 auto; padding: 0 20px 64px; }
+
+    .back {
+      display: inline-block; margin-top: 24px;
+      font-size: 13px; color: var(--muted); text-decoration: none;
+    }
+    .back:hover { color: var(--text); }
+
+    header { text-align: center; padding: 32px 0 28px; }
+    h1 {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: clamp(56px, 11vw, 104px);
+      line-height: 0.9; letter-spacing: 0.02em;
+    }
+    h1 span { color: var(--accent); }
+    .tagline { margin-top: 14px; font-size: 15px; color: var(--muted); }
+
+    .bar {
+      display: flex; flex-wrap: wrap; gap: 10px 24px; justify-content: center;
+      margin: 0 auto 32px; font-size: 13px; color: var(--muted);
+    }
+    .bar b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+    .bar .err { color: var(--red); }
+
+    .players {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 20px;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 22px;
+      display: flex; flex-direction: column; gap: 18px;
+      min-width: 0;
+    }
+    .card.cooldown { border-color: rgba(255,77,94,0.45); box-shadow: 0 0 0 1px rgba(255,77,94,0.15), 0 20px 60px rgba(255,77,94,0.08); }
+
+    .who { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+    .name { font-family: 'Bebas Neue', sans-serif; font-size: 34px; letter-spacing: 0.03em; line-height: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .tag { font-size: 12px; color: var(--muted); }
+
+    .count { display: flex; align-items: baseline; gap: 8px; }
+    .count .num { font-family: 'Bebas Neue', sans-serif; font-size: 84px; line-height: 0.85; color: var(--accent); font-variant-numeric: tabular-nums; }
+    .count .of { font-size: 14px; color: var(--muted); }
+    .card.low .count .num { color: var(--gold); }
+    .card.cooldown .count .num { color: var(--red); }
+
+    .pips { display: grid; grid-template-columns: repeat(var(--n), 1fr); gap: 4px; }
+    .pip { height: 10px; border-radius: 3px; background: var(--surface2); }
+    .pip.on { background: var(--accent); }
+    .card.low .pip.on { background: var(--gold); }
+    .pip.debt { background: var(--red); }
+
+    .status { font-size: 14px; font-weight: 600; }
+    .status small { display: block; font-weight: 400; color: var(--muted); margin-top: 3px; font-size: 13px; }
+    .card.cooldown .status { color: var(--red); }
+    .status .big { font-family: 'Bebas Neue', sans-serif; font-size: 30px; letter-spacing: 0.05em; font-weight: 400; }
+
+    .games { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+    .games-title { font-size: 10px; font-weight: 600; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); }
+    .game {
+      display: grid; grid-template-columns: 34px 32px 1fr auto; align-items: center; gap: 10px;
+      background: var(--surface2); border-radius: 10px; padding: 7px 10px 7px 7px;
+      font-size: 12px;
+    }
+    .game.old { opacity: 0.45; }
+    .place {
+      width: 34px; height: 34px; border-radius: 8px;
+      display: grid; place-items: center;
+      font-family: 'Bebas Neue', sans-serif; font-size: 22px;
+      background: rgba(255,255,255,0.06); color: var(--muted);
+    }
+    .place.p1 { background: rgba(245,197,66,0.16); color: var(--gold); }
+    .place.p2 { background: rgba(201,209,220,0.14); color: var(--silver); }
+    .place.p3 { background: rgba(208,138,78,0.16); color: var(--bronze); }
+    .place.p6 { background: rgba(255,77,94,0.14); color: var(--red); }
+    .champ { width: 32px; height: 32px; border-radius: 50%; background: var(--surface); object-fit: cover; }
+    .meta { min-width: 0; }
+    .meta .when { color: var(--text); }
+    .meta .mates { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .meta .mates b { color: var(--accent); font-weight: 500; }
+    .delta { font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+    .delta.neg { color: var(--red); }
+    .delta.zero { color: var(--muted); }
+    .delta small { display: block; font-weight: 400; color: var(--red); font-size: 10px; }
+    .empty { font-size: 13px; color: var(--muted); padding: 8px 0; }
+
+    .rules {
+      margin-top: 36px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+      padding: 22px;
+    }
+    .rules h2 { font-family: 'Bebas Neue', sans-serif; font-size: 28px; letter-spacing: 0.04em; margin-bottom: 12px; }
+    .rules p { font-size: 14px; color: var(--muted); line-height: 1.6; max-width: 70ch; }
+    .rules p b { color: var(--text); font-weight: 600; }
+    .table { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
+    .table div { background: var(--surface2); border-radius: 10px; padding: 8px 12px; display: flex; align-items: center; gap: 10px; font-size: 14px; }
+    .table .place { width: 28px; height: 28px; font-size: 18px; }
+
+    .loading { text-align: center; color: var(--muted); padding: 60px 0; }
+
+    footer { text-align: center; padding: 40px 0; font-size: 12px; color: rgba(255,255,255,0.15); letter-spacing: 0.08em; }
+
+    @media (max-width: 480px) {
+      .wrap { padding: 0 16px 48px; }
+      .card { padding: 18px; }
+      .count .num { font-size: 72px; }
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="index.html">← AI slop</a>
+
+  <header>
+    <h1>Arena <span>Tokens</span></h1>
+    <p class="tagline">Wer tiltet, muss warten.</p>
+  </header>
+
+  <div class="bar" id="bar"></div>
+  <main class="players" id="players"><p class="loading">Lade Spiele…</p></main>
+  <section class="rules" id="rules"></section>
+
+  <footer>© AI slop</footer>
+</div>
+
+<script>
+const REPO_DATA = 'https://raw.githubusercontent.com/Aron-dev123/spiele/arena-data/games.json';
+const LOCAL = ['localhost', '127.0.0.1'].includes(location.hostname);
+const DATA_URL = LOCAL ? 'arena/games.json' : REPO_DATA;
+const REFRESH_MS = 2 * 60 * 1000;
+
+let cfg = null, data = null, champs = {}, champVersion = null;
+
+// ---------------------------------------------------------------- Token-Rechnung
+// Alles wird bei jedem Rendern aus dem Spiele-Log neu nachgespielt. Dadurch landen
+// Spiele, die eine Seite erst spaeter meldet, trotzdem an der richtigen Stelle.
+
+function period() { return cfg.tokens.regenEveryHours * 3600e3; }
+function startMs() { return Date.parse(cfg.tokens.startAt); }
+
+function nextTick(now) {
+  const s = startMs(), p = period();
+  if (now < s) return s;
+  return s + (Math.floor((now - s) / p) + 1) * p;
+}
+
+function replay(player, now) {
+  const t = cfg.tokens, s = startMs(), p = period();
+  const games = data.games
+    .filter(g => g.player === player)
+    .map(g => ({ ...g, end: Date.parse(g.start) + (g.duration || 0) * 1000 }))
+    .sort((a, b) => a.end - b.end);
+
+  let tokens = t.startTokens, tick = s + p;
+  const regen = until => {
+    while (tick <= until) { tokens = Math.min(t.maxTokens, tokens + t.regenAmount); tick += p; }
+  };
+  for (const g of games) {
+    if (g.end < s) { g.counted = false; continue; }
+    regen(g.end);
+    g.counted = true;
+    g.ignoredCooldown = tokens <= 0;
+    g.delta = t.placementDelta[g.placement] ?? 0;
+    tokens += g.delta;
+    g.after = tokens;
+  }
+  regen(now);
+  return { tokens, games: games.reverse() };
+}
+
+function readyAt(tokens, now) {
+  if (tokens > 0) return null;
+  const ticks = Math.ceil((1 - tokens) / cfg.tokens.regenAmount);
+  return nextTick(now) + (ticks - 1) * period();
+}
+
+function mood(tokens) {
+  const max = cfg.tokens.maxTokens;
+  if (tokens <= 0) return ['COOLDOWN', 'Tokens leer. Erstmal was anderes machen.'];
+  if (tokens <= 2) return ['Kurz vorm Tilt', 'Noch ein 6. Platz und es ist vorbei.'];
+  if (tokens <= max * 0.5) return ['Angeschlagen', 'Die Laune hat schon bessere Tage gesehen.'];
+  if (tokens < max) return ['Bock', 'Läuft. Noch.'];
+  return ['Voll motiviert', 'Alle Tokens da, ab in die Arena.'];
+}
+
+// ---------------------------------------------------------------- Anzeige
+
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function dur(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sec = s % 60;
+  return h ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : `${m}:${String(sec).padStart(2, '0')}`;
+}
+
+function ago(ms) {
+  const m = Math.round(ms / 60000);
+  if (m < 1) return 'gerade eben';
+  if (m < 60) return `vor ${m} min`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `vor ${h} h`;
+  const d = Math.round(h / 24);
+  return d === 1 ? 'gestern' : `vor ${d} Tagen`;
+}
+
+function champImg(id) {
+  const c = champs[id];
+  if (!c || !champVersion) return '<span class="champ"></span>';
+  return `<img class="champ" src="https://ddragon.leagueoflegends.com/cdn/${champVersion}/img/champion/${c.id}.png" alt="${esc(c.name)}" title="${esc(c.name)}" loading="lazy">`;
+}
+
+function renderPlayers() {
+  const now = Date.now();
+  const friends = new Set(cfg.players.map(p => p.name.toLowerCase()));
+  const max = cfg.tokens.maxTokens;
+
+  document.getElementById('players').innerHTML = cfg.players.map(p => {
+    const { tokens, games } = replay(p.name, now);
+    const [label, sub] = mood(tokens);
+    const cls = tokens <= 0 ? 'cooldown' : tokens <= 2 ? 'low' : '';
+    const ready = readyAt(tokens, now);
+    const pips = Array.from({ length: max }, (_, i) =>
+      `<span class="pip ${i < tokens ? 'on' : ''} ${tokens < 0 && i < -tokens ? 'debt' : ''}"></span>`).join('');
+
+    const list = games.slice(0, 6).map(g => {
+      const mates = (g.teammates || []).map(n => friends.has(n.toLowerCase()) ? `<b>${esc(n)}</b>` : esc(n)).join(', ');
+      const d = !g.counted ? '<span class="delta zero">–</span>'
+        : `<span class="delta ${g.delta < 0 ? 'neg' : 'zero'}">${g.delta > 0 ? '+' : ''}${g.delta}${g.ignoredCooldown ? '<small>trotz Cooldown</small>' : ''}</span>`;
+      return `<li class="game ${g.counted ? '' : 'old'}" title="${g.counted ? '' : 'vor Tracking-Start'}">
+        <span class="place p${g.placement}">${g.placement ?? '?'}</span>
+        ${champImg(g.championId)}
+        <span class="meta"><div class="when">${ago(now - g.end)}</div><div class="mates">${mates ? 'mit ' + mates : ''}</div></span>
+        ${d}
+      </li>`;
+    }).join('');
+
+    return `<article class="card ${cls}">
+      <div class="who"><span class="name">${esc(p.name)}</span><span class="tag">${esc(p.riotId)}</span></div>
+      <div class="count"><span class="num">${tokens}</span><span class="of">/ ${max} Tokens</span></div>
+      <div class="pips" style="--n:${max}">${pips}</div>
+      <div class="status">${tokens <= 0 ? `<span class="big">${label}</span>` : label}
+        <small>${ready ? `Wieder spielbereit in <b data-until="${ready}">${dur(ready - now)}</b>` : sub}</small>
+      </div>
+      <div>
+        <p class="games-title">Letzte Arena-Spiele</p>
+        ${list ? `<ul class="games">${list}</ul>` : '<p class="empty">Noch keine Spiele gefunden.</p>'}
+      </div>
+    </article>`;
+  }).join('');
+}
+
+function renderBar() {
+  const now = Date.now();
+  const src = Object.entries(data.sources || {}).map(([k, v]) => {
+    const n = { opgg: 'op.gg', riot: 'Riot API' }[k] || k;
+    return v.error
+      ? `<span class="err" title="${esc(v.error)}">${n}: Fehler</span>`
+      : `<span>${n} geprüft <b>${ago(now - Date.parse(v.checkedAt))}</b></span>`;
+  }).join('');
+  const nt = nextTick(now);
+  document.getElementById('bar').innerHTML =
+    `<span>Nächste Aufladung (+${cfg.tokens.regenAmount}) in <b data-until="${nt}">${dur(nt - now)}</b></span>${src}`;
+}
+
+function renderRules() {
+  const t = cfg.tokens;
+  const cells = Object.entries(t.placementDelta).map(([pl, d]) =>
+    `<div><span class="place p${pl}">${pl}</span>${d > 0 ? '+' : ''}${d === 0 ? '±0' : d}</div>`).join('');
+  document.getElementById('rules').innerHTML = `
+    <h2>Regeln</h2>
+    <p>Jeder startet mit <b>${t.startTokens} Tokens</b>, mehr als <b>${t.maxTokens}</b> gehen nicht.
+      Alle <b>${t.regenEveryHours} Stunden</b> laden sich <b>${t.regenAmount} Tokens</b> auf.
+      Jedes Arena-Spiel kostet je nach Platzierung:</p>
+    <div class="table">${cells}</div>
+    <p>Bei <b>0 Tokens</b> ist man auf <b>Cooldown</b>. Wer trotzdem spielt, rutscht ins Minus und muss entsprechend länger warten.
+      Die Spiele kommen von op.gg und werden etwa alle 20 Minuten abgeholt, die Seiten hinken dem echten Spiel manchmal etwas hinterher.</p>`;
+}
+
+function tickClocks() {
+  const now = Date.now();
+  let expired = false;
+  document.querySelectorAll('[data-until]').forEach(el => {
+    const left = +el.dataset.until - now;
+    if (left <= 0) expired = true;
+    el.textContent = dur(left);
+  });
+  if (expired) render();
+}
+
+function render() {
+  if (!cfg || !data) return;
+  renderBar();
+  renderPlayers();
+}
+
+async function loadData() {
+  try {
+    const r = await fetch(`${DATA_URL}?t=${Date.now()}`, { cache: 'no-store' });
+    if (!r.ok) throw new Error(r.status);
+    data = await r.json();
+  } catch (e) {
+    if (!data) data = { games: [], sources: {} };
+    console.warn('Spiele-Log nicht geladen', e);
+  }
+  render();
+}
+
+async function loadChamps() {
+  try {
+    champVersion = (await (await fetch('https://ddragon.leagueoflegends.com/api/versions.json')).json())[0];
+    const list = (await (await fetch(`https://ddragon.leagueoflegends.com/cdn/${champVersion}/data/de_DE/champion.json`)).json()).data;
+    for (const c of Object.values(list)) champs[c.key] = { id: c.id, name: c.name };
+    render();
+  } catch (e) { console.warn('Champion-Daten nicht geladen', e); }
+}
+
+(async () => {
+  cfg = await (await fetch('arena/config.json', { cache: 'no-store' })).json();
+  renderRules();
+  await loadData();
+  loadChamps();
+  setInterval(tickClocks, 1000);
+  setInterval(loadData, REFRESH_MS);
+})();
+</script>
+</body>
+</html>

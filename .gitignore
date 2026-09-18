@@ -2,3 +2,6 @@
 # Die Dateien enthalten echte Namen und Geldstaende der Mitspieler - dieses Repo ist
 # oeffentlich (GitHub Pages), deshalb duerfen sie NICHT mit hochgeladen werden.
 backups/
+
+# Lokale Testkopie des Arena-Spiele-Logs (das echte liegt auf dem Branch arena-data)
+arena/games.json

@@ -1,0 +1,17 @@
+{
+  "region": "euw",
+  "players": [
+    { "name": "Noobilici0us", "riotId": "Noobilici0us#EUW" },
+    { "name": "Hanfen", "riotId": "Hanfen#EUW" },
+    { "name": "NoWorkNoCry", "riotId": "NoWorkNoCry#EUW14" }
+  ],
+  "arenaQueues": [1700, 1710, 1750],
+  "tokens": {
+    "startAt": "2026-09-18T00:00:00+02:00",
+    "startTokens": 10,
+    "maxTokens": 10,
+    "regenEveryHours": 3,
+    "regenAmount": 2,
+    "placementDelta": { "1": 0, "2": -1, "3": -1, "4": -2, "5": -2, "6": -3 }
+  }
+}

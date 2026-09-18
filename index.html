@@ -204,6 +204,17 @@
       background: linear-gradient(to top, rgba(46,196,182,0.25), transparent);
     }
 
+    .card-arena .thumb {
+      background: linear-gradient(135deg, #220e12 0%, #2a1016 100%);
+    }
+    .card-arena .thumb::after {
+      content: '';
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      height: 80px;
+      background: linear-gradient(to top, rgba(255,77,94,0.22), transparent);
+    }
+
     .card-body { padding: 20px 22px 22px; }
 
     .card-number {
@@ -227,6 +238,7 @@
     .card-20ab  .card-title { color: var(--accent); }
     .card-busfahrer .card-title { color: #d4af37; }
     .card-rad .card-title { color: #2ec4b6; }
+    .card-arena .card-title { color: #ff4d5e; }
 
     .card-cta {
       display: inline-flex;
@@ -330,6 +342,22 @@
         <h2 class="card-title">Glücksrad</h2>
         <span class="card-cta">
           Jetzt spielen
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+      </div>
+    </a>
+
+    <a class="game-card card-arena" href="arena.html">
+      <div class="thumb">
+        <div class="thumb-icon" style="font-size: 90px;">⏳</div>
+      </div>
+      <div class="card-body">
+        <p class="card-number">Tool 01</p>
+        <h2 class="card-title">Arena Tokens</h2>
+        <span class="card-cta">
+          Tokens checken
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
             <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
